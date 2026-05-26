@@ -32,6 +32,7 @@ export const Button = ({
 
   return (
     <button
+      {...props}
       className={twMerge(
         'inline-flex items-center justify-center rounded-xl font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]',
         variants[variant],
@@ -39,7 +40,6 @@ export const Button = ({
         className
       )}
       disabled={isLoading || props.disabled}
-      {...props}
     >
       {isLoading ? (
         <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" />

@@ -1,25 +1,26 @@
-import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
-import { Button } from '../components/ui/Button';
-import { Card } from '../components/ui/Card';
-import { Activity, Mail, Lock, Building, User, ArrowRight } from 'lucide-react';
+import React, { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { supabase } from "../lib/supabase";
+import { Button } from "../components/ui/Button";
+import { Card } from "../components/ui/Card";
+import { Activity, ArrowRight, Building, Lock, Mail, User } from "lucide-react";
 
 export const Register = () => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [fullName, setFullName] = useState('');
-  const [clinicName, setClinicName] = useState('');
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [clinicName, setClinicName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const navigate = useNavigate();
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setInfo(null);
 
-    // 1. Sign Up User
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,
@@ -27,7 +28,7 @@ export const Register = () => {
         data: {
           full_name: fullName,
         }
-      }
+      },
     });
 
     if (authError) {
@@ -36,14 +37,21 @@ export const Register = () => {
       return;
     }
 
+    if (!authData.session) {
+      setInfo(
+        "Conta criada. Confirme seu email e depois faça login para finalizar o vínculo com a clínica.",
+      );
+      setLoading(false);
+      return;
+    }
+
     if (authData.user) {
-      // 2. Create Clinic
       const { data: clinicData, error: clinicError } = await supabase
-        .from('clinics')
+        .from("clinics")
         .insert({
           name: clinicName,
-          slug: clinicName.toLowerCase().replace(/\s+/g, '-'),
-          owner_id: authData.user.id
+          slug: clinicName.toLowerCase().replace(/\s+/g, "-"),
+          owner_id: authData.user.id,
         })
         .select()
         .single();
@@ -54,14 +62,13 @@ export const Register = () => {
         return;
       }
 
-      // 3. Create Profile
       const { error: profileError } = await supabase
-        .from('profiles')
+        .from("profiles")
         .insert({
           id: authData.user.id,
           clinic_id: clinicData.id,
           full_name: fullName,
-          role: 'admin'
+          role: "admin",
         });
 
       if (profileError) {
@@ -90,6 +97,12 @@ export const Register = () => {
             {error && (
               <div className="p-3 bg-rose-50 dark:bg-rose-900/20 border border-rose-100 dark:border-rose-800 rounded-xl text-rose-600 text-sm text-center">
                 {error}
+              </div>
+            )}
+
+            {info && (
+              <div className="p-3 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800 rounded-xl text-emerald-700 dark:text-emerald-300 text-sm text-center">
+                {info}
               </div>
             )}
 

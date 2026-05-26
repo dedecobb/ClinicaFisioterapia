@@ -1,0 +1,842 @@
+/* ── Variáveis ──────────────────────────────────────────────────────────────── */
+:root {
+  --teal-50: #e1f5ee;
+  --teal-100: #9fe1cb;
+  --teal-500: #1d9e75;
+  --teal-700: #0f6e56;
+  --teal-900: #04342c;
+
+  --blue-50: #e6f1fb;
+  --blue-500: #378add;
+  --blue-700: #185fa5;
+
+  --amber-50: #faeeda;
+  --amber-500: #ba7517;
+  --amber-600: #854f0b;
+
+  --red-50: #fcebeb;
+  --red-500: #e24b4a;
+  --red-700: #a32d2d;
+
+  --green-50: #eaf3de;
+  --green-600: #3b6d11;
+
+  --gray-50: #f7f7f5;
+  --gray-100: #f1efe8;
+  --gray-200: #d3d1c7;
+  --gray-400: #888780;
+  --gray-600: #5f5e5a;
+  --gray-800: #2c2c2a;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.12), 0 4px 8px rgba(0, 0, 0, 0.06);
+}
+
+/* ── Reset / Base ──────────────────────────────────────────────────────────── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+.agendamento-page {
+  font-family: "DM Sans", "Segoe UI", system-ui, sans-serif;
+  background: var(--gray-50);
+  min-height: 100vh;
+  padding: 2rem;
+  color: var(--gray-800);
+}
+
+/* ── Page Header ─────────────────────────────────────────────────────────────── */
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.75rem;
+}
+
+.page-title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--gray-800);
+  letter-spacing: -0.02em;
+}
+
+.page-subtitle {
+  font-size: 0.875rem;
+  color: var(--gray-400);
+  margin-top: 2px;
+}
+
+/* ── Resumo ──────────────────────────────────────────────────────────────────── */
+.resumo-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  margin-bottom: 1.75rem;
+}
+
+.resumo-card {
+  background: #fff;
+  border-radius: var(--radius-md);
+  padding: 1.1rem 1.25rem;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-left: 4px solid var(--gray-200);
+}
+
+.resumo-card.resumo-confirmado {
+  border-left-color: var(--teal-500);
+}
+.resumo-card.resumo-pendente {
+  border-left-color: var(--amber-500);
+}
+.resumo-card.resumo-cancelado {
+  border-left-color: var(--red-500);
+}
+
+.resumo-label {
+  font-size: 0.75rem;
+  color: var(--gray-400);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.resumo-valor {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--gray-800);
+  line-height: 1;
+}
+
+/* ── Content Grid ────────────────────────────────────────────────────────────── */
+.content-grid {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+/* ── Card Base ───────────────────────────────────────────────────────────────── */
+.card {
+  background: #fff;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.error-card {
+  padding: 0.875rem 1rem;
+  margin-bottom: 1rem;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 0.875rem;
+}
+
+/* ── Calendário ──────────────────────────────────────────────────────────────── */
+.calendario-card {
+  padding: 1.25rem;
+  position: sticky;
+  top: 1.5rem;
+}
+
+.cal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.cal-titulo {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--gray-800);
+}
+
+.cal-nav-btn {
+  background: none;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-sm);
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+  font-size: 1.1rem;
+  color: var(--gray-600);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+.cal-nav-btn:hover {
+  background: var(--gray-100);
+  border-color: var(--gray-400);
+}
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+  margin-bottom: 1rem;
+}
+
+.cal-dia-semana {
+  text-align: center;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--gray-400);
+  text-transform: uppercase;
+  padding: 6px 0;
+  letter-spacing: 0.04em;
+}
+
+.cal-dia {
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  padding: 4px 2px 3px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-height: 42px;
+  transition: background 0.12s;
+}
+.cal-dia:hover {
+  background: var(--gray-100);
+}
+
+.cal-dia-hoje .cal-dia-num {
+  background: var(--teal-700);
+  color: #fff;
+  border-radius: 50%;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cal-dia-selecionado {
+  background: var(--teal-50) !important;
+  outline: 2px solid var(--teal-500);
+  outline-offset: -2px;
+}
+
+.cal-dia-num {
+  font-size: 0.8rem;
+  color: var(--gray-800);
+  font-weight: 500;
+  min-width: 26px;
+  text-align: center;
+}
+
+.cal-dots {
+  display: flex;
+  gap: 3px;
+}
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.dot-confirmado {
+  background: var(--teal-500);
+}
+.dot-pendente {
+  background: var(--amber-500);
+}
+
+/* ── Legenda ─────────────────────────────────────────────────────────────────── */
+.legenda {
+  border-top: 1px solid var(--gray-100);
+  padding-top: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.legenda-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.legenda-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.legenda-nome {
+  font-size: 0.75rem;
+  color: var(--gray-600);
+}
+
+/* ── Lista do Dia ────────────────────────────────────────────────────────────── */
+.lista-dia-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* ── Filtros ─────────────────────────────────────────────────────────────────── */
+.filtros-card {
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.filtro-busca {
+  width: 100%;
+  padding: 0.6rem 0.9rem;
+  border: 1.5px solid var(--gray-200);
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  color: var(--gray-800);
+  outline: none;
+  transition: border-color 0.15s;
+  background: var(--gray-50);
+}
+.filtro-busca:focus {
+  border-color: var(--teal-500);
+  background: #fff;
+}
+.filtro-busca::placeholder {
+  color: var(--gray-400);
+}
+
+.filtros-selects {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.filtro-select {
+  flex: 1;
+  padding: 0.55rem 0.9rem;
+  border: 1.5px solid var(--gray-200);
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  color: var(--gray-800);
+  background: var(--gray-50);
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.filtro-select:focus {
+  border-color: var(--teal-500);
+  background: #fff;
+}
+
+/* ── Dia Header ──────────────────────────────────────────────────────────────── */
+.dia-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.25rem 0.1rem;
+}
+
+.dia-titulo {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--gray-800);
+  text-transform: capitalize;
+}
+
+.dia-contador {
+  font-size: 0.8rem;
+  color: var(--gray-400);
+  background: var(--gray-100);
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-weight: 500;
+}
+
+/* ── Empty State ─────────────────────────────────────────────────────────────── */
+.empty-state {
+  background: #fff;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 3rem 2rem;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.empty-icon {
+  font-size: 2.5rem;
+}
+.empty-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--gray-800);
+}
+.empty-sub {
+  font-size: 0.875rem;
+  color: var(--gray-400);
+  margin-bottom: 0.5rem;
+}
+
+/* ── Agendamento Card ────────────────────────────────────────────────────────── */
+.agendamentos-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.ag-card {
+  background: #fff;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  overflow: hidden;
+  transition: box-shadow 0.2s;
+}
+.ag-card:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.ag-card-cancelado {
+  opacity: 0.7;
+}
+
+.ag-barra {
+  width: 5px;
+  flex-shrink: 0;
+}
+
+.ag-content {
+  flex: 1;
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.ag-row-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+
+.ag-hora {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--gray-600);
+  font-variant-numeric: tabular-nums;
+}
+.ag-paciente {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--gray-800);
+}
+
+.ag-row-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.ag-tipo {
+  font-size: 0.8rem;
+  color: var(--gray-600);
+}
+.ag-sessao {
+  font-size: 0.75rem;
+  background: var(--gray-100);
+  color: var(--gray-600);
+  padding: 1px 8px;
+  border-radius: 12px;
+  font-weight: 600;
+}
+.ag-fisio {
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+.ag-convenio {
+  font-size: 0.75rem;
+  color: var(--blue-700);
+  background: var(--blue-50);
+  padding: 2px 8px;
+  border-radius: 12px;
+  width: fit-content;
+}
+.ag-obs {
+  font-size: 0.78rem;
+  color: var(--gray-400);
+  font-style: italic;
+  border-top: 1px solid var(--gray-100);
+  padding-top: 5px;
+  margin-top: 2px;
+}
+
+/* ── Badges ──────────────────────────────────────────────────────────────────── */
+.badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.badge-confirmado {
+  background: var(--teal-50);
+  color: var(--teal-700);
+}
+.badge-pendente {
+  background: var(--amber-50);
+  color: var(--amber-600);
+}
+.badge-cancelado {
+  background: var(--red-50);
+  color: var(--red-700);
+}
+.badge-concluido {
+  background: var(--green-50);
+  color: var(--green-600);
+}
+
+/* ── Ações do Card ───────────────────────────────────────────────────────────── */
+.ag-acoes {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+  border-top: 1px solid var(--gray-100);
+  padding-top: 10px;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.ag-status-group {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.btn-status {
+  border: 1.5px solid transparent;
+  background: var(--gray-100);
+  color: var(--gray-600);
+  border-radius: 20px;
+  padding: 3px 10px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-status:hover {
+  opacity: 0.8;
+}
+.btn-status-confirmado.ativo {
+  background: var(--teal-50);
+  color: var(--teal-700);
+  border-color: var(--teal-100);
+}
+.btn-status-pendente.ativo {
+  background: var(--amber-50);
+  color: var(--amber-600);
+  border-color: #fac775;
+}
+.btn-status-cancelado.ativo {
+  background: var(--red-50);
+  color: var(--red-700);
+  border-color: #f7c1c1;
+}
+.btn-status-concluido.ativo {
+  background: var(--green-50);
+  color: var(--green-600);
+  border-color: #c0dd97;
+}
+
+.ag-btn-group {
+  display: flex;
+  gap: 4px;
+}
+
+.btn-icone {
+  background: none;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-sm);
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+.btn-icone:hover {
+  background: var(--gray-100);
+}
+.btn-icone.btn-excluir:hover {
+  background: var(--red-50);
+  border-color: #f7c1c1;
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0.55rem 1.1rem;
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: all 0.15s;
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.btn-primary {
+  background: var(--teal-700);
+  color: #fff;
+}
+.btn-primary:hover {
+  background: var(--teal-900);
+}
+
+.btn-secondary {
+  background: var(--gray-100);
+  color: var(--gray-800);
+}
+.btn-secondary:hover {
+  background: var(--gray-200);
+}
+
+.btn-lg {
+  padding: 0.7rem 1.4rem;
+  font-size: 0.95rem;
+}
+.btn-icon {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+/* ── Modal ───────────────────────────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+  backdrop-filter: blur(2px);
+}
+
+.modal-container {
+  background: #fff;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  width: 100%;
+  max-width: 560px;
+  max-height: 90vh;
+  overflow-y: auto;
+  animation: modal-in 0.2s ease;
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 1.5rem 1.5rem 1rem;
+  border-bottom: 1px solid var(--gray-100);
+}
+
+.modal-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--gray-800);
+}
+.modal-subtitle {
+  font-size: 0.8rem;
+  color: var(--gray-400);
+  margin-top: 3px;
+}
+
+.btn-close {
+  background: none;
+  border: none;
+  font-size: 1.4rem;
+  cursor: pointer;
+  color: var(--gray-400);
+  line-height: 1;
+  padding: 0 4px;
+  transition: color 0.15s;
+}
+.btn-close:hover {
+  color: var(--gray-800);
+}
+
+.modal-body {
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.modal-footer {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--gray-100);
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+/* ── Form Elements ───────────────────────────────────────────────────────────── */
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.form-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--gray-600);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.form-input,
+.form-select,
+.form-textarea {
+  padding: 0.6rem 0.9rem;
+  border: 1.5px solid var(--gray-200);
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  color: var(--gray-800);
+  background: var(--gray-50);
+  outline: none;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+  font-family: inherit;
+}
+.form-input:focus,
+.form-select:focus,
+.form-textarea:focus {
+  border-color: var(--teal-500);
+  background: #fff;
+}
+
+.form-textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.75rem;
+}
+
+/* ── Status Radio Group ──────────────────────────────────────────────────────── */
+.status-radio-group {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.status-radio {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: 20px;
+  border: 1.5px solid var(--gray-200);
+  background: var(--gray-50);
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 600;
+  transition: all 0.15s;
+  color: var(--gray-600);
+}
+.status-radio input {
+  display: none;
+}
+.status-radio:hover {
+  border-color: var(--gray-400);
+}
+
+.status-radio.active.status-confirmado {
+  background: var(--teal-50);
+  color: var(--teal-700);
+  border-color: var(--teal-100);
+}
+.status-radio.active.status-pendente {
+  background: var(--amber-50);
+  color: var(--amber-600);
+  border-color: #fac775;
+}
+.status-radio.active.status-cancelado {
+  background: var(--red-50);
+  color: var(--red-700);
+  border-color: #f7c1c1;
+}
+.status-radio.active.status-concluido {
+  background: var(--green-50);
+  color: var(--green-600);
+  border-color: #c0dd97;
+}
+
+/* ── Responsive ──────────────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .content-grid {
+    grid-template-columns: 1fr;
+  }
+  .resumo-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .calendario-card {
+    position: static;
+  }
+}
+
+@media (max-width: 560px) {
+  .agendamento-page {
+    padding: 1rem;
+  }
+  .resumo-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .form-row {
+    grid-template-columns: 1fr;
+  }
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+}
