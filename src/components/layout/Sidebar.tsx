@@ -32,7 +32,7 @@ export const Sidebar = () => {
           <Activity size={24} />
         </div>
         <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-slate-900 to-slate-600 dark:from-white dark:to-slate-400">
-          FisioFlow
+          Biofisio
         </span>
       </div>
 

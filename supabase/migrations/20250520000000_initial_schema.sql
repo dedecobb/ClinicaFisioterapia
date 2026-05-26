@@ -2,7 +2,7 @@
   # FisioFlow Initial Schema
   
   ## Query Description:
-  This migration sets up the core tables for the FisioFlow SaaS, including multi-tenant support for clinics, patient records, clinical evolutions, and appointment scheduling.
+  This migration sets up the core tables for the Biofisio SaaS, including multi-tenant support for clinics, patient records, clinical evolutions, and appointment scheduling.
   
   ## Metadata:
   - Schema-Category: Structural
