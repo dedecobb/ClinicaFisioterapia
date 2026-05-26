@@ -1,207 +1,990 @@
-import React, { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { Card } from '../components/ui/Card';
-import { Button } from '../components/ui/Button';
-import { Badge } from '../components/ui/Badge';
-import { 
-  ArrowLeft, 
-  Mic, 
-  FileText, 
-  Clock, 
-  Plus, 
-  Paperclip, 
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { Card } from "../components/ui/Card";
+import { Button } from "../components/ui/Button";
+import { Badge } from "../components/ui/Badge";
+import {
+  ArrowLeft,
+  Mic,
+  MicOff,
+  FileText,
+  Plus,
+  Paperclip,
   History,
-  Stethoscope,
   Activity,
-  ChevronRight,
   Save,
-  Trash2
-} from 'lucide-react';
-import { clsx } from 'clsx';
-import { motion, AnimatePresence } from 'framer-motion';
+  Trash2,
+  Loader2,
+  AlertCircle,
+  User,
+  Edit3,
+  X,
+  Check,
+  ChevronDown,
+  Phone,
+  Mail,
+  Calendar,
+  Shield,
+  Download,
+  ExternalLink,
+  File,
+  Image,
+  FileArchive,
+} from "lucide-react";
+import { clsx } from "clsx";
+import { motion, AnimatePresence } from "framer-motion";
+import { useAuth } from "../context/AuthContext";
+import { UploadExameModal } from "../components/modals/UploadExameModal";
+import { ProtocolosModal } from "../components/modals/ProtocolosModal";
+import {
+  Documento,
+  Evolution,
+  Patient,
+  Profile,
+  addAttachmentsToEvolution,
+  calcularIdade,
+  createEvolution,
+  deleteEvolution,
+  extrairDocumentos,
+  formatarData,
+  formatarDataNascimento,
+  formatarHora,
+  getEvolutionsByPatient,
+  getPatientById,
+  getProfiles,
+  updateEvolution,
+} from "../services/evolutionService";
 
-const mockTimeline = [
-  { id: 1, date: '20 Mai, 2025', type: 'Evolução', professional: 'Dra. Beatriz', content: 'Paciente apresenta melhora na amplitude de movimento do ombro direito. Realizado exercícios de fortalecimento de manguito rotador.', category: 'Fisioterapia' },
-  { id: 2, date: '15 Mai, 2025', type: 'Avaliação', professional: 'Dra. Beatriz', content: 'Avaliação inicial: Dor aguda em escala 8/10. Limitação funcional severa.', category: 'Fisioterapia' },
-  { id: 3, date: '10 Mai, 2025', type: 'Anexo', professional: 'Secretaria', content: 'Upload de Ressonância Magnética do Ombro.', category: 'Exames' },
-];
+// ── Tipos de aba ──────────────────────────────────────────────────────────────
+type Tab = "timeline" | "details" | "files";
 
+// ── Ícone por extensão de arquivo ─────────────────────────────────────────────
+function IconeArquivo({ url, size = 18 }: { url: string; size?: number }) {
+  const ext = url.split(".").pop()?.toLowerCase() ?? "";
+  if (["jpg", "jpeg", "png", "gif", "webp"].includes(ext))
+    return <Image size={size} />;
+  if (["zip", "rar"].includes(ext)) return <FileArchive size={size} />;
+  return <File size={size} />;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 export const ClinicalHub = () => {
-  const { id } = useParams();
+  const { id: patientId } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [isRecording, setIsRecording] = useState(false);
-  const [evolutionText, setEvolutionText] = useState('');
-  const [activeTab, setActiveTab] = useState<'timeline' | 'details' | 'files'>('timeline');
+  const { session } = useAuth();
 
-  const simulateVoiceToText = () => {
-    setIsRecording(true);
-    setTimeout(() => {
-      setEvolutionText(prev => prev + "Paciente relata diminuição da dor após a última sessão. Realizamos mobilização articular grau II e exercícios de estabilização escapular. ");
+  // ── Dados ────────────────────────────────────────────────────────────────────
+  const [patient, setPatient] = useState<Patient | null>(null);
+  const [evolutions, setEvolutions] = useState<Evolution[]>([]);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const documentos: Documento[] = extrairDocumentos(evolutions);
+
+  // ── UI: nova evolução ────────────────────────────────────────────────────────
+  const [evolutionText, setEvolutionText] = useState("");
+  const [selectedProfile, setSelectedProfile] = useState("");
+  const [isRecording, setIsRecording] = useState(false);
+
+  // ── UI: modais ───────────────────────────────────────────────────────────────
+  const [uploadAberto, setUploadAberto] = useState(false);
+  const [protocolosAberto, setProtocolosAberto] = useState(false);
+
+  // ── UI: abas ─────────────────────────────────────────────────────────────────
+  const [activeTab, setActiveTab] = useState<Tab>("timeline");
+
+  // ── Loading / erros ──────────────────────────────────────────────────────────
+  const [loadingPage, setLoadingPage] = useState(true);
+  const [savingEvol, setSavingEvol] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [pageError, setPageError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // ── Edição inline ────────────────────────────────────────────────────────────
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState("");
+
+  // ── Voz ─────────────────────────────────────────────────────────────────────
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+
+  // ── Carga inicial ────────────────────────────────────────────────────────────
+  const loadData = useCallback(async () => {
+    if (!patientId) return;
+    setLoadingPage(true);
+    setPageError(null);
+    try {
+      const [pat, evols, profs] = await Promise.all([
+        getPatientById(patientId),
+        getEvolutionsByPatient(patientId),
+        getProfiles(),
+      ]);
+      if (!pat) {
+        setPageError("Paciente não encontrado.");
+        return;
+      }
+      setPatient(pat);
+      setEvolutions(evols);
+      setProfiles(profs);
+      if (session?.user?.id) setSelectedProfile(session.user.id);
+    } catch (err: unknown) {
+      setPageError(
+        err instanceof Error ? err.message : "Erro ao carregar dados.",
+      );
+    } finally {
+      setLoadingPage(false);
+    }
+  }, [patientId, session]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // ── Web Speech API ───────────────────────────────────────────────────────────
+  const toggleRecording = () => {
+    const SpeechRec =
+      (
+        window as unknown as {
+          SpeechRecognition?: typeof window.SpeechRecognition;
+        }
+      ).SpeechRecognition ??
+      (
+        window as unknown as {
+          webkitSpeechRecognition?: typeof window.SpeechRecognition;
+        }
+      ).webkitSpeechRecognition;
+
+    if (!SpeechRec) {
+      alert(
+        "Seu navegador não suporta reconhecimento de voz. Use Chrome ou Edge.",
+      );
+      return;
+    }
+    if (isRecording && recognitionRef.current) {
+      recognitionRef.current.stop();
       setIsRecording(false);
-    }, 2000);
+      return;
+    }
+    const r = new SpeechRec();
+    r.lang = "pt-BR";
+    r.continuous = true;
+    r.interimResults = false;
+    r.onresult = (e) => {
+      const transcript = Array.from(e.results)
+        .map((x) => x[0].transcript)
+        .join(" ");
+      setEvolutionText((p) => (p ? `${p} ${transcript}` : transcript));
+    };
+    r.onerror = r.onend = () => setIsRecording(false);
+    recognitionRef.current = r;
+    r.start();
+    setIsRecording(true);
   };
 
-  return (
-    <div className="space-y-6 animate-in fade-in duration-500 pb-20">
-      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <button 
-            onClick={() => navigate('/pacientes')}
-            className="p-2 hover:bg-white dark:hover:bg-slate-900 rounded-xl border border-transparent hover:border-slate-200 dark:hover:border-slate-800 transition-all"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Ricardo Mendes</h1>
-            <p className="text-sm text-slate-500">CPF: 123.456.789-00 • 28 anos</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Badge variant="success">Ativo</Badge>
-          <Badge variant="info">Fisioterapia</Badge>
-        </div>
-      </header>
+  // ── Protocolo inserido ───────────────────────────────────────────────────────
+  const handleInserirProtocolo = (texto: string) => {
+    setEvolutionText((prev) => (prev ? `${prev}\n\n${texto}` : texto));
+  };
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column: New Evolution Form */}
-        <div className="lg:col-span-2 space-y-6">
-          <Card title="Nova Evolução Clínica" subtitle="Registre o progresso da sessão de hoje">
-            <div className="space-y-4">
-              <div className="relative">
-                <textarea 
-                  className="w-full h-48 p-4 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-2xl focus:ring-2 focus:ring-brand-500 outline-none transition-all resize-none text-slate-700 dark:text-slate-300"
-                  placeholder="Descreva o atendimento, condutas e observações..."
-                  value={evolutionText}
-                  onChange={(e) => setEvolutionText(e.target.value)}
-                />
-                <div className="absolute bottom-4 right-4 flex gap-2">
-                  <button 
-                    onClick={simulateVoiceToText}
-                    className={clsx(
-                      "p-3 rounded-full transition-all shadow-lg",
-                      isRecording ? "bg-rose-500 text-white animate-pulse" : "bg-white dark:bg-slate-900 text-brand-600 hover:bg-brand-50"
-                    )}
-                  >
-                    <Mic size={20} />
-                  </button>
-                </div>
-              </div>
+  // ── Salvar evolução ──────────────────────────────────────────────────────────
+  const handleSaveEvolution = async () => {
+    if (!evolutionText.trim() || !patientId) return;
+    setSavingEvol(true);
+    setSaveError(null);
+    try {
+      const nova = await createEvolution({
+        patient_id: patientId,
+        professional_id: selectedProfile || null,
+        content: evolutionText.trim(),
+      });
+      setEvolutions((prev) => [nova, ...prev]);
+      setEvolutionText("");
+    } catch (err: unknown) {
+      setSaveError(err instanceof Error ? err.message : "Erro ao salvar.");
+    } finally {
+      setSavingEvol(false);
+    }
+  };
 
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div className="flex items-center gap-2">
-                  <Button variant="outline" size="sm" className="gap-2">
-                    <Paperclip size={16} /> Anexar Exame
-                  </Button>
-                  <Button variant="outline" size="sm" className="gap-2">
-                    <Activity size={16} /> Protocolos
-                  </Button>
-                </div>
-                <Button className="gap-2 px-8">
-                  <Save size={18} /> Salvar Evolução
-                </Button>
-              </div>
-            </div>
-          </Card>
+  // ── Upload de exames inline (botão "Anexar Exame" no formulário) ─────────────
+  // Estratégia: cria/atualiza a evolução mais recente OU a que está sendo escrita
+  const handleAnexarUrls = async (urls: string[]) => {
+    if (!patientId) return;
+    // Se já existe ao menos uma evolução, adiciona na mais recente
+    if (evolutions.length > 0) {
+      const maisRecente = evolutions[0];
+      try {
+        const updated = await addAttachmentsToEvolution(
+          maisRecente.id,
+          urls,
+          maisRecente.attachments,
+        );
+        setEvolutions((prev) =>
+          prev.map((e) => (e.id === updated.id ? updated : e)),
+        );
+      } catch (err: unknown) {
+        alert(err instanceof Error ? err.message : "Erro ao anexar arquivos.");
+      }
+    } else {
+      // Nenhuma evolução ainda: cria uma com os anexos
+      try {
+        const nova = await createEvolution({
+          patient_id: patientId,
+          professional_id: selectedProfile || null,
+          content: evolutionText.trim() || "Exames anexados.",
+          attachments: urls,
+        });
+        setEvolutions((prev) => [nova, ...prev]);
+        if (evolutionText.trim()) setEvolutionText("");
+      } catch (err: unknown) {
+        alert(
+          err instanceof Error
+            ? err.message
+            : "Erro ao criar evolução com anexos.",
+        );
+      }
+    }
+  };
 
-          <div className="flex gap-4 border-b border-slate-200 dark:border-slate-800">
-            {[
-              { id: 'timeline', label: 'Linha do Tempo', icon: History },
-              { id: 'details', label: 'Ficha Clínica', icon: FileText },
-              { id: 'files', label: 'Documentos', icon: Paperclip },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                className={clsx(
-                  "flex items-center gap-2 px-4 py-3 text-sm font-medium transition-all relative",
-                  activeTab === tab.id ? "text-brand-600" : "text-slate-500 hover:text-slate-700"
-                )}
-              >
-                <tab.icon size={18} />
-                {tab.label}
-                {activeTab === tab.id && (
-                  <motion.div layoutId="tab-indicator" className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-600" />
-                )}
-              </button>
-            ))}
-          </div>
+  // ── Excluir evolução ─────────────────────────────────────────────────────────
+  const handleDeleteEvolution = async (id: string) => {
+    if (
+      !window.confirm(
+        "Deseja excluir esta evolução? Esta ação não pode ser desfeita.",
+      )
+    )
+      return;
+    setDeletingId(id);
+    try {
+      await deleteEvolution(id);
+      setEvolutions((prev) => prev.filter((e) => e.id !== id));
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Erro ao excluir.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
-          <div className="space-y-4">
-            {activeTab === 'timeline' && (
-              <div className="relative pl-8 space-y-8 before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200 dark:before:bg-slate-800">
-                {mockTimeline.map((item) => (
-                  <div key={item.id} className="relative">
-                    <div className="absolute -left-[29px] top-1 w-6 h-6 rounded-full bg-white dark:bg-slate-950 border-4 border-brand-500 z-10" />
-                    <Card className="hover:border-brand-200 transition-all">
-                      <div className="flex items-start justify-between mb-2">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold text-brand-600 uppercase tracking-wider">{item.type}</span>
-                            <span className="text-xs text-slate-400">•</span>
-                            <span className="text-xs text-slate-500">{item.date}</span>
-                          </div>
-                          <h4 className="font-bold text-slate-900 dark:text-white mt-1">{item.category}</h4>
-                        </div>
-                        <Badge variant="neutral">{item.professional}</Badge>
-                      </div>
-                      <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-                        {item.content}
-                      </p>
-                      <div className="mt-4 flex gap-2">
-                        <Button variant="ghost" size="sm" className="text-slate-400">Editar</Button>
-                        <Button variant="ghost" size="sm" className="text-rose-400"><Trash2 size={16} /></Button>
-                      </div>
-                    </Card>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
+  // ── Edição inline ────────────────────────────────────────────────────────────
+  const startEdit = (ev: Evolution) => {
+    setEditingId(ev.id);
+    setEditingText(ev.content);
+  };
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditingText("");
+  };
+  const saveEdit = async (id: string) => {
+    if (!editingText.trim()) return;
+    try {
+      const updated = await updateEvolution(id, editingText.trim());
+      setEvolutions((prev) => prev.map((e) => (e.id === id ? updated : e)));
+      cancelEdit();
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Erro ao atualizar.");
+    }
+  };
 
-        {/* Right Column: Quick Info */}
-        <div className="space-y-6">
-          <Card title="Resumo Clínico">
-            <div className="space-y-4">
-              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50">
-                <p className="text-xs font-bold text-slate-400 uppercase">Queixa Principal</p>
-                <p className="text-sm font-medium text-slate-900 dark:text-white mt-1">Dor lombar crônica irradiada para membro inferior esquerdo.</p>
-              </div>
-              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50">
-                <p className="text-xs font-bold text-slate-400 uppercase">Diagnóstico</p>
-                <p className="text-sm font-medium text-slate-900 dark:text-white mt-1">Hérnia de disco L4-L5.</p>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-800/50">
-                  <p className="text-xs font-bold text-blue-600 uppercase">Sessões</p>
-                  <p className="text-xl font-bold text-slate-900 dark:text-white mt-1">12/20</p>
-                </div>
-                <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-800/50">
-                  <p className="text-xs font-bold text-emerald-600 uppercase">Presença</p>
-                  <p className="text-xl font-bold text-slate-900 dark:text-white mt-1">95%</p>
-                </div>
-              </div>
-            </div>
-          </Card>
+  // ── Ações rápidas ─────────────────────────────────────────────────────────────
+  const handleAgendarConsulta = () => {
+    // Navega para agenda com o paciente pré-selecionado via state
+    navigate("/agenda", {
+      state: { pacienteId: patientId, pacienteNome: patient?.full_name },
+    });
+  };
 
-          <Card title="Próximos Passos">
-            <div className="space-y-3">
-              <div className="flex items-start gap-3 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
-                <div className="p-2 bg-brand-50 dark:bg-brand-900/20 text-brand-600 rounded-lg">
-                  <Stethoscope size={18} />
-                </div>
-                <div>
-                  <p className="text-sm font-bold text-slate-900 dark:text-white">Reavaliação</p>
-                  <p className="text-xs text-slate-500">Agendada para 05 Jun</p>
-                </div>
-              </div>
-              <Button variant="outline" className="w-full gap-2">
-                <Plus size={18} /> Novo Alerta
-              </Button>
-            </div>
-          </Card>
+  // ── Loading / erro ────────────────────────────────────────────────────────────
+  if (loadingPage) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3 text-slate-400">
+          <Loader2 size={32} className="animate-spin text-brand-500" />
+          <span className="text-sm font-medium">Carregando prontuário...</span>
         </div>
       </div>
+    );
+  }
+
+  if (pageError || !patient) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4 text-center max-w-sm">
+          <AlertCircle size={40} className="text-rose-400" />
+          <p className="font-semibold text-slate-900 dark:text-white">
+            {pageError ?? "Paciente não encontrado."}
+          </p>
+          <Button onClick={() => navigate("/pacientes")}>
+            <ArrowLeft size={16} /> Voltar para Pacientes
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const idade = calcularIdade(patient.birth_date);
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  return (
+    <>
+      {/* ── Modais ── */}
+      <UploadExameModal
+        aberto={uploadAberto}
+        patientId={patientId!}
+        onFechar={() => setUploadAberto(false)}
+        onAnexar={handleAnexarUrls}
+      />
+      <ProtocolosModal
+        aberto={protocolosAberto}
+        onFechar={() => setProtocolosAberto(false)}
+        onInserir={handleInserirProtocolo}
+      />
+
+      <div className="space-y-6 animate-in fade-in duration-500 pb-20">
+        {/* ── Cabeçalho ── */}
+        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => navigate("/pacientes")}
+              className="p-2 hover:bg-white dark:hover:bg-slate-900 rounded-xl border border-transparent hover:border-slate-200 dark:hover:border-slate-800 transition-all"
+            >
+              <ArrowLeft size={20} />
+            </button>
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-brand-100 dark:bg-brand-900/30 flex items-center justify-center text-brand-700 dark:text-brand-400 font-bold text-lg">
+                {patient.full_name.charAt(0).toUpperCase()}
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold text-slate-900 dark:text-white leading-tight">
+                  {patient.full_name}
+                </h1>
+                <p className="text-sm text-slate-500 flex items-center gap-2 flex-wrap">
+                  {patient.cpf && <span>CPF: {patient.cpf}</span>}
+                  {idade !== null && (
+                    <>
+                      {patient.cpf && (
+                        <span className="text-slate-300 dark:text-slate-700">
+                          •
+                        </span>
+                      )}
+                      <span>{idade} anos</span>
+                    </>
+                  )}
+                </p>
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Badge variant="success">Ativo</Badge>
+            {patient.status && <Badge variant="info">{patient.status}</Badge>}
+          </div>
+        </header>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* ── Coluna principal ── */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* ── Nova Evolução ── */}
+            <Card
+              title="Nova Evolução Clínica"
+              subtitle="Registre o progresso da sessão de hoje"
+            >
+              <div className="space-y-4">
+                {/* Seletor de profissional */}
+                {profiles.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    <User size={15} className="text-slate-400 flex-shrink-0" />
+                    <div className="relative flex-1">
+                      <select
+                        className="w-full appearance-none bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-700 dark:text-slate-300 focus:ring-2 focus:ring-brand-500 outline-none pr-8"
+                        value={selectedProfile}
+                        onChange={(e) => setSelectedProfile(e.target.value)}
+                      >
+                        <option value="">Profissional responsável</option>
+                        {profiles.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.full_name}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown
+                        size={14}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Textarea + microfone */}
+                <div className="relative">
+                  <textarea
+                    className="w-full h-48 p-4 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-2xl focus:ring-2 focus:ring-brand-500 outline-none transition-all resize-none text-slate-700 dark:text-slate-300 text-sm"
+                    placeholder="Descreva o atendimento, condutas realizadas e observações clínicas..."
+                    value={evolutionText}
+                    onChange={(e) => setEvolutionText(e.target.value)}
+                  />
+                  <div className="absolute bottom-4 right-4">
+                    <button
+                      type="button"
+                      onClick={toggleRecording}
+                      title={
+                        isRecording
+                          ? "Parar gravação"
+                          : "Iniciar ditado por voz"
+                      }
+                      className={clsx(
+                        "p-3 rounded-full transition-all shadow-lg",
+                        isRecording
+                          ? "bg-rose-500 text-white animate-pulse"
+                          : "bg-white dark:bg-slate-900 text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/30",
+                      )}
+                    >
+                      {isRecording ? <MicOff size={18} /> : <Mic size={18} />}
+                    </button>
+                  </div>
+                  {isRecording && (
+                    <div className="absolute top-3 left-4 flex items-center gap-2 text-rose-500 text-xs font-semibold">
+                      <span className="w-2 h-2 bg-rose-500 rounded-full animate-pulse" />
+                      Gravando...
+                    </div>
+                  )}
+                </div>
+
+                {saveError && (
+                  <div className="flex items-center gap-2 p-3 bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800 rounded-xl text-rose-600 dark:text-rose-400 text-sm">
+                    <AlertCircle size={16} className="flex-shrink-0" />{" "}
+                    {saveError}
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex items-center gap-2">
+                    {/* ✅ Abre modal de upload */}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2"
+                      onClick={() => setUploadAberto(true)}
+                    >
+                      <Paperclip size={16} /> Anexar Exame
+                    </Button>
+                    {/* ✅ Abre modal de protocolos */}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2"
+                      onClick={() => setProtocolosAberto(true)}
+                    >
+                      <Activity size={16} /> Protocolos
+                    </Button>
+                  </div>
+                  <Button
+                    className="gap-2 px-8"
+                    onClick={handleSaveEvolution}
+                    disabled={savingEvol || !evolutionText.trim()}
+                  >
+                    {savingEvol ? (
+                      <>
+                        <Loader2 size={16} className="animate-spin" />{" "}
+                        Salvando...
+                      </>
+                    ) : (
+                      <>
+                        <Save size={16} /> Salvar Evolução
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </Card>
+
+            {/* ── Abas ── */}
+            <div className="flex gap-1 border-b border-slate-200 dark:border-slate-800">
+              {(
+                [
+                  { id: "timeline", label: "Linha do Tempo", icon: History },
+                  { id: "details", label: "Ficha Clínica", icon: FileText },
+                  {
+                    id: "files",
+                    label: `Documentos${documentos.length > 0 ? ` (${documentos.length})` : ""}`,
+                    icon: Paperclip,
+                  },
+                ] as { id: Tab; label: string; icon: React.ElementType }[]
+              ).map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={clsx(
+                    "flex items-center gap-2 px-4 py-3 text-sm font-medium transition-all relative",
+                    activeTab === tab.id
+                      ? "text-brand-600"
+                      : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300",
+                  )}
+                >
+                  <tab.icon size={16} />
+                  {tab.label}
+                  {activeTab === tab.id && (
+                    <motion.div
+                      layoutId="tab-indicator"
+                      className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-600"
+                    />
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {/* ── Conteúdo das abas ── */}
+            <AnimatePresence mode="wait">
+              {/* Timeline */}
+              {activeTab === "timeline" && (
+                <motion.div
+                  key="timeline"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  {evolutions.length === 0 ? (
+                    <EmptyState
+                      icon={History}
+                      titulo="Nenhuma evolução registrada"
+                      sub="Adicione a primeira evolução acima."
+                    />
+                  ) : (
+                    <div className="relative pl-8 space-y-6 before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200 dark:before:bg-slate-800">
+                      {evolutions.map((ev) => (
+                        <div key={ev.id} className="relative">
+                          <div className="absolute -left-[29px] top-1 w-6 h-6 rounded-full bg-white dark:bg-slate-950 border-4 border-brand-500 z-10" />
+                          <Card className="hover:border-brand-200 dark:hover:border-brand-800 transition-all">
+                            {editingId === ev.id ? (
+                              <div className="space-y-3">
+                                <textarea
+                                  className="w-full h-36 p-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-700 dark:text-slate-300 resize-none focus:ring-2 focus:ring-brand-500 outline-none"
+                                  value={editingText}
+                                  onChange={(e) =>
+                                    setEditingText(e.target.value)
+                                  }
+                                  autoFocus
+                                />
+                                <div className="flex gap-2 justify-end">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={cancelEdit}
+                                    className="gap-1 text-slate-400"
+                                  >
+                                    <X size={14} /> Cancelar
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    onClick={() => saveEdit(ev.id)}
+                                    className="gap-1"
+                                  >
+                                    <Check size={14} /> Salvar
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <div className="flex items-start justify-between mb-3">
+                                  <div>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="text-xs font-bold text-brand-600 uppercase tracking-wider">
+                                        Evolução
+                                      </span>
+                                      <span className="text-xs text-slate-400">
+                                        •
+                                      </span>
+                                      <span className="text-xs text-slate-500">
+                                        {formatarData(ev.created_at)} às{" "}
+                                        {formatarHora(ev.created_at)}
+                                      </span>
+                                    </div>
+                                    {ev.profiles?.full_name && (
+                                      <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
+                                        <User size={11} />{" "}
+                                        {ev.profiles.full_name}
+                                      </p>
+                                    )}
+                                  </div>
+                                  <Badge variant="neutral">Fisioterapia</Badge>
+                                </div>
+
+                                <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed whitespace-pre-wrap">
+                                  {ev.content}
+                                </p>
+
+                                {/* Anexos da evolução */}
+                                {ev.attachments &&
+                                  ev.attachments.length > 0 && (
+                                    <div className="mt-3 flex flex-wrap gap-2">
+                                      {ev.attachments.map((url, i) => (
+                                        <a
+                                          key={i}
+                                          href={url}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-brand-600 hover:bg-brand-50 transition-colors"
+                                        >
+                                          <Paperclip size={11} />
+                                          {url
+                                            .split("/")
+                                            .pop()
+                                            ?.replace(/^\d+_/, "") ??
+                                            `Arquivo ${i + 1}`}
+                                        </a>
+                                      ))}
+                                    </div>
+                                  )}
+
+                                <div className="mt-4 flex gap-2">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="gap-1.5 text-slate-400 hover:text-slate-700"
+                                    onClick={() => startEdit(ev)}
+                                  >
+                                    <Edit3 size={14} /> Editar
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="gap-1.5 text-rose-400 hover:text-rose-600"
+                                    onClick={() => handleDeleteEvolution(ev.id)}
+                                    disabled={deletingId === ev.id}
+                                  >
+                                    {deletingId === ev.id ? (
+                                      <Loader2
+                                        size={14}
+                                        className="animate-spin"
+                                      />
+                                    ) : (
+                                      <Trash2 size={14} />
+                                    )}
+                                    Excluir
+                                  </Button>
+                                </div>
+                              </>
+                            )}
+                          </Card>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </motion.div>
+              )}
+
+              {/* Ficha Clínica */}
+              {activeTab === "details" && (
+                <motion.div
+                  key="details"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <Card title="Dados do Paciente">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <InfoField
+                        icon={User}
+                        label="Nome completo"
+                        value={patient.full_name}
+                      />
+                      <InfoField
+                        icon={Calendar}
+                        label="Nascimento"
+                        value={`${formatarDataNascimento(patient.birth_date)}${idade ? ` (${idade} anos)` : ""}`}
+                      />
+                      <InfoField
+                        icon={Phone}
+                        label="Telefone"
+                        value={patient.phone ?? "—"}
+                      />
+                      <InfoField
+                        icon={Mail}
+                        label="E-mail"
+                        value={patient.email ?? "—"}
+                      />
+                      <InfoField
+                        icon={Shield}
+                        label="CPF"
+                        value={patient.cpf ?? "—"}
+                      />
+                      <InfoField
+                        icon={User}
+                        label="Gênero"
+                        value={patient.gender ?? "—"}
+                      />
+                      {patient.address && (
+                        <div className="sm:col-span-2">
+                          <InfoField
+                            icon={FileText}
+                            label="Endereço"
+                            value={patient.address}
+                          />
+                        </div>
+                      )}
+                      {patient.clinical_notes && (
+                        <div className="sm:col-span-2">
+                          <InfoField
+                            icon={FileText}
+                            label="Observações Clínicas"
+                            value={patient.clinical_notes}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </Card>
+                </motion.div>
+              )}
+
+              {/* Documentos */}
+              {activeTab === "files" && (
+                <motion.div
+                  key="files"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  {documentos.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-center bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800">
+                      <div className="w-16 h-16 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-4">
+                        <Paperclip size={28} className="text-slate-400" />
+                      </div>
+                      <p className="font-semibold text-slate-700 dark:text-slate-300">
+                        Nenhum documento ainda
+                      </p>
+                      <p className="text-sm text-slate-400 mt-1 mb-5 max-w-xs">
+                        Use "Anexar Exame" na área de nova evolução para
+                        adicionar arquivos.
+                      </p>
+                      <Button
+                        variant="outline"
+                        className="gap-2"
+                        onClick={() => setUploadAberto(true)}
+                      >
+                        <Plus size={16} /> Adicionar Documento
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {documentos.map((doc, i) => (
+                        <div
+                          key={i}
+                          className="flex items-center gap-3 p-4 bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800 hover:border-brand-200 dark:hover:border-brand-800 transition-all group"
+                        >
+                          <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 flex-shrink-0">
+                            <IconeArquivo url={doc.url} size={18} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate">
+                              {doc.nome}
+                            </p>
+                            <p className="text-xs text-slate-400 mt-0.5">
+                              {formatarData(doc.evolutionDate)} •{" "}
+                              {doc.profissional}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <a
+                              href={doc.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-brand-600 transition-colors"
+                              title="Abrir"
+                            >
+                              <ExternalLink size={15} />
+                            </a>
+                            <a
+                              href={doc.url}
+                              download
+                              className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-brand-600 transition-colors"
+                              title="Download"
+                            >
+                              <Download size={15} />
+                            </a>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* ── Coluna lateral ── */}
+          <div className="space-y-6">
+            {/* Informações */}
+            <Card title="Informações">
+              <div className="space-y-3">
+                <QuickInfo label="Telefone" value={patient.phone ?? "—"} />
+                <QuickInfo label="E-mail" value={patient.email ?? "—"} />
+                <QuickInfo label="Gênero" value={patient.gender ?? "—"} />
+                {patient.birth_date && (
+                  <QuickInfo
+                    label="Nascimento"
+                    // ✅ Usa formatarDataNascimento para evitar o bug de timezone
+                    value={`${formatarDataNascimento(patient.birth_date)}${idade ? ` (${idade} anos)` : ""}`}
+                  />
+                )}
+              </div>
+            </Card>
+
+            {/* Estatísticas */}
+            <Card title="Evoluções">
+              <div className="grid grid-cols-2 gap-3">
+                <StatBox label="Total" value={evolutions.length} color="blue" />
+                <StatBox
+                  label="Este mês"
+                  value={
+                    evolutions.filter((e) => {
+                      const d = new Date(e.created_at),
+                        now = new Date();
+                      return (
+                        d.getMonth() === now.getMonth() &&
+                        d.getFullYear() === now.getFullYear()
+                      );
+                    }).length
+                  }
+                  color="emerald"
+                />
+              </div>
+              {evolutions.length > 0 && (
+                <p className="text-xs text-slate-400 mt-3">
+                  Última em {formatarData(evolutions[0].created_at)}
+                </p>
+              )}
+            </Card>
+
+            {/* Ações rápidas */}
+            <Card title="Ações Rápidas">
+              <div className="space-y-2">
+                {/* ✅ Navega para agenda com paciente pré-selecionado */}
+                <Button
+                  variant="outline"
+                  className="w-full gap-2 justify-start text-sm"
+                  onClick={handleAgendarConsulta}
+                >
+                  <Calendar size={16} /> Agendar Consulta
+                </Button>
+
+                {/* ✅ Abre modal de upload */}
+                <Button
+                  variant="outline"
+                  className="w-full gap-2 justify-start text-sm"
+                  onClick={() => setUploadAberto(true)}
+                >
+                  <Paperclip size={16} /> Adicionar Exame
+                </Button>
+
+                {/* ✅ Vai direto para aba de documentos */}
+                <Button
+                  variant="outline"
+                  className="w-full gap-2 justify-start text-sm"
+                  onClick={() => setActiveTab("files")}
+                >
+                  <FileText size={16} /> Ver Documentos
+                  {documentos.length > 0 && (
+                    <span className="ml-auto bg-brand-100 text-brand-700 text-xs font-bold px-2 py-0.5 rounded-full">
+                      {documentos.length}
+                    </span>
+                  )}
+                </Button>
+
+                {/* ✅ Foca no textarea para escrever uma evolução */}
+                <Button
+                  variant="outline"
+                  className="w-full gap-2 justify-start text-sm"
+                  onClick={() => {
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                    setTimeout(
+                      () =>
+                        document
+                          .querySelector<HTMLTextAreaElement>("textarea")
+                          ?.focus(),
+                      400,
+                    );
+                  }}
+                >
+                  <Plus size={16} /> Nova Evolução
+                </Button>
+              </div>
+            </Card>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+};
+
+// ── Sub-componentes ───────────────────────────────────────────────────────────
+
+const InfoField = ({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: React.ElementType;
+  label: string;
+  value: string;
+}) => (
+  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50">
+    <div className="flex items-center gap-1.5 mb-1">
+      <Icon size={13} className="text-slate-400" />
+      <p className="text-xs font-bold text-slate-400 uppercase tracking-wide">
+        {label}
+      </p>
+    </div>
+    <p className="text-sm font-medium text-slate-900 dark:text-white">
+      {value}
+    </p>
+  </div>
+);
+
+const QuickInfo = ({ label, value }: { label: string; value: string }) => (
+  <div className="flex items-center justify-between text-sm">
+    <span className="text-slate-400 font-medium">{label}</span>
+    <span className="text-slate-700 dark:text-slate-300 font-medium truncate max-w-[55%] text-right">
+      {value}
+    </span>
+  </div>
+);
+
+const StatBox = ({
+  label,
+  value,
+  color,
+}: {
+  label: string;
+  value: number;
+  color: "blue" | "emerald";
+}) => {
+  const colors = {
+    blue: "bg-blue-50 dark:bg-blue-900/10 border-blue-100 dark:border-blue-800/50 text-blue-600",
+    emerald:
+      "bg-emerald-50 dark:bg-emerald-900/10 border-emerald-100 dark:border-emerald-800/50 text-emerald-600",
+  };
+  return (
+    <div className={clsx("p-3 rounded-xl border", colors[color])}>
+      <p className="text-xs font-bold uppercase tracking-wide">{label}</p>
+      <p className="text-2xl font-bold text-slate-900 dark:text-white mt-1">
+        {value}
+      </p>
     </div>
   );
 };
+
+const EmptyState = ({
+  icon: Icon,
+  titulo,
+  sub,
+}: {
+  icon: React.ElementType;
+  titulo: string;
+  sub: string;
+}) => (
+  <div className="flex flex-col items-center justify-center py-16 text-center">
+    <div className="w-16 h-16 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-4">
+      <Icon size={28} className="text-slate-400" />
+    </div>
+    <p className="font-semibold text-slate-700 dark:text-slate-300">{titulo}</p>
+    <p className="text-sm text-slate-400 mt-1">{sub}</p>
+  </div>
+);
