@@ -6,7 +6,7 @@ interface Profile {
   id: string;
   clinic_id: string;
   full_name: string;
-  role: string;
+  role: "admin" | "physio" | "receptionist";
 }
 
 interface AuthContextType {

@@ -6,24 +6,25 @@ import {
   CreditCard, 
   Activity, 
   MessageSquare, 
-  Settings,
   LogOut,
-  ChevronRight
+  UserCog
 } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { clsx } from 'clsx';
-
-const menuItems = [
-  { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
-  { icon: Calendar, label: 'Agenda', path: '/agenda' },
-  { icon: Users, label: 'Pacientes', path: '/pacientes' },
-  { icon: Activity, label: 'Pilates', path: '/pilates' },
-  { icon: CreditCard, label: 'Financeiro', path: '/financeiro' },
-  { icon: MessageSquare, label: 'WhatsApp', path: '/whatsapp' },
-];
+import { useAuth } from '../../context/AuthContext';
 
 export const Sidebar = () => {
   const location = useLocation();
+  const { profile, signOut } = useAuth();
+  const isAdmin = profile?.role === "admin";
+  const menuItems = [
+    { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
+    { icon: Calendar, label: 'Agenda', path: '/agenda' },
+    { icon: Users, label: 'Pacientes', path: '/pacientes' },
+    { icon: CreditCard, label: 'Financeiro', path: '/financeiro' },
+    ...(isAdmin ? [{ icon: MessageSquare, label: 'WhatsApp', path: '/whatsapp' }] : []),
+    ...(isAdmin ? [{ icon: UserCog, label: 'Equipe', path: '/equipe' }] : []),
+  ];
 
   return (
     <aside className="w-64 h-screen bg-white dark:bg-slate-950 border-r border-slate-200 dark:border-slate-800 flex flex-col fixed left-0 top-0 z-50">
@@ -61,7 +62,10 @@ export const Sidebar = () => {
       </nav>
 
       <div className="p-4 border-t border-slate-100 dark:border-slate-800">
-        <button className="flex items-center gap-3 w-full px-4 py-3 text-slate-600 dark:text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/10 rounded-xl transition-colors">
+        <button
+          className="flex items-center gap-3 w-full px-4 py-3 text-slate-600 dark:text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/10 rounded-xl transition-colors"
+          onClick={signOut}
+        >
           <LogOut size={20} />
           <span className="font-medium">Sair</span>
         </button>

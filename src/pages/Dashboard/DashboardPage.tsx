@@ -84,7 +84,11 @@ const StatCard = ({
               trend >= 0 ? "text-emerald-600" : "text-rose-600",
             )}
           >
-            {trend >= 0 ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
+            {trend >= 0 ? (
+              <ArrowUpRight size={14} />
+            ) : (
+              <ArrowDownRight size={14} />
+            )}
             {Math.abs(trend)}% vs mês anterior
           </div>
         </div>
@@ -165,7 +169,7 @@ export const Dashboard = () => {
       setError(null);
 
       try {
-        const data = await getDashboardData(profile.clinic_id);
+        const data = await getDashboardData(profile.clinic_id, profile);
         if (active) setDashboard(data);
       } catch (err) {
         if (!active) return;
@@ -214,17 +218,6 @@ export const Dashboard = () => {
           <p className="text-slate-500 dark:text-slate-400 mt-1">
             Sua clínica está pronta para os atendimentos de hoje.
           </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Button variant="outline" className="gap-2" onClick={handlePrintReport}>
-            <FileText size={18} /> Relatório PDF
-          </Button>
-          <Button
-            className="gap-2"
-            onClick={() => navigate("/agenda", { state: { openNew: true } })}
-          >
-            <Plus size={18} /> Novo Agendamento
-          </Button>
         </div>
       </header>
 

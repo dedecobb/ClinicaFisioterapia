@@ -408,7 +408,7 @@
   box-shadow: var(--shadow-md);
 }
 
-.ag-card-cancelado {
+.ag-card-cancelada {
   opacity: 0.7;
 }
 
@@ -491,21 +491,21 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
-.badge-confirmado {
+.badge-confirmada,
+.badge-presenca_registrada {
   background: var(--teal-50);
   color: var(--teal-700);
 }
-.badge-pendente {
+.badge-agendada,
+.badge-ausencia_justificada,
+.badge-reposicao {
   background: var(--amber-50);
   color: var(--amber-600);
 }
-.badge-cancelado {
+.badge-cancelada,
+.badge-falta {
   background: var(--red-50);
   color: var(--red-700);
-}
-.badge-concluido {
-  background: var(--green-50);
-  color: var(--green-600);
 }
 
 /* ── Ações do Card ───────────────────────────────────────────────────────────── */
@@ -540,25 +540,24 @@
 .btn-status:hover {
   opacity: 0.8;
 }
-.btn-status-confirmado.ativo {
+.btn-status-confirmada.ativo,
+.btn-status-presenca_registrada.ativo {
   background: var(--teal-50);
   color: var(--teal-700);
   border-color: var(--teal-100);
 }
-.btn-status-pendente.ativo {
+.btn-status-agendada.ativo,
+.btn-status-ausencia_justificada.ativo,
+.btn-status-reposicao.ativo {
   background: var(--amber-50);
   color: var(--amber-600);
   border-color: #fac775;
 }
-.btn-status-cancelado.ativo {
+.btn-status-cancelada.ativo,
+.btn-status-falta.ativo {
   background: var(--red-50);
   color: var(--red-700);
   border-color: #f7c1c1;
-}
-.btn-status-concluido.ativo {
-  background: var(--green-50);
-  color: var(--green-600);
-  border-color: #c0dd97;
 }
 
 .ag-btn-group {
@@ -762,6 +761,22 @@
   gap: 0.75rem;
 }
 
+.session-credit-box {
+  border: 1px solid var(--teal-100);
+  background: var(--teal-50);
+  color: var(--teal-900);
+  border-radius: var(--radius-md);
+  padding: 0.75rem 0.9rem;
+  font-size: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.session-credit-box span {
+  color: var(--gray-600);
+}
+
 /* ── Status Radio Group ──────────────────────────────────────────────────────── */
 .status-radio-group {
   display: flex;
@@ -790,25 +805,24 @@
   border-color: var(--gray-400);
 }
 
-.status-radio.active.status-confirmado {
+.status-radio.active.status-confirmada,
+.status-radio.active.status-presenca_registrada {
   background: var(--teal-50);
   color: var(--teal-700);
   border-color: var(--teal-100);
 }
-.status-radio.active.status-pendente {
+.status-radio.active.status-agendada,
+.status-radio.active.status-ausencia_justificada,
+.status-radio.active.status-reposicao {
   background: var(--amber-50);
   color: var(--amber-600);
   border-color: #fac775;
 }
-.status-radio.active.status-cancelado {
+.status-radio.active.status-cancelada,
+.status-radio.active.status-falta {
   background: var(--red-50);
   color: var(--red-700);
   border-color: #f7c1c1;
-}
-.status-radio.active.status-concluido {
-  background: var(--green-50);
-  color: var(--green-600);
-  border-color: #c0dd97;
 }
 
 /* ── Responsive ──────────────────────────────────────────────────────────────── */

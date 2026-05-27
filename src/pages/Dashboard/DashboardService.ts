@@ -148,13 +148,49 @@ function mapBirthdays(patients: PatientRow[]): BirthdayPatient[] {
     .slice(0, 5);
 }
 
-export async function getDashboardData(clinicId: string): Promise<DashboardData> {
+export async function getDashboardData(
+  clinicId: string,
+  access?: { id: string; role: string } | null,
+): Promise<DashboardData> {
   const today = new Date();
   const todayStart = startOfDay(today);
   const tomorrowStart = addDays(todayStart, 1);
   const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
   const sixMonthsStart = new Date(today.getFullYear(), today.getMonth() - 5, 1);
   const todayIsoDate = todayStart.toISOString().slice(0, 10);
+
+  let patientsCountQuery = supabase
+    .from("patients")
+    .select("id", { count: "exact", head: true })
+    .eq("clinic_id", clinicId)
+    .eq("status", "ativo");
+  let appointmentsCountQuery = supabase
+    .from("appointments")
+    .select("id", { count: "exact", head: true })
+    .eq("clinic_id", clinicId)
+    .gte("start_time", todayStart.toISOString())
+    .lt("start_time", tomorrowStart.toISOString());
+  let birthdayPatientsQuery = supabase
+    .from("patients")
+    .select("id, full_name, phone, birth_date")
+    .eq("clinic_id", clinicId)
+    .eq("status", "ativo")
+    .not("birth_date", "is", null);
+
+  if (access?.role === "physio") {
+    patientsCountQuery = patientsCountQuery.eq(
+      "responsible_professional_id",
+      access.id,
+    );
+    appointmentsCountQuery = appointmentsCountQuery.eq(
+      "professional_id",
+      access.id,
+    );
+    birthdayPatientsQuery = birthdayPatientsQuery.eq(
+      "responsible_professional_id",
+      access.id,
+    );
+  }
 
   const [
     patientsCountResult,
@@ -163,17 +199,8 @@ export async function getDashboardData(clinicId: string): Promise<DashboardData>
     chartTransactionsResult,
     birthdayPatientsResult,
   ] = await Promise.all([
-    supabase
-      .from("patients")
-      .select("id", { count: "exact", head: true })
-      .eq("clinic_id", clinicId)
-      .eq("status", "active"),
-    supabase
-      .from("appointments")
-      .select("id", { count: "exact", head: true })
-      .eq("clinic_id", clinicId)
-      .gte("start_time", todayStart.toISOString())
-      .lt("start_time", tomorrowStart.toISOString()),
+    patientsCountQuery,
+    appointmentsCountQuery,
     supabase
       .from("transactions")
       .select("amount, type, status, due_date, created_at")
@@ -184,12 +211,7 @@ export async function getDashboardData(clinicId: string): Promise<DashboardData>
       .select("amount, type, status, due_date, created_at")
       .eq("clinic_id", clinicId)
       .gte("created_at", sixMonthsStart.toISOString()),
-    supabase
-      .from("patients")
-      .select("id, full_name, phone, birth_date")
-      .eq("clinic_id", clinicId)
-      .eq("status", "active")
-      .not("birth_date", "is", null),
+    birthdayPatientsQuery,
   ]);
 
   const results = [
@@ -226,8 +248,8 @@ export async function getDashboardData(clinicId: string): Promise<DashboardData>
   const stats: DashboardStats = {
     activePatients: patientsCountResult.count ?? 0,
     todayAppointments: appointmentsCountResult.count ?? 0,
-    monthRevenue: paidIncome,
-    overdueAmount,
+    monthRevenue: access?.role === "physio" ? 0 : paidIncome,
+    overdueAmount: access?.role === "physio" ? 0 : overdueAmount,
   };
 
   return {

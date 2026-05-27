@@ -15,6 +15,20 @@ export const Register = () => {
   const [info, setInfo] = useState<string | null>(null);
   const navigate = useNavigate();
 
+  const formatAuthError = (message: string) => {
+    const normalized = message.toLowerCase();
+
+    if (
+      normalized.includes("already") ||
+      normalized.includes("registered") ||
+      normalized.includes("exists")
+    ) {
+      return "Este e-mail já possui uma conta. Volte para o login e entre com a senha cadastrada para aceitar o convite.";
+    }
+
+    return message;
+  };
+
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -32,7 +46,7 @@ export const Register = () => {
     });
 
     if (authError) {
-      setError(authError.message);
+      setError(formatAuthError(authError.message));
       setLoading(false);
       return;
     }

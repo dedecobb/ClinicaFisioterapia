@@ -1,8 +1,11 @@
 export type StatusAgendamento =
-  | "confirmado"
-  | "pendente"
-  | "cancelado"
-  | "concluido";
+  | "agendada"
+  | "confirmada"
+  | "presenca_registrada"
+  | "ausencia_justificada"
+  | "falta"
+  | "reposicao"
+  | "cancelada";
 
 export type TipoSessao =
   | "Avaliação Inicial"
@@ -21,6 +24,19 @@ export interface Paciente {
   email: string;
   dataNascimento: string;
   convenio?: string;
+  pacoteAtivo?: {
+    id: string;
+    professionalId: string | null;
+    totalAulas: number;
+    aulasRealizadas: number;
+    aulasFaltadas: number;
+    ausenciasJustificadas: number;
+    valorAula: number;
+    diasFixos: number[];
+    horarioFixo: string;
+    duracaoMinutos: number;
+    statusPagamento: string;
+  };
 }
 
 export interface Fisioterapeuta {
@@ -44,6 +60,8 @@ export interface Agendamento {
   observacoes?: string;
   sessaoNumero?: number;
   totalSessoes?: number;
+  pacoteId?: string;
+  valorAula?: number;
 }
 
 export interface FiltrosAgendamento {
@@ -63,4 +81,6 @@ export interface NovoAgendamentoForm {
   observacoes: string;
   sessaoNumero: number;
   totalSessoes: number;
+  pacoteId?: string;
+  valorAula?: number;
 }

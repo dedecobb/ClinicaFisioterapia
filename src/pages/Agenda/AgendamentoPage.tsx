@@ -24,7 +24,18 @@ import "./agendamento.css";
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 function hoje(): string {
-  return new Date().toISOString().split("T")[0];
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+
+  return `${year}-${month}-${day}`;
 }
 
 function diasNoMes(year: number, month: number): number {
@@ -53,26 +64,42 @@ const MESES = [
 const DIAS_SEMANA = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
 const STATUS_LABEL: Record<StatusAgendamento, string> = {
-  confirmado: "Confirmado",
-  pendente: "Pendente",
-  cancelado: "Cancelado",
-  concluido: "Concluído",
+  agendada: "Agendada",
+  confirmada: "Confirmada",
+  presenca_registrada: "Presença",
+  ausencia_justificada: "Ausência justificada",
+  falta: "Falta",
+  reposicao: "Reposição",
+  cancelada: "Cancelada",
 };
+
+const STATUS_AGENDA: StatusAgendamento[] = [
+  "agendada",
+  "confirmada",
+  "presenca_registrada",
+  "ausencia_justificada",
+  "falta",
+  "reposicao",
+  "cancelada",
+];
 
 // ─── component ────────────────────────────────────────────────────────────────
 
 export const AgendamentoPage: React.FC = () => {
   const { profile } = useAuth();
+  const canManageAgenda = profile?.role === "admin";
   const location = useLocation();
   const navigate = useNavigate();
-  const agora = new Date();
-  const [ano, setAno] = useState(agora.getFullYear());
-  const [mes, setMes] = useState(agora.getMonth());
-  const [dataSelecionada, setDataSelecionada] = useState<string>(hoje());
+  const dataHoje = hoje();
+  const [anoInicial, mesInicial] = dataHoje.split("-").map(Number);
+  const [ano, setAno] = useState(anoInicial);
+  const [mes, setMes] = useState(mesInicial - 1);
+  const [dataSelecionada, setDataSelecionada] = useState<string>(dataHoje);
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [fisioterapeutas, setFisioterapeutas] = useState<Fisioterapeuta[]>([]);
   const [pacientes, setPacientes] = useState<Paciente[]>([]);
   const [modalAberto, setModalAberto] = useState(false);
+  const [pacienteInicialId, setPacienteInicialId] = useState<string | undefined>();
   const [agendamentoEditando, setAgendamentoEditando] =
     useState<Agendamento | null>(null);
   const [carregando, setCarregando] = useState(true);
@@ -85,8 +112,13 @@ export const AgendamentoPage: React.FC = () => {
   });
 
   useEffect(() => {
-    if ((location.state as { openNew?: boolean } | null)?.openNew) {
+    const state = location.state as
+      | { openNew?: boolean; pacienteId?: string }
+      | null;
+
+    if (state?.openNew || state?.pacienteId) {
       setAgendamentoEditando(null);
+      setPacienteInicialId(state.pacienteId);
       setModalAberto(true);
       navigate(location.pathname, { replace: true, state: null });
     }
@@ -118,8 +150,8 @@ export const AgendamentoPage: React.FC = () => {
       try {
         const [agenda, profissionais, listaPacientes] = await Promise.all([
           getAgendamentosPorMes(ano, mes),
-          getFisioterapeutas(),
-          getPacientes(),
+          getFisioterapeutas(profile),
+          getPacientes(profile),
         ]);
 
         if (!ativo) return;
@@ -144,7 +176,7 @@ export const AgendamentoPage: React.FC = () => {
     return () => {
       ativo = false;
     };
-  }, [ano, mes]);
+  }, [ano, mes, profile]);
 
   const agendamentosPorData = useMemo(() => {
     const mapa: Record<string, Agendamento[]> = {};
@@ -194,27 +226,24 @@ export const AgendamentoPage: React.FC = () => {
     const doMes = agendamentos.filter((a) => a.data.startsWith(prefix));
     return {
       total: doMes.length,
-      confirmados: doMes.filter((a) => a.status === "confirmado").length,
-      pendentes: doMes.filter((a) => a.status === "pendente").length,
-      cancelados: doMes.filter((a) => a.status === "cancelado").length,
+      confirmados: doMes.filter((a) => a.status === "confirmada").length,
+      pendentes: doMes.filter((a) => a.status === "agendada").length,
+      cancelados: doMes.filter((a) => a.status === "cancelada").length,
     };
   }, [agendamentos, ano, mes]);
 
   // ── CRUD ────────────────────────────────────────────────────────────────────
 
-  const abrirNovoModal = () => {
-    setAgendamentoEditando(null);
-    setModalAberto(true);
-  };
-
   const abrirEditarModal = (a: Agendamento) => {
     setAgendamentoEditando(a);
+    setPacienteInicialId(undefined);
     setModalAberto(true);
   };
 
   const fecharModal = () => {
     setModalAberto(false);
     setAgendamentoEditando(null);
+    setPacienteInicialId(undefined);
   };
 
   const salvarAgendamento = async (form: NovoAgendamentoForm) => {
@@ -271,9 +300,9 @@ export const AgendamentoPage: React.FC = () => {
     setErro(null);
 
     try {
-      await atualizarStatusAgendamento(id, status);
+      const statusFinal = await atualizarStatusAgendamento(id, status);
       setAgendamentos((prev) =>
-        prev.map((a) => (a.id === id ? { ...a, status } : a)),
+        prev.map((a) => (a.id === id ? { ...a, status: statusFinal } : a)),
       );
     } catch (error) {
       setErro(
@@ -297,12 +326,10 @@ export const AgendamentoPage: React.FC = () => {
       <div className="page-header">
         <div>
           <h1 className="page-title">Agendamentos</h1>
-          <p className="page-subtitle">Gerencie as consultas da clínica</p>
+          <p className="page-subtitle">
+            Gerencie aulas, presenças, faltas e reposições
+          </p>
         </div>
-        <button className="btn btn-primary btn-lg" onClick={abrirNovoModal}>
-          <span className="btn-icon">+</span>
-          Novo Agendamento
-        </button>
       </div>
 
       {erro && <div className="card error-card">{erro}</div>}
@@ -318,11 +345,11 @@ export const AgendamentoPage: React.FC = () => {
           <span className="resumo-valor">{totaisMes.confirmados}</span>
         </div>
         <div className="resumo-card resumo-pendente">
-          <span className="resumo-label">Pendentes</span>
+          <span className="resumo-label">Agendadas</span>
           <span className="resumo-valor">{totaisMes.pendentes}</span>
         </div>
         <div className="resumo-card resumo-cancelado">
-          <span className="resumo-label">Cancelados</span>
+          <span className="resumo-label">Canceladas</span>
           <span className="resumo-valor">{totaisMes.cancelados}</span>
         </div>
       </div>
@@ -362,8 +389,8 @@ export const AgendamentoPage: React.FC = () => {
               const ags = agendamentosPorData[dataStr] ?? [];
               const isHoje = dataStr === hoje();
               const isSelecionado = dataStr === dataSelecionada;
-              const temConfirmado = ags.some((a) => a.status === "confirmado");
-              const temPendente = ags.some((a) => a.status === "pendente");
+              const temConfirmado = ags.some((a) => a.status === "confirmada");
+              const temPendente = ags.some((a) => a.status === "agendada");
 
               return (
                 <button
@@ -441,10 +468,11 @@ export const AgendamentoPage: React.FC = () => {
                 }
               >
                 <option value="todos">Todos os status</option>
-                <option value="confirmado">Confirmado</option>
-                <option value="pendente">Pendente</option>
-                <option value="cancelado">Cancelado</option>
-                <option value="concluido">Concluído</option>
+                {STATUS_AGENDA.map((status) => (
+                  <option key={status} value={status}>
+                    {STATUS_LABEL[status]}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -453,7 +481,7 @@ export const AgendamentoPage: React.FC = () => {
           <div className="dia-header">
             <h2 className="dia-titulo">{dataSelFormatada}</h2>
             <span className="dia-contador">
-              {agendamentosDia.length} consulta
+              {agendamentosDia.length} aula
               {agendamentosDia.length !== 1 ? "s" : ""}
             </span>
           </div>
@@ -466,13 +494,11 @@ export const AgendamentoPage: React.FC = () => {
           ) : agendamentosDia.length === 0 ? (
             <div className="empty-state">
               <div className="empty-icon">📅</div>
-              <p className="empty-title">Nenhuma consulta neste dia</p>
+              <p className="empty-title">Nenhuma aula neste dia</p>
               <p className="empty-sub">
-                Clique em "Novo Agendamento" para adicionar
+                As aulas aparecem automaticamente após cadastrar ou renovar um
+                pacote no paciente.
               </p>
-              <button className="btn btn-primary" onClick={abrirNovoModal}>
-                + Novo Agendamento
-              </button>
             </div>
           ) : (
             <div className="agendamentos-lista">
@@ -480,6 +506,7 @@ export const AgendamentoPage: React.FC = () => {
                 <AgendamentoCard
                   key={ag.id}
                   agendamento={ag}
+                  canManage={canManageAgenda}
                   onEditar={() => abrirEditarModal(ag)}
                   onExcluir={() => excluirAgendamento(ag.id)}
                   onAlterarStatus={(status) => alterarStatus(ag.id, status)}
@@ -497,6 +524,7 @@ export const AgendamentoPage: React.FC = () => {
         pacientes={pacientes}
         fisioterapeutas={fisioterapeutas}
         dataInicial={dataSelecionada}
+        pacienteInicialId={pacienteInicialId}
         onFechar={fecharModal}
         onSalvar={salvarAgendamento}
         salvando={salvando}
@@ -509,6 +537,7 @@ export const AgendamentoPage: React.FC = () => {
 
 interface CardProps {
   agendamento: Agendamento;
+  canManage: boolean;
   onEditar: () => void;
   onExcluir: () => void;
   onAlterarStatus: (status: StatusAgendamento) => void;
@@ -516,6 +545,7 @@ interface CardProps {
 
 const AgendamentoCard: React.FC<CardProps> = ({
   agendamento: ag,
+  canManage,
   onEditar,
   onExcluir,
   onAlterarStatus,
@@ -563,40 +593,34 @@ const AgendamentoCard: React.FC<CardProps> = ({
         {/* Observações */}
         {ag.observacoes && <div className="ag-obs">{ag.observacoes}</div>}
 
-        {/* Ações */}
-        <div className="ag-acoes">
-          <div className="ag-status-group">
-            {(
-              [
-                "confirmado",
-                "pendente",
-                "cancelado",
-                "concluido",
-              ] as StatusAgendamento[]
-            ).map((s) => (
-              <button
-                key={s}
-                className={`btn-status btn-status-${s} ${ag.status === s ? "ativo" : ""}`}
-                onClick={() => onAlterarStatus(s)}
-                title={STATUS_LABEL[s]}
-              >
-                {STATUS_LABEL[s]}
+        {canManage && (
+          <div className="ag-acoes">
+            <div className="ag-status-group">
+              {STATUS_AGENDA.map((s) => (
+                <button
+                  key={s}
+                  className={`btn-status btn-status-${s} ${ag.status === s ? "ativo" : ""}`}
+                  onClick={() => onAlterarStatus(s)}
+                  title={STATUS_LABEL[s]}
+                >
+                  {STATUS_LABEL[s]}
+                </button>
+              ))}
+            </div>
+            <div className="ag-btn-group">
+              <button className="btn-icone" onClick={onEditar} title="Editar">
+                ✏️
               </button>
-            ))}
+              <button
+                className="btn-icone btn-excluir"
+                onClick={onExcluir}
+                title="Excluir"
+              >
+                🗑️
+              </button>
+            </div>
           </div>
-          <div className="ag-btn-group">
-            <button className="btn-icone" onClick={onEditar} title="Editar">
-              ✏️
-            </button>
-            <button
-              className="btn-icone btn-excluir"
-              onClick={onExcluir}
-              title="Excluir"
-            >
-              🗑️
-            </button>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );

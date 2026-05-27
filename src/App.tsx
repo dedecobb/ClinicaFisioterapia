@@ -10,15 +10,16 @@ import { Dashboard } from "./pages/Dashboard";
 import { Agenda } from "./pages/Agenda";
 import { Patients } from "./pages/Pacientes";
 import { Financial } from "./pages/Financial";
-import { Pilates } from "./pages/Pilates";
 import { WhatsApp } from "./pages/WhatsApp";
+import { Team } from "./pages/Team";
 import { ClinicalHub } from "./pages/ClinicalHub";
 import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
+import { SetupClinic } from "./pages/SetupClinic";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 
 const ProtectedLayout = ({ children }: { children: React.ReactNode }) => {
-  const { session, loading } = useAuth();
+  const { session, profile, loading } = useAuth();
 
   if (loading) {
     return (
@@ -30,6 +31,10 @@ const ProtectedLayout = ({ children }: { children: React.ReactNode }) => {
 
   if (!session) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (!profile) {
+    return <SetupClinic />;
   }
 
   return (
@@ -85,14 +90,6 @@ function App() {
             }
           />
           <Route
-            path="/pilates"
-            element={
-              <ProtectedLayout>
-                <Pilates />
-              </ProtectedLayout>
-            }
-          />
-          <Route
             path="/financeiro"
             element={
               <ProtectedLayout>
@@ -105,6 +102,14 @@ function App() {
             element={
               <ProtectedLayout>
                 <WhatsApp />
+              </ProtectedLayout>
+            }
+          />
+          <Route
+            path="/equipe"
+            element={
+              <ProtectedLayout>
+                <Team />
               </ProtectedLayout>
             }
           />

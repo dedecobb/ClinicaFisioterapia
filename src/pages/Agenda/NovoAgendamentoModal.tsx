@@ -18,12 +18,23 @@ const TIPOS_SESSAO: TipoSessao[] = [
   "Hidroterapia",
 ];
 
+const STATUS_LABEL = {
+  agendada: "Agendada",
+  confirmada: "Confirmada",
+  presenca_registrada: "Presença",
+  ausencia_justificada: "Ausência justificada",
+  falta: "Falta",
+  reposicao: "Reposição",
+  cancelada: "Cancelada",
+} as const;
+
 interface Props {
   aberto: boolean;
   agendamento?: Agendamento | null;
   pacientes: Paciente[];
   fisioterapeutas: Fisioterapeuta[];
   dataInicial?: string;
+  pacienteInicialId?: string;
   salvando?: boolean;
   onFechar: () => void;
   onSalvar: (form: NovoAgendamentoForm) => void;
@@ -36,11 +47,60 @@ const formVazio: NovoAgendamentoForm = {
   horaInicio: "08:00",
   horaFim: "08:50",
   tipoSessao: "Fisioterapia Ortopédica",
-  status: "pendente",
+  status: "agendada",
   observacoes: "",
   sessaoNumero: 1,
-  totalSessoes: 10,
+  totalSessoes: 8,
+  pacoteId: undefined,
+  valorAula: undefined,
 };
+
+function addMinutesToTime(time: string, minutes: number): string {
+  const [hour, minute] = time.split(":").map(Number);
+  const date = new Date(2000, 0, 1, hour, minute + minutes, 0);
+  return date.toTimeString().slice(0, 5);
+}
+
+function getNextSessionNumber(patient: Paciente): number {
+  const pacote = patient.pacoteAtivo;
+  if (!pacote) return 1;
+
+  const aulasConsumidas = pacote.aulasRealizadas + pacote.aulasFaltadas;
+  return Math.min(aulasConsumidas + 1, pacote.totalAulas);
+}
+
+function applyPatientPackage(
+  current: NovoAgendamentoForm,
+  patient: Paciente | undefined,
+): NovoAgendamentoForm {
+  if (!patient?.pacoteAtivo) {
+    return {
+      ...current,
+      pacienteId: patient?.id ?? current.pacienteId,
+      pacoteId: undefined,
+      valorAula: undefined,
+    };
+  }
+
+  const pacote = patient.pacoteAtivo;
+  const horaInicio = pacote.horarioFixo || current.horaInicio;
+
+  return {
+    ...current,
+    pacienteId: patient.id,
+    fisioterapeutaId: pacote.professionalId ?? current.fisioterapeutaId,
+    horaInicio,
+    horaFim: addMinutesToTime(horaInicio, pacote.duracaoMinutos),
+    tipoSessao: "Pilates Clínico",
+    status:
+      pacote.statusPagamento === "inadimplente" ? "agendada" : current.status,
+    sessaoNumero: getNextSessionNumber(patient),
+    totalSessoes: pacote.totalAulas,
+    pacoteId: pacote.id,
+    valorAula: pacote.valorAula,
+    observacoes: current.observacoes || `Pacote ativo: sessão ${getNextSessionNumber(patient)}/${pacote.totalAulas}.`,
+  };
+}
 
 export const NovoAgendamentoModal: React.FC<Props> = ({
   aberto,
@@ -48,6 +108,7 @@ export const NovoAgendamentoModal: React.FC<Props> = ({
   pacientes,
   fisioterapeutas,
   dataInicial,
+  pacienteInicialId,
   salvando = false,
   onFechar,
   onSalvar,
@@ -67,11 +128,23 @@ export const NovoAgendamentoModal: React.FC<Props> = ({
         observacoes: agendamento.observacoes ?? "",
         sessaoNumero: agendamento.sessaoNumero ?? 1,
         totalSessoes: agendamento.totalSessoes ?? 10,
+        pacoteId: agendamento.pacoteId,
+        valorAula: agendamento.valorAula,
       });
     } else {
-      setForm({ ...formVazio, data: dataInicial ?? "" });
+      const initialPatient = pacientes.find((p) => p.id === pacienteInicialId);
+      setForm(
+        applyPatientPackage(
+          {
+            ...formVazio,
+            data: dataInicial ?? "",
+            pacienteId: pacienteInicialId ?? "",
+          },
+          initialPatient,
+        ),
+      );
     }
-  }, [agendamento, dataInicial, aberto]);
+  }, [agendamento, dataInicial, pacienteInicialId, pacientes, aberto]);
 
   const campo = <K extends keyof NovoAgendamentoForm>(
     key: K,
@@ -81,6 +154,20 @@ export const NovoAgendamentoModal: React.FC<Props> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSalvar(form);
+  };
+
+  const handlePacienteChange = (patientId: string) => {
+    const patient = pacientes.find((p) => p.id === patientId);
+    setForm((current) =>
+      applyPatientPackage(
+        {
+          ...current,
+          pacienteId: patientId,
+          observacoes: "",
+        },
+        patient,
+      ),
+    );
   };
 
   if (!aberto) return null;
@@ -117,7 +204,7 @@ export const NovoAgendamentoModal: React.FC<Props> = ({
               <select
                 className="form-select"
                 value={form.pacienteId}
-                onChange={(e) => campo("pacienteId", e.target.value)}
+                onChange={(e) => handlePacienteChange(e.target.value)}
                 required
               >
                 <option value="">Selecione o paciente</option>
@@ -128,6 +215,27 @@ export const NovoAgendamentoModal: React.FC<Props> = ({
                 ))}
               </select>
             </div>
+
+            {form.pacienteId && (
+              <div className="session-credit-box">
+                {pacientes.find((p) => p.id === form.pacienteId)?.pacoteAtivo ? (
+                  <>
+                    <strong>
+                      Sessão automática: {form.sessaoNumero}/{form.totalSessoes}
+                    </strong>
+                    <span>
+                      Calculada pelas aulas com presença registrada e faltas já
+                      descontadas do pacote.
+                    </span>
+                  </>
+                ) : (
+                  <span>
+                    Esta paciente não tem pacote ativo cadastrado. Confira o
+                    cadastro antes de agendar.
+                  </span>
+                )}
+              </div>
+            )}
 
             {/* Fisioterapeuta */}
             <div className="form-group">
@@ -205,7 +313,15 @@ export const NovoAgendamentoModal: React.FC<Props> = ({
               <label className="form-label">Status</label>
               <div className="status-radio-group">
                 {(
-                  ["pendente", "confirmado", "cancelado", "concluido"] as const
+                  [
+                    "agendada",
+                    "confirmada",
+                    "presenca_registrada",
+                    "ausencia_justificada",
+                    "falta",
+                    "reposicao",
+                    "cancelada",
+                  ] as const
                 ).map((s) => (
                   <label
                     key={s}
@@ -218,7 +334,7 @@ export const NovoAgendamentoModal: React.FC<Props> = ({
                       checked={form.status === s}
                       onChange={() => campo("status", s)}
                     />
-                    <span>{s.charAt(0).toUpperCase() + s.slice(1)}</span>
+                    <span>{STATUS_LABEL[s]}</span>
                   </label>
                 ))}
               </div>

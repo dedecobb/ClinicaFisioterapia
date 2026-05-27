@@ -40,6 +40,7 @@ import {
   Documento,
   Evolution,
   Patient,
+  PatientAppointment,
   Profile,
   addAttachmentsToEvolution,
   calcularIdade,
@@ -49,6 +50,7 @@ import {
   formatarData,
   formatarDataNascimento,
   formatarHora,
+  getAppointmentsByPatient,
   getEvolutionsByPatient,
   getPatientById,
   getProfiles,
@@ -56,7 +58,17 @@ import {
 } from "../services/evolutionService";
 
 // ── Tipos de aba ──────────────────────────────────────────────────────────────
-type Tab = "timeline" | "details" | "files";
+type Tab = "timeline" | "agenda" | "details" | "files";
+
+const APPOINTMENT_STATUS_LABEL: Record<string, string> = {
+  agendada: "Agendada",
+  confirmada: "Confirmada",
+  presenca_registrada: "Presença registrada",
+  ausencia_justificada: "Ausência justificada",
+  falta: "Falta",
+  reposicao: "Reposição",
+  cancelada: "Cancelada",
+};
 
 // ── Ícone por extensão de arquivo ─────────────────────────────────────────────
 function IconeArquivo({ url, size = 18 }: { url: string; size?: number }) {
@@ -71,11 +83,12 @@ function IconeArquivo({ url, size = 18 }: { url: string; size?: number }) {
 export const ClinicalHub = () => {
   const { id: patientId } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { session } = useAuth();
+  const { session, profile } = useAuth();
 
   // ── Dados ────────────────────────────────────────────────────────────────────
   const [patient, setPatient] = useState<Patient | null>(null);
   const [evolutions, setEvolutions] = useState<Evolution[]>([]);
+  const [appointments, setAppointments] = useState<PatientAppointment[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const documentos: Documento[] = extrairDocumentos(evolutions);
 
@@ -111,18 +124,27 @@ export const ClinicalHub = () => {
     setLoadingPage(true);
     setPageError(null);
     try {
-      const [pat, evols, profs] = await Promise.all([
+      const [pat, evols, profs, appts] = await Promise.all([
         getPatientById(patientId),
         getEvolutionsByPatient(patientId),
         getProfiles(),
+        getAppointmentsByPatient(patientId),
       ]);
       if (!pat) {
         setPageError("Paciente não encontrado.");
         return;
       }
+      if (
+        profile?.role === "physio" &&
+        pat.responsible_professional_id !== profile.id
+      ) {
+        setPageError("Este prontuário não está vinculado à sua agenda.");
+        return;
+      }
       setPatient(pat);
       setEvolutions(evols);
       setProfiles(profs);
+      setAppointments(appts);
       if (session?.user?.id) setSelectedProfile(session.user.id);
     } catch (err: unknown) {
       setPageError(
@@ -131,7 +153,7 @@ export const ClinicalHub = () => {
     } finally {
       setLoadingPage(false);
     }
-  }, [patientId, session]);
+  }, [patientId, session, profile]);
 
   useEffect(() => {
     loadData();
@@ -282,14 +304,6 @@ export const ClinicalHub = () => {
     }
   };
 
-  // ── Ações rápidas ─────────────────────────────────────────────────────────────
-  const handleAgendarConsulta = () => {
-    // Navega para agenda com o paciente pré-selecionado via state
-    navigate("/agenda", {
-      state: { pacienteId: patientId, pacienteNome: patient?.full_name },
-    });
-  };
-
   // ── Loading / erro ────────────────────────────────────────────────────────────
   if (loadingPage) {
     return (
@@ -319,6 +333,35 @@ export const ClinicalHub = () => {
   }
 
   const idade = calcularIdade(patient.birth_date);
+  const appointmentSummary = (() => {
+    const presencas = appointments.filter(
+      (item) => item.status === "presenca_registrada",
+    ).length;
+    const faltas = appointments.filter((item) => item.status === "falta").length;
+    const justificadas = appointments.filter(
+      (item) => item.status === "ausencia_justificada",
+    ).length;
+    const reposicoes = appointments.filter(
+      (item) => item.status === "reposicao",
+    ).length;
+    const canceladas = appointments.filter(
+      (item) => item.status === "cancelada",
+    ).length;
+    const totalContratado =
+      appointments.find((item) => item.lesson_packages?.total_lessons)
+        ?.lesson_packages?.total_lessons ?? 0;
+    const consumidas = presencas + faltas;
+
+    return {
+      totalContratado,
+      presencas,
+      faltas,
+      justificadas,
+      reposicoes,
+      canceladas,
+      restantes: Math.max(totalContratado - consumidas, 0),
+    };
+  })();
 
   // ─────────────────────────────────────────────────────────────────────────────
   return (
@@ -498,6 +541,7 @@ export const ClinicalHub = () => {
               {(
                 [
                   { id: "timeline", label: "Linha do Tempo", icon: History },
+                  { id: "agenda", label: "Histórico de Aulas", icon: Calendar },
                   { id: "details", label: "Ficha Clínica", icon: FileText },
                   {
                     id: "files",
@@ -666,6 +710,135 @@ export const ClinicalHub = () => {
                       ))}
                     </div>
                   )}
+                </motion.div>
+              )}
+
+              {/* Histórico de Aulas */}
+              {activeTab === "agenda" && (
+                <motion.div
+                  key="agenda"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.2 }}
+                  className="space-y-6"
+                >
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <Card>
+                      <p className="text-xs font-semibold text-slate-400 uppercase">
+                        Contratadas
+                      </p>
+                      <p className="text-2xl font-bold text-slate-900 dark:text-white">
+                        {appointmentSummary.totalContratado}
+                      </p>
+                    </Card>
+                    <Card>
+                      <p className="text-xs font-semibold text-slate-400 uppercase">
+                        Restantes
+                      </p>
+                      <p className="text-2xl font-bold text-brand-600">
+                        {appointmentSummary.restantes}
+                      </p>
+                    </Card>
+                    <Card>
+                      <p className="text-xs font-semibold text-slate-400 uppercase">
+                        Presenças
+                      </p>
+                      <p className="text-2xl font-bold text-emerald-600">
+                        {appointmentSummary.presencas}
+                      </p>
+                    </Card>
+                    <Card>
+                      <p className="text-xs font-semibold text-slate-400 uppercase">
+                        Faltas
+                      </p>
+                      <p className="text-2xl font-bold text-rose-600">
+                        {appointmentSummary.faltas}
+                      </p>
+                    </Card>
+                  </div>
+
+                  <Card title="Histórico completo da agenda">
+                    {appointments.length === 0 ? (
+                      <p className="text-sm text-slate-500">
+                        Nenhuma aula gerada para este paciente ainda.
+                      </p>
+                    ) : (
+                      <div className="space-y-3">
+                        {appointments.map((appointment) => (
+                          <div
+                            key={appointment.id}
+                            className="flex flex-col md:flex-row md:items-center justify-between gap-3 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 p-4"
+                          >
+                            <div>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-sm font-bold text-slate-900 dark:text-white">
+                                  {formatarData(appointment.start_time)} às{" "}
+                                  {formatarHora(appointment.start_time)}
+                                </span>
+                                <Badge
+                                  variant={
+                                    appointment.status ===
+                                      "presenca_registrada" ||
+                                    appointment.status === "confirmada"
+                                      ? "success"
+                                      : appointment.status === "falta" ||
+                                          appointment.status === "cancelada"
+                                        ? "danger"
+                                        : "warning"
+                                  }
+                                >
+                                  {APPOINTMENT_STATUS_LABEL[
+                                    appointment.status
+                                  ] ?? appointment.status}
+                                </Badge>
+                              </div>
+                              <p className="text-xs text-slate-500 mt-1">
+                                Sessão{" "}
+                                {appointment.package_lesson_number ?? "avulsa"}
+                                {appointment.lesson_packages?.total_lessons
+                                  ? `/${appointment.lesson_packages.total_lessons}`
+                                  : ""}{" "}
+                                · {appointment.profiles?.full_name ?? "Sem profissional"}
+                              </p>
+                              {appointment.notes && (
+                                <p className="text-xs text-slate-400 mt-1">
+                                  {appointment.notes}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </Card>
+
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    <Card>
+                      <p className="text-xs font-semibold text-slate-400 uppercase">
+                        Ausências justificadas
+                      </p>
+                      <p className="text-xl font-bold text-amber-600">
+                        {appointmentSummary.justificadas}
+                      </p>
+                    </Card>
+                    <Card>
+                      <p className="text-xs font-semibold text-slate-400 uppercase">
+                        Reposições
+                      </p>
+                      <p className="text-xl font-bold text-blue-600">
+                        {appointmentSummary.reposicoes}
+                      </p>
+                    </Card>
+                    <Card>
+                      <p className="text-xs font-semibold text-slate-400 uppercase">
+                        Canceladas
+                      </p>
+                      <p className="text-xl font-bold text-slate-600">
+                        {appointmentSummary.canceladas}
+                      </p>
+                    </Card>
+                  </div>
                 </motion.div>
               )}
 
@@ -856,15 +1029,6 @@ export const ClinicalHub = () => {
             {/* Ações rápidas */}
             <Card title="Ações Rápidas">
               <div className="space-y-2">
-                {/* ✅ Navega para agenda com paciente pré-selecionado */}
-                <Button
-                  variant="outline"
-                  className="w-full gap-2 justify-start text-sm"
-                  onClick={handleAgendarConsulta}
-                >
-                  <Calendar size={16} /> Agendar Consulta
-                </Button>
-
                 {/* ✅ Abre modal de upload */}
                 <Button
                   variant="outline"

@@ -8,12 +8,35 @@ import {
   TipoSessao,
 } from "./types";
 
+type AccessProfile = {
+  id: string;
+  clinic_id: string;
+  role: string;
+};
+
 type PatientDB = {
   id: string;
   full_name: string;
   phone: string | null;
   email: string | null;
   birth_date: string | null;
+  lesson_packages?: PackageDB[];
+};
+
+type PackageDB = {
+  id: string;
+  professional_id: string | null;
+  total_lessons: number;
+  completed_lessons: number;
+  missed_lessons: number;
+  justified_absences: number;
+  lesson_value: number | string;
+  fixed_weekdays: number[];
+  fixed_time: string;
+  lesson_duration_minutes: number;
+  payment_status: string;
+  status: string;
+  start_date: string;
 };
 
 type ProfessionalDB = {
@@ -27,7 +50,14 @@ type AppointmentStatusDB =
   | "confirmed"
   | "cancelled"
   | "completed"
-  | "missed";
+  | "missed"
+  | "agendada"
+  | "confirmada"
+  | "presenca_registrada"
+  | "ausencia_justificada"
+  | "falta"
+  | "reposicao"
+  | "cancelada";
 
 type AppointmentDB = {
   id: string;
@@ -38,8 +68,12 @@ type AppointmentDB = {
   type: string;
   status: AppointmentStatusDB;
   notes: string | null;
+  package_id: string | null;
+  package_lesson_number: number | null;
+  class_price: number | string | null;
   patients: PatientDB | null;
   profiles: ProfessionalDB | null;
+  lesson_packages: { total_lessons: number } | null;
 };
 
 const PROFESSIONAL_COLORS = [
@@ -51,18 +85,28 @@ const PROFESSIONAL_COLORS = [
 ];
 
 const statusFromDb: Record<AppointmentStatusDB, StatusAgendamento> = {
-  scheduled: "pendente",
-  confirmed: "confirmado",
-  cancelled: "cancelado",
-  completed: "concluido",
-  missed: "cancelado",
+  scheduled: "agendada",
+  confirmed: "confirmada",
+  cancelled: "cancelada",
+  completed: "presenca_registrada",
+  missed: "falta",
+  agendada: "agendada",
+  confirmada: "confirmada",
+  presenca_registrada: "presenca_registrada",
+  ausencia_justificada: "ausencia_justificada",
+  falta: "falta",
+  reposicao: "reposicao",
+  cancelada: "cancelada",
 };
 
 const statusToDb: Record<StatusAgendamento, AppointmentStatusDB> = {
-  pendente: "scheduled",
-  confirmado: "confirmed",
-  cancelado: "cancelled",
-  concluido: "completed",
+  agendada: "agendada",
+  confirmada: "confirmada",
+  presenca_registrada: "presenca_registrada",
+  ausencia_justificada: "ausencia_justificada",
+  falta: "falta",
+  reposicao: "reposicao",
+  cancelada: "cancelada",
 };
 
 function toTime(value: string): string {
@@ -95,12 +139,31 @@ function toTipoSessao(value: string): TipoSessao {
 }
 
 function toPaciente(db: PatientDB): Paciente {
+  const pacote = (db.lesson_packages ?? []).find(
+    (item) => item.status === "ativo",
+  );
+
   return {
     id: db.id,
     nome: db.full_name,
     telefone: db.phone ?? "",
     email: db.email ?? "",
     dataNascimento: db.birth_date ?? "",
+    pacoteAtivo: pacote
+      ? {
+          id: pacote.id,
+          professionalId: pacote.professional_id,
+          totalAulas: pacote.total_lessons,
+          aulasRealizadas: pacote.completed_lessons,
+          aulasFaltadas: pacote.missed_lessons,
+          ausenciasJustificadas: pacote.justified_absences,
+          valorAula: Number(pacote.lesson_value) || 0,
+          diasFixos: pacote.fixed_weekdays ?? [],
+          horarioFixo: pacote.fixed_time.slice(0, 5),
+          duracaoMinutos: pacote.lesson_duration_minutes || 50,
+          statusPagamento: pacote.payment_status,
+        }
+      : undefined,
   };
 }
 
@@ -133,14 +196,28 @@ function toAgendamento(db: AppointmentDB): Agendamento {
     tipoSessao: toTipoSessao(db.type),
     status: statusFromDb[db.status],
     observacoes: db.notes ?? undefined,
+    pacoteId: db.package_id ?? undefined,
+    sessaoNumero: db.package_lesson_number ?? undefined,
+    totalSessoes: db.lesson_packages?.total_lessons,
+    valorAula: Number(db.class_price) || undefined,
   };
 }
 
-export async function getFisioterapeutas(): Promise<Fisioterapeuta[]> {
-  const { data, error } = await supabase
+export async function getFisioterapeutas(
+  profile?: AccessProfile | null,
+): Promise<Fisioterapeuta[]> {
+  let query = supabase
     .from("profiles")
     .select("id, full_name, role")
     .order("full_name", { ascending: true });
+
+  if (profile?.role === "physio") {
+    query = query.eq("id", profile.id);
+  } else if (profile?.clinic_id) {
+    query = query.eq("clinic_id", profile.clinic_id);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     throw new Error(`Erro ao buscar fisioterapeutas: ${error.message}`);
@@ -149,12 +226,45 @@ export async function getFisioterapeutas(): Promise<Fisioterapeuta[]> {
   return ((data ?? []) as ProfessionalDB[]).map(toFisioterapeuta);
 }
 
-export async function getPacientes(): Promise<Paciente[]> {
-  const { data, error } = await supabase
+export async function getPacientes(
+  profile?: AccessProfile | null,
+): Promise<Paciente[]> {
+  let query = supabase
     .from("patients")
-    .select("id, full_name, phone, email, birth_date")
-    .eq("status", "active")
+    .select(
+      `
+      id,
+      full_name,
+      phone,
+      email,
+      birth_date,
+      lesson_packages (
+        id,
+        professional_id,
+        total_lessons,
+        completed_lessons,
+        missed_lessons,
+        justified_absences,
+        lesson_value,
+        fixed_weekdays,
+        fixed_time,
+        lesson_duration_minutes,
+        payment_status,
+        status,
+        start_date
+      )
+    `,
+    )
+    .eq("status", "ativo")
     .order("full_name", { ascending: true });
+
+  if (profile?.role === "physio") {
+    query = query.eq("responsible_professional_id", profile.id);
+  } else if (profile?.clinic_id) {
+    query = query.eq("clinic_id", profile.clinic_id);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     throw new Error(`Erro ao buscar pacientes: ${error.message}`);
@@ -176,8 +286,12 @@ export async function getAgendamentos(): Promise<Agendamento[]> {
       type,
       status,
       notes,
+      package_id,
+      package_lesson_number,
+      class_price,
       patients (id, full_name, phone, email, birth_date),
-      profiles (id, full_name, role)
+      profiles (id, full_name, role),
+      lesson_packages (total_lessons)
     `,
     )
     .order("start_time", { ascending: true });
@@ -192,11 +306,12 @@ export async function getAgendamentos(): Promise<Agendamento[]> {
 export async function getAgendamentosPorMes(
   ano: number,
   mes: number,
+  profile?: AccessProfile | null,
 ): Promise<Agendamento[]> {
   const inicio = new Date(ano, mes, 1).toISOString();
   const fim = new Date(ano, mes + 1, 1).toISOString();
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("appointments")
     .select(
       `
@@ -208,13 +323,25 @@ export async function getAgendamentosPorMes(
       type,
       status,
       notes,
+      package_id,
+      package_lesson_number,
+      class_price,
       patients (id, full_name, phone, email, birth_date),
-      profiles (id, full_name, role)
+      profiles (id, full_name, role),
+      lesson_packages (total_lessons)
     `,
     )
     .gte("start_time", inicio)
     .lt("start_time", fim)
     .order("start_time", { ascending: true });
+
+  if (profile?.role === "physio") {
+    query = query.eq("professional_id", profile.id);
+  } else if (profile?.clinic_id) {
+    query = query.eq("clinic_id", profile.clinic_id);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     throw new Error(`Erro ao buscar agendamentos do mês: ${error.message}`);
@@ -238,6 +365,9 @@ export async function criarAgendamento(
       type: form.tipoSessao,
       status: statusToDb[form.status],
       notes: form.observacoes || null,
+      package_id: form.pacoteId || null,
+      package_lesson_number: form.sessaoNumero || null,
+      class_price: form.valorAula || 0,
     })
     .select(
       `
@@ -249,14 +379,22 @@ export async function criarAgendamento(
       type,
       status,
       notes,
+      package_id,
+      package_lesson_number,
+      class_price,
       patients (id, full_name, phone, email, birth_date),
-      profiles (id, full_name, role)
+      profiles (id, full_name, role),
+      lesson_packages (total_lessons)
     `,
     )
     .single();
 
   if (error) {
     throw new Error(`Erro ao criar agendamento: ${error.message}`);
+  }
+
+  if (form.pacoteId) {
+    await atualizarResumoPacote(form.pacoteId);
   }
 
   return toAgendamento(data as unknown as AppointmentDB);
@@ -266,16 +404,42 @@ export async function atualizarAgendamento(
   id: string,
   form: NovoAgendamentoForm,
 ): Promise<Agendamento> {
+  const { data: currentAppointment, error: currentError } = await supabase
+    .from("appointments")
+    .select("start_time, end_time, notes")
+    .eq("id", id)
+    .single();
+
+  if (currentError) {
+    throw new Error(`Erro ao buscar agendamento atual: ${currentError.message}`);
+  }
+
+  const oldStart = (currentAppointment as { start_time: string }).start_time;
+  const oldEnd = (currentAppointment as { end_time: string }).end_time;
+  const oldNotes = (currentAppointment as { notes: string | null }).notes;
+  const newStart = toDateTime(form.data, form.horaInicio);
+  const newEnd = toDateTime(form.data, form.horaFim);
+  const changedSchedule = oldStart !== newStart || oldEnd !== newEnd;
+  const remarcacaoNote = changedSchedule
+    ? `Remarcação: de ${toDate(oldStart)} ${toTime(oldStart)}-${toTime(oldEnd)} para ${form.data} ${form.horaInicio}-${form.horaFim}.`
+    : "";
+  const notes = [form.observacoes || oldNotes || "", remarcacaoNote]
+    .filter(Boolean)
+    .join("\n");
+
   const { data, error } = await supabase
     .from("appointments")
     .update({
       patient_id: form.pacienteId,
       professional_id: form.fisioterapeutaId,
-      start_time: toDateTime(form.data, form.horaInicio),
-      end_time: toDateTime(form.data, form.horaFim),
+      start_time: newStart,
+      end_time: newEnd,
       type: form.tipoSessao,
       status: statusToDb[form.status],
-      notes: form.observacoes || null,
+      notes: notes || null,
+      package_id: form.pacoteId || null,
+      package_lesson_number: form.sessaoNumero || null,
+      class_price: form.valorAula || 0,
     })
     .eq("id", id)
     .select(
@@ -288,8 +452,12 @@ export async function atualizarAgendamento(
       type,
       status,
       notes,
+      package_id,
+      package_lesson_number,
+      class_price,
       patients (id, full_name, phone, email, birth_date),
-      profiles (id, full_name, role)
+      profiles (id, full_name, role),
+      lesson_packages (total_lessons)
     `,
     )
     .single();
@@ -298,20 +466,112 @@ export async function atualizarAgendamento(
     throw new Error(`Erro ao atualizar agendamento: ${error.message}`);
   }
 
+  if (form.pacoteId) {
+    await atualizarResumoPacote(form.pacoteId);
+  }
+
   return toAgendamento(data as unknown as AppointmentDB);
 }
 
 export async function atualizarStatusAgendamento(
   id: string,
   status: StatusAgendamento,
-): Promise<void> {
+): Promise<StatusAgendamento> {
+  const { data: appointment, error: appointmentError } = await supabase
+    .from("appointments")
+    .select("package_id")
+    .eq("id", id)
+    .single();
+
+  if (appointmentError) {
+    throw new Error(`Erro ao buscar aula: ${appointmentError.message}`);
+  }
+
+  let finalStatus = status;
+  const packageId = (appointment as { package_id: string | null }).package_id;
+
+  if (packageId && status === "ausencia_justificada") {
+    const { data: packageData, error: packageError } = await supabase
+      .from("lesson_packages")
+      .select("justified_absence_limit")
+      .eq("id", packageId)
+      .single();
+
+    if (packageError) {
+      throw new Error(`Erro ao validar pacote: ${packageError.message}`);
+    }
+
+    const { count, error: countError } = await supabase
+      .from("appointments")
+      .select("id", { count: "exact", head: true })
+      .eq("package_id", packageId)
+      .eq("status", "ausencia_justificada")
+      .neq("id", id);
+
+    if (countError) {
+      throw new Error(`Erro ao contar ausências: ${countError.message}`);
+    }
+
+    const limit =
+      Number(
+        (packageData as { justified_absence_limit: number })
+          .justified_absence_limit,
+      ) || 2;
+
+    if ((count ?? 0) >= limit) {
+      finalStatus = "falta";
+    }
+  }
+
   const { error } = await supabase
     .from("appointments")
-    .update({ status: statusToDb[status] })
+    .update({ status: statusToDb[finalStatus] })
     .eq("id", id);
 
   if (error) {
     throw new Error(`Erro ao atualizar status: ${error.message}`);
+  }
+
+  if (packageId) {
+    await atualizarResumoPacote(packageId);
+  }
+
+  return finalStatus;
+}
+
+async function atualizarResumoPacote(packageId: string): Promise<void> {
+  const { data, error } = await supabase
+    .from("appointments")
+    .select("status")
+    .eq("package_id", packageId);
+
+  if (error) {
+    throw new Error(`Erro ao recalcular pacote: ${error.message}`);
+  }
+
+  const statuses = ((data ?? []) as { status: AppointmentStatusDB }[]).map(
+    (item) => statusFromDb[item.status],
+  );
+
+  const completed = statuses.filter(
+    (status) => status === "presenca_registrada",
+  ).length;
+  const missed = statuses.filter((status) => status === "falta").length;
+  const justified = statuses.filter(
+    (status) => status === "ausencia_justificada",
+  ).length;
+
+  const { error: updateError } = await supabase
+    .from("lesson_packages")
+    .update({
+      completed_lessons: completed,
+      missed_lessons: missed,
+      justified_absences: justified,
+    })
+    .eq("id", packageId);
+
+  if (updateError) {
+    throw new Error(`Erro ao atualizar pacote: ${updateError.message}`);
   }
 }
 

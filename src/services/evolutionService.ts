@@ -26,6 +26,7 @@ export interface Patient {
   address?: string | null;
   clinical_notes?: string | null;
   status?: string | null;
+  responsible_professional_id?: string | null;
   created_at?: string;
 }
 
@@ -36,6 +37,22 @@ export interface Profile {
   role?: string | null;
   avatar_url?: string | null;
   updated_at?: string;
+}
+
+export interface PatientAppointment {
+  id: string;
+  patient_id: string;
+  professional_id: string | null;
+  package_id: string | null;
+  package_lesson_number: number | null;
+  start_time: string;
+  end_time: string;
+  type: string;
+  status: string;
+  notes: string | null;
+  class_price: number | string | null;
+  profiles?: { id: string; full_name: string } | null;
+  lesson_packages?: { id: string; total_lessons: number } | null;
 }
 
 export interface CreateEvolutionPayload {
@@ -274,4 +291,33 @@ export async function getProfiles(): Promise<Profile[]> {
 
   if (error) throw new Error(`Erro ao buscar profissionais: ${error.message}`);
   return (data ?? []) as Profile[];
+}
+
+export async function getAppointmentsByPatient(
+  patientId: string,
+): Promise<PatientAppointment[]> {
+  const { data, error } = await supabase
+    .from("appointments")
+    .select(
+      `
+      id,
+      patient_id,
+      professional_id,
+      package_id,
+      package_lesson_number,
+      start_time,
+      end_time,
+      type,
+      status,
+      notes,
+      class_price,
+      profiles (id, full_name),
+      lesson_packages (id, total_lessons)
+    `,
+    )
+    .eq("patient_id", patientId)
+    .order("start_time", { ascending: false });
+
+  if (error) throw new Error(`Erro ao buscar agenda do paciente: ${error.message}`);
+  return (data ?? []) as unknown as PatientAppointment[];
 }
