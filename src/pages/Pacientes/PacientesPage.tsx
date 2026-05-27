@@ -46,6 +46,16 @@ function onlyDigits(value: string | null | undefined): string {
   return (value ?? "").replace(/\D/g, "");
 }
 
+function formatDateBr(value: string | null | undefined): string {
+  if (!value) return "N/A";
+
+  return new Date(`${value}T12:00:00`).toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
 function openWhatsApp(phone: string | null | undefined, message: string) {
   const digits = onlyDigits(phone);
   if (!digits) return;
@@ -391,7 +401,7 @@ export const PacientesPage = () => {
                       0,
                     )}{" "}
                     aulas · termina em{" "}
-                    {patient.lesson_packages[0].expected_end_date || "N/A"}
+                    {formatDateBr(patient.lesson_packages[0].expected_end_date)}
                   </div>
                   <div className="text-xs text-slate-500">
                     {patient.lesson_packages[0].fixed_weekdays
@@ -415,7 +425,7 @@ export const PacientesPage = () => {
                 </div>
                 <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
                   <Calendar size={14} />
-                  <span>Nascimento: {patient.birth_date || "N/A"}</span>
+                  <span>Nascimento: {formatDateBr(patient.birth_date)}</span>
                 </div>
               </div>
 

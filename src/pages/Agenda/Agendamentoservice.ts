@@ -117,6 +117,14 @@ function toDate(value: string): string {
   return new Date(value).toISOString().slice(0, 10);
 }
 
+function formatDateBr(value: string): string {
+  return new Date(`${value}T12:00:00`).toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
 function toDateTime(date: string, time: string): string {
   return new Date(`${date}T${time}:00`).toISOString();
 }
@@ -421,7 +429,7 @@ export async function atualizarAgendamento(
   const newEnd = toDateTime(form.data, form.horaFim);
   const changedSchedule = oldStart !== newStart || oldEnd !== newEnd;
   const remarcacaoNote = changedSchedule
-    ? `Remarcação: de ${toDate(oldStart)} ${toTime(oldStart)}-${toTime(oldEnd)} para ${form.data} ${form.horaInicio}-${form.horaFim}.`
+    ? `Remarcação: de ${formatDateBr(toDate(oldStart))} ${toTime(oldStart)}-${toTime(oldEnd)} para ${formatDateBr(form.data)} ${form.horaInicio}-${form.horaFim}.`
     : "";
   const notes = [form.observacoes || oldNotes || "", remarcacaoNote]
     .filter(Boolean)

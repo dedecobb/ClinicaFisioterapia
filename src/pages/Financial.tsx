@@ -2,8 +2,10 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { clsx } from "clsx";
 import {
   AlertTriangle,
+  ArrowUpDown,
   Check,
   DollarSign,
+  Filter,
   Loader2,
   MessageCircle,
   Receipt,
@@ -62,6 +64,29 @@ type ProfessionalReport = {
   paidMisses: number;
   gross: number;
   professionalShare: number;
+  commissionPaid: number;
+};
+
+type TransactionRow = {
+  id: string;
+  amount: number | string;
+  type: "income" | "expense";
+  category: string;
+  status: "paid" | "pending" | "overdue" | "cancelled";
+  description: string | null;
+  due_date: string;
+  created_at: string;
+  patients: { full_name: string } | null;
+};
+
+type ReceivableFilter = "open" | "paid" | "all";
+type DueSort = "asc" | "desc";
+
+type ReceivableRow = {
+  packageItem: PackageRow;
+  installment: InstallmentRow;
+  patientName: string;
+  remaining: number;
 };
 
 const currencyFormatter = new Intl.NumberFormat("pt-BR", {
@@ -129,6 +154,16 @@ function getRemainingInstallment(installment: InstallmentRow): number {
   return Math.max(money(installment.amount) - money(installment.amount_paid), 0);
 }
 
+function badgeVariantForPayment(status: PaymentStatus) {
+  if (status === "pago") return "success";
+  if (status === "inadimplente") return "danger";
+  return "warning";
+}
+
+function todayDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function buildCommissionReport(
   appointments: CommissionAppointment[],
   ownerId: string | null,
@@ -155,6 +190,7 @@ function buildCommissionReport(
           paidMisses: 0,
           gross: 0,
           professionalShare: 0,
+          commissionPaid: 0,
         } satisfies ProfessionalReport);
 
       const classValue = money(appointment.class_price);
@@ -174,13 +210,19 @@ export const Financial = () => {
   const { profile } = useAuth();
   const [packages, setPackages] = useState<PackageRow[]>([]);
   const [appointments, setAppointments] = useState<CommissionAppointment[]>([]);
+  const [transactions, setTransactions] = useState<TransactionRow[]>([]);
   const [ownerId, setOwnerId] = useState<string | null>(null);
   const [paymentTarget, setPaymentTarget] = useState<{
     packageItem: PackageRow;
     installment: InstallmentRow;
   } | null>(null);
+  const [commissionTarget, setCommissionTarget] =
+    useState<ProfessionalReport | null>(null);
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("Pix");
+  const [receivableFilter, setReceivableFilter] =
+    useState<ReceivableFilter>("open");
+  const [dueSort, setDueSort] = useState<DueSort>("asc");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -209,7 +251,7 @@ export const Financial = () => {
       appointmentsQuery = appointmentsQuery.eq("professional_id", profile.id);
     }
 
-    const [clinicResult, packagesResult, appointmentsResult] =
+    const [clinicResult, packagesResult, appointmentsResult, transactionsResult] =
       await Promise.all([
         supabase
           .from("clinics")
@@ -249,11 +291,21 @@ export const Financial = () => {
           .eq("clinic_id", profile.clinic_id)
           .order("created_at", { ascending: false }),
         appointmentsQuery,
+        supabase
+          .from("transactions")
+          .select(
+            "id, amount, type, category, status, description, due_date, created_at, patients (full_name)",
+          )
+          .eq("clinic_id", profile.clinic_id)
+          .order("created_at", { ascending: false }),
       ]);
 
-    const failed = [clinicResult, packagesResult, appointmentsResult].find(
-      (result) => result.error,
-    );
+    const failed = [
+      clinicResult,
+      packagesResult,
+      appointmentsResult,
+      transactionsResult,
+    ].find((result) => result.error);
     if (failed?.error) {
       setError(failed.error.message);
       setLoading(false);
@@ -265,6 +317,9 @@ export const Financial = () => {
     setAppointments(
       (appointmentsResult.data ?? []) as unknown as CommissionAppointment[],
     );
+    setTransactions(
+      (transactionsResult.data ?? []) as unknown as TransactionRow[],
+    );
     setLoading(false);
   };
 
@@ -272,9 +327,32 @@ export const Financial = () => {
     loadFinancialData();
   }, [profile?.clinic_id]);
 
-  const commissionReport = useMemo(
+  const rawCommissionReport = useMemo(
     () => buildCommissionReport(appointments, ownerId),
     [appointments, ownerId],
+  );
+
+  const commissionReport = useMemo(
+    () =>
+      rawCommissionReport.map((item) => {
+        const commissionPaid = transactions
+          .filter(
+            (transaction) =>
+              transaction.type === "expense" &&
+              transaction.status === "paid" &&
+              transaction.category === "Comissão fisioterapeuta" &&
+              (transaction.description?.includes(item.professionalId) ||
+                transaction.description?.includes(item.professionalName)),
+          )
+          .reduce((total, transaction) => total + money(transaction.amount), 0);
+
+        return {
+          ...item,
+          commissionPaid,
+          professionalShare: Math.max(item.professionalShare - commissionPaid, 0),
+        };
+      }),
+    [rawCommissionReport, transactions],
   );
 
   const totals = useMemo(() => {
@@ -303,6 +381,28 @@ export const Financial = () => {
     return { sold, paid, open, currentDue, professionalShare };
   }, [commissionReport, packages]);
 
+  const receivables = useMemo(() => {
+    const rows = packages.flatMap((packageItem) =>
+      getInstallments(packageItem).map((installment) => ({
+        packageItem,
+        installment,
+        patientName: packageItem.patients?.full_name ?? "Paciente",
+        remaining: getRemainingInstallment(installment),
+      })),
+    );
+
+    return rows
+      .filter((row) => {
+        if (receivableFilter === "paid") return row.installment.status === "pago";
+        if (receivableFilter === "open") return row.installment.status !== "pago";
+        return true;
+      })
+      .sort((a, b) => {
+        const direction = dueSort === "asc" ? 1 : -1;
+        return a.installment.due_date.localeCompare(b.installment.due_date) * direction;
+      });
+  }, [dueSort, packages, receivableFilter]);
+
   const openPaymentModal = (
     packageItem: PackageRow,
     installment: InstallmentRow,
@@ -322,26 +422,66 @@ export const Financial = () => {
       return;
     }
 
+    const packageOpen = Math.max(
+      money(paymentTarget.packageItem.total_amount) -
+        money(paymentTarget.packageItem.amount_paid),
+      0,
+    );
+
+    if (amount > packageOpen) {
+      setError(
+        `O valor informado é maior que o saldo do pacote (${currencyFormatter.format(packageOpen)}).`,
+      );
+      return;
+    }
+
     setSaving(true);
     setError(null);
 
-    const installmentTotal = money(paymentTarget.installment.amount);
-    const installmentPaid = money(paymentTarget.installment.amount_paid) + amount;
-    const installmentStatus = statusFromPayment(
-      installmentTotal,
-      installmentPaid,
+    const installments = getInstallments(paymentTarget.packageItem);
+    const selectedIndex = installments.findIndex(
+      (item) => item.id === paymentTarget.installment.id,
     );
+    const orderedInstallments = [
+      ...installments.slice(Math.max(selectedIndex, 0)),
+      ...installments.slice(0, Math.max(selectedIndex, 0)),
+    ].filter((item) => getRemainingInstallment(item) > 0);
 
-    const { error: installmentError } = await supabase
-      .from("package_installments")
-      .update({
-        amount_paid: installmentPaid,
-        payment_method: paymentMethod,
-        status: installmentStatus,
-        paid_at:
-          installmentStatus === "pago" ? new Date().toISOString() : null,
-      })
-      .eq("id", paymentTarget.installment.id);
+    let remainingAmount = amount;
+    const paymentDate = new Date().toISOString();
+    const updates: Promise<{ error: Error | null }>[] = [];
+
+    for (const installment of orderedInstallments) {
+      if (remainingAmount <= 0) break;
+
+      const installmentTotal = money(installment.amount);
+      const currentPaid = money(installment.amount_paid);
+      const appliedAmount = Math.min(
+        remainingAmount,
+        Math.max(installmentTotal - currentPaid, 0),
+      );
+
+      if (appliedAmount <= 0) continue;
+
+      const installmentPaid = currentPaid + appliedAmount;
+      const installmentStatus = statusFromPayment(installmentTotal, installmentPaid);
+      remainingAmount -= appliedAmount;
+
+      updates.push(
+        supabase
+          .from("package_installments")
+          .update({
+            amount_paid: installmentPaid,
+            payment_method: paymentMethod,
+            status: installmentStatus,
+            paid_at: installmentStatus === "pago" ? paymentDate : null,
+          })
+          .eq("id", installment.id) as unknown as Promise<{ error: Error | null }>,
+      );
+    }
+
+    const installmentResults = await Promise.all(updates);
+    const installmentError = installmentResults.find((result) => result.error)?.error;
 
     if (installmentError) {
       setError(installmentError.message);
@@ -370,7 +510,51 @@ export const Financial = () => {
       return;
     }
 
+    const { error: transactionError } = await supabase.from("transactions").insert({
+      clinic_id: profile?.clinic_id,
+      patient_id: paymentTarget.packageItem.patient_id,
+      amount,
+      type: "income",
+      category: "Recebimento de pacote",
+      status: "paid",
+      description: `Recebimento de ${paymentTarget.packageItem.patients?.full_name ?? "paciente"} - pacote ${paymentTarget.packageItem.total_lessons} aulas (${paymentMethod})`,
+      due_date: todayDate(),
+    });
+
+    if (transactionError) {
+      setError(transactionError.message);
+      setSaving(false);
+      return;
+    }
+
     setPaymentTarget(null);
+    setSaving(false);
+    await loadFinancialData();
+  };
+
+  const handleRegisterCommissionPayment = async () => {
+    if (!commissionTarget || !profile?.clinic_id) return;
+
+    setSaving(true);
+    setError(null);
+
+    const { error: transactionError } = await supabase.from("transactions").insert({
+      clinic_id: profile.clinic_id,
+      amount: commissionTarget.professionalShare,
+      type: "expense",
+      category: "Comissão fisioterapeuta",
+      status: "paid",
+      description: `Pagamento de comissão para ${commissionTarget.professionalName} (${commissionTarget.professionalId})`,
+      due_date: todayDate(),
+    });
+
+    if (transactionError) {
+      setError(transactionError.message);
+      setSaving(false);
+      return;
+    }
+
+    setCommissionTarget(null);
     setSaving(false);
     await loadFinancialData();
   };
@@ -454,6 +638,125 @@ export const Financial = () => {
               icon={UserCheck}
             />
           </div>
+
+          {!isPhysio && (
+            <Card className="p-0 overflow-hidden">
+              <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+                    Parcelas
+                  </h3>
+                  <p className="text-sm text-slate-500">
+                    Veja o que está em aberto, pago ou tudo junto.
+                  </p>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <label className="flex items-center gap-2 text-sm text-slate-500">
+                    <Filter size={16} />
+                    <select
+                      className="px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg outline-none"
+                      value={receivableFilter}
+                      onChange={(event) =>
+                        setReceivableFilter(event.target.value as ReceivableFilter)
+                      }
+                    >
+                      <option value="open">Em aberto</option>
+                      <option value="paid">Pagas</option>
+                      <option value="all">Todas</option>
+                    </select>
+                  </label>
+                  <Button
+                    variant="outline"
+                    onClick={() => setDueSort((current) => (current === "asc" ? "desc" : "asc"))}
+                  >
+                    <ArrowUpDown size={16} />
+                    Vencimento {dueSort === "asc" ? "mais antigo" : "mais novo"}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="bg-slate-50 dark:bg-slate-900/50 text-slate-500 text-xs font-bold uppercase tracking-wider">
+                      <th className="px-6 py-4">Paciente</th>
+                      <th className="px-6 py-4">Parcela</th>
+                      <th className="px-6 py-4">Vencimento</th>
+                      <th className="px-6 py-4">Valor</th>
+                      <th className="px-6 py-4">Recebido</th>
+                      <th className="px-6 py-4">Saldo</th>
+                      <th className="px-6 py-4">Status</th>
+                      <th className="px-6 py-4">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {receivables.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="px-6 py-10 text-center text-sm text-slate-500">
+                          Nenhuma parcela encontrada para este filtro.
+                        </td>
+                      </tr>
+                    ) : (
+                      receivables.map((row: ReceivableRow) => (
+                        <tr key={row.installment.id}>
+                          <td className="px-6 py-4">
+                            <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                              {row.patientName}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              Pacote de {row.packageItem.total_lessons} aulas
+                            </p>
+                          </td>
+                          <td className="px-6 py-4 text-sm font-semibold">
+                            #{row.installment.installment_number}
+                          </td>
+                          <td className="px-6 py-4 text-sm text-slate-500">
+                            {formatDate(row.installment.due_date)}
+                          </td>
+                          <td className="px-6 py-4 text-sm">
+                            {currencyFormatter.format(money(row.installment.amount))}
+                          </td>
+                          <td className="px-6 py-4 text-sm text-emerald-600 font-semibold">
+                            {currencyFormatter.format(money(row.installment.amount_paid))}
+                          </td>
+                          <td className="px-6 py-4 text-sm font-semibold">
+                            {currencyFormatter.format(row.remaining)}
+                          </td>
+                          <td className="px-6 py-4">
+                            <Badge variant={badgeVariantForPayment(row.installment.status)}>
+                              {paymentLabel[row.installment.status]}
+                            </Badge>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex gap-2">
+                              {row.installment.status !== "pago" && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() =>
+                                    openPaymentModal(row.packageItem, row.installment)
+                                  }
+                                >
+                                  Registrar
+                                </Button>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => printReceipt(row.packageItem, row.installment)}
+                              >
+                                <Receipt size={14} />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
 
           {!isPhysio && (
             <Card className="p-0 overflow-hidden">
@@ -634,13 +937,15 @@ export const Financial = () => {
                     <th className="px-6 py-4">Aulas</th>
                     <th className="px-6 py-4">Faltas pagas</th>
                     <th className="px-6 py-4">Bruto</th>
+                    <th className="px-6 py-4">Já pago</th>
                     <th className="px-6 py-4">A pagar</th>
+                    {!isPhysio && <th className="px-6 py-4">Ações</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {commissionReport.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-6 py-10 text-center text-sm text-slate-500">
+                      <td colSpan={isPhysio ? 6 : 7} className="px-6 py-10 text-center text-sm text-slate-500">
                         Nenhuma presença ou falta registrada neste mês.
                       </td>
                     </tr>
@@ -662,6 +967,9 @@ export const Financial = () => {
                         <td className="px-6 py-4 text-sm font-semibold">
                           {currencyFormatter.format(item.gross)}
                         </td>
+                        <td className="px-6 py-4 text-sm text-slate-500">
+                          {currencyFormatter.format(item.commissionPaid)}
+                        </td>
                         <td
                           className={clsx(
                             "px-6 py-4 text-sm font-bold",
@@ -672,6 +980,19 @@ export const Financial = () => {
                         >
                           {currencyFormatter.format(item.professionalShare)}
                         </td>
+                        {!isPhysio && (
+                          <td className="px-6 py-4">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={item.professionalShare <= 0}
+                              onClick={() => setCommissionTarget(item)}
+                            >
+                              <Check size={14} />
+                              Registrar pagamento
+                            </Button>
+                          </td>
+                        )}
                       </tr>
                     ))
                   )}
@@ -679,6 +1000,71 @@ export const Financial = () => {
               </table>
             </div>
           </Card>
+
+          {!isPhysio && (
+            <Card className="p-0 overflow-hidden">
+              <div className="p-6 border-b border-slate-100 dark:border-slate-800">
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+                  Histórico de pagamentos
+                </h3>
+                <p className="text-sm text-slate-500">
+                  Entradas recebidas e comissões pagas ficam registradas aqui.
+                </p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="bg-slate-50 dark:bg-slate-900/50 text-slate-500 text-xs font-bold uppercase tracking-wider">
+                      <th className="px-6 py-4">Data</th>
+                      <th className="px-6 py-4">Tipo</th>
+                      <th className="px-6 py-4">Categoria</th>
+                      <th className="px-6 py-4">Descrição</th>
+                      <th className="px-6 py-4">Valor</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {transactions.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-6 py-10 text-center text-sm text-slate-500">
+                          Nenhum pagamento registrado ainda.
+                        </td>
+                      </tr>
+                    ) : (
+                      transactions.map((transaction) => (
+                        <tr key={transaction.id}>
+                          <td className="px-6 py-4 text-sm text-slate-500">
+                            {formatDate(transaction.due_date)}
+                          </td>
+                          <td className="px-6 py-4">
+                            <Badge variant={transaction.type === "income" ? "success" : "warning"}>
+                              {transaction.type === "income" ? "Recebido" : "Pago"}
+                            </Badge>
+                          </td>
+                          <td className="px-6 py-4 text-sm font-semibold">
+                            {transaction.category}
+                          </td>
+                          <td className="px-6 py-4 text-sm text-slate-500">
+                            {transaction.description ?? transaction.patients?.full_name ?? "-"}
+                          </td>
+                          <td
+                            className={clsx(
+                              "px-6 py-4 text-sm font-bold",
+                              transaction.type === "income"
+                                ? "text-emerald-600"
+                                : "text-rose-600",
+                            )}
+                          >
+                            {transaction.type === "income" ? "+" : "-"}
+                            {currencyFormatter.format(money(transaction.amount))}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
         </>
       )}
 
@@ -748,6 +1134,56 @@ export const Financial = () => {
                 </Button>
               </div>
             </form>
+          </Card>
+        </div>
+      )}
+
+      {commissionTarget && (
+        <div className="fixed inset-0 z-[100] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <Card className="w-full max-w-md">
+            <div className="flex items-start justify-between mb-6">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900 dark:text-white">
+                  Registrar comissão
+                </h2>
+                <p className="text-sm text-slate-500">
+                  {commissionTarget.professionalName}
+                </p>
+              </div>
+              <button
+                className="p-2 text-slate-400 hover:bg-slate-100 rounded-lg"
+                onClick={() => setCommissionTarget(null)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/60 p-4 mb-4">
+              <p className="text-sm text-slate-500">Valor da comissão</p>
+              <p className="text-2xl font-bold text-slate-900 dark:text-white">
+                {currencyFormatter.format(commissionTarget.professionalShare)}
+              </p>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1"
+                onClick={() => setCommissionTarget(null)}
+                disabled={saving}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                className="flex-1"
+                isLoading={saving}
+                onClick={handleRegisterCommissionPayment}
+              >
+                Confirmar
+              </Button>
+            </div>
           </Card>
         </div>
       )}
