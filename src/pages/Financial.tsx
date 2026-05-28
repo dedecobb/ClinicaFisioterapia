@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { clsx } from "clsx";
 import {
   AlertTriangle,
@@ -87,6 +88,7 @@ type ReceivableRow = {
   installment: InstallmentRow;
   patientName: string;
   remaining: number;
+  status: PaymentStatus;
 };
 
 const currencyFormatter = new Intl.NumberFormat("pt-BR", {
@@ -103,6 +105,10 @@ const paymentLabel: Record<PaymentStatus, string> = {
 
 function money(value: number | string | null | undefined): number {
   return Number(value) || 0;
+}
+
+function cents(value: number | string | null | undefined): number {
+  return Math.round(money(value) * 100);
 }
 
 function startOfMonth(date: Date): Date {
@@ -133,8 +139,11 @@ function openWhatsApp(phone: string | null | undefined, message: string) {
 }
 
 function statusFromPayment(total: number, paid: number): PaymentStatus {
-  if (paid <= 0) return "pendente";
-  if (paid >= total) return "pago";
+  const totalCents = cents(total);
+  const paidCents = cents(paid);
+
+  if (paidCents <= 0) return "pendente";
+  if (paidCents >= totalCents) return "pago";
   return "parcial";
 }
 
@@ -146,12 +155,33 @@ function getInstallments(packageItem: PackageRow): InstallmentRow[] {
 
 function getCurrentInstallment(packageItem: PackageRow): InstallmentRow | null {
   return (
-    getInstallments(packageItem).find((item) => item.status !== "pago") ?? null
+    getInstallments(packageItem).find((item) => getRemainingInstallment(item) > 0) ??
+    null
   );
 }
 
 function getRemainingInstallment(installment: InstallmentRow): number {
-  return Math.max(money(installment.amount) - money(installment.amount_paid), 0);
+  return Math.max(cents(installment.amount) - cents(installment.amount_paid), 0) / 100;
+}
+
+function getInstallmentPaymentStatus(installment: InstallmentRow): PaymentStatus {
+  const status = statusFromPayment(
+    money(installment.amount),
+    money(installment.amount_paid),
+  );
+
+  if (status === "pago") return "pago";
+  return installment.status === "inadimplente" ? "inadimplente" : status;
+}
+
+function getPackagePaymentStatus(packageItem: PackageRow): PaymentStatus {
+  const status = statusFromPayment(
+    money(packageItem.total_amount),
+    money(packageItem.amount_paid),
+  );
+
+  if (status === "pago") return "pago";
+  return packageItem.payment_status === "inadimplente" ? "inadimplente" : status;
 }
 
 function badgeVariantForPayment(status: PaymentStatus) {
@@ -388,13 +418,14 @@ export const Financial = () => {
         installment,
         patientName: packageItem.patients?.full_name ?? "Paciente",
         remaining: getRemainingInstallment(installment),
+        status: getInstallmentPaymentStatus(installment),
       })),
     );
 
     return rows
       .filter((row) => {
-        if (receivableFilter === "paid") return row.installment.status === "pago";
-        if (receivableFilter === "open") return row.installment.status !== "pago";
+        if (receivableFilter === "paid") return row.status === "pago";
+        if (receivableFilter === "open") return row.remaining > 0;
         return true;
       })
       .sort((a, b) => {
@@ -723,13 +754,13 @@ export const Financial = () => {
                             {currencyFormatter.format(row.remaining)}
                           </td>
                           <td className="px-6 py-4">
-                            <Badge variant={badgeVariantForPayment(row.installment.status)}>
-                              {paymentLabel[row.installment.status]}
+                            <Badge variant={badgeVariantForPayment(row.status)}>
+                              {paymentLabel[row.status]}
                             </Badge>
                           </td>
                           <td className="px-6 py-4">
                             <div className="flex gap-2">
-                              {row.installment.status !== "pago" && (
+                              {row.remaining > 0 && (
                                 <Button
                                   size="sm"
                                   variant="outline"
@@ -770,9 +801,12 @@ export const Financial = () => {
                   const installments = getInstallments(packageItem);
                   const currentInstallment = getCurrentInstallment(packageItem);
                   const packageOpen = Math.max(
-                    money(packageItem.total_amount) - money(packageItem.amount_paid),
+                    (cents(packageItem.total_amount) -
+                      cents(packageItem.amount_paid)) /
+                      100,
                     0,
                   );
+                  const packagePaymentStatus = getPackagePaymentStatus(packageItem);
 
                   return (
                     <div key={packageItem.id} className="p-6 space-y-4">
@@ -787,14 +821,14 @@ export const Financial = () => {
                             </Badge>
                             <Badge
                               variant={
-                                packageItem.payment_status === "pago"
+                                packagePaymentStatus === "pago"
                                   ? "success"
-                                  : packageItem.payment_status === "inadimplente"
+                                  : packagePaymentStatus === "inadimplente"
                                     ? "danger"
                                     : "warning"
                               }
                             >
-                              {paymentLabel[packageItem.payment_status]}
+                              {paymentLabel[packagePaymentStatus]}
                             </Badge>
                           </div>
                           <p className="text-sm text-slate-500 mt-1">
@@ -861,58 +895,67 @@ export const Financial = () => {
                             </tr>
                           </thead>
                           <tbody>
-                            {installments.map((installment) => (
-                              <tr
-                                key={installment.id}
-                                className="border-t border-slate-100 dark:border-slate-800"
-                              >
-                                <td className="py-3 pr-4 text-sm font-semibold">
-                                  #{installment.installment_number}
-                                </td>
-                                <td className="py-3 pr-4 text-sm text-slate-500">
-                                  {formatDate(installment.due_date)}
-                                </td>
-                                <td className="py-3 pr-4 text-sm">
-                                  {currencyFormatter.format(money(installment.amount))}
-                                </td>
-                                <td className="py-3 pr-4 text-sm text-emerald-600 font-semibold">
-                                  {currencyFormatter.format(money(installment.amount_paid))}
-                                </td>
-                                <td className="py-3 pr-4">
-                                  <Badge
-                                    variant={
-                                      installment.status === "pago"
-                                        ? "success"
-                                        : installment.status === "inadimplente"
-                                          ? "danger"
-                                          : "warning"
-                                    }
-                                  >
-                                    {paymentLabel[installment.status]}
-                                  </Badge>
-                                </td>
-                                <td className="py-3 pr-4">
-                                  <div className="flex gap-2">
-                                    {installment.status !== "pago" && (
+                            {installments.map((installment) => {
+                              const installmentStatus =
+                                getInstallmentPaymentStatus(installment);
+                              const installmentRemaining =
+                                getRemainingInstallment(installment);
+
+                              return (
+                                <tr
+                                  key={installment.id}
+                                  className="border-t border-slate-100 dark:border-slate-800"
+                                >
+                                  <td className="py-3 pr-4 text-sm font-semibold">
+                                    #{installment.installment_number}
+                                  </td>
+                                  <td className="py-3 pr-4 text-sm text-slate-500">
+                                    {formatDate(installment.due_date)}
+                                  </td>
+                                  <td className="py-3 pr-4 text-sm">
+                                    {currencyFormatter.format(money(installment.amount))}
+                                  </td>
+                                  <td className="py-3 pr-4 text-sm text-emerald-600 font-semibold">
+                                    {currencyFormatter.format(money(installment.amount_paid))}
+                                  </td>
+                                  <td className="py-3 pr-4">
+                                    <Badge
+                                      variant={
+                                        installmentStatus === "pago"
+                                          ? "success"
+                                          : installmentStatus === "inadimplente"
+                                            ? "danger"
+                                            : "warning"
+                                      }
+                                    >
+                                      {paymentLabel[installmentStatus]}
+                                    </Badge>
+                                  </td>
+                                  <td className="py-3 pr-4">
+                                    <div className="flex gap-2">
+                                      {installmentRemaining > 0 && (
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          onClick={() =>
+                                            openPaymentModal(packageItem, installment)
+                                          }
+                                        >
+                                          Registrar
+                                        </Button>
+                                      )}
                                       <Button
                                         size="sm"
                                         variant="outline"
-                                        onClick={() => openPaymentModal(packageItem, installment)}
+                                        onClick={() => printReceipt(packageItem, installment)}
                                       >
-                                        Registrar
+                                        <Receipt size={14} />
                                       </Button>
-                                    )}
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      onClick={() => printReceipt(packageItem, installment)}
-                                    >
-                                      <Receipt size={14} />
-                                    </Button>
-                                  </div>
-                                </td>
-                              </tr>
-                            ))}
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>
@@ -1068,125 +1111,129 @@ export const Financial = () => {
         </>
       )}
 
-      {paymentTarget && (
-        <div className="fixed inset-0 z-[100] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
-          <Card className="w-full max-w-md">
-            <div className="flex items-start justify-between mb-6">
-              <div>
-                <h2 className="text-xl font-bold text-slate-900 dark:text-white">
-                  Registrar pagamento
-                </h2>
-                <p className="text-sm text-slate-500">
-                  {paymentTarget.packageItem.patients?.full_name} · Parcela #
-                  {paymentTarget.installment.installment_number}
+      {paymentTarget &&
+        createPortal(
+          <div className="fixed inset-0 z-[100] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+            <Card className="w-full max-w-md">
+              <div className="flex items-start justify-between mb-6">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900 dark:text-white">
+                    Registrar pagamento
+                  </h2>
+                  <p className="text-sm text-slate-500">
+                    {paymentTarget.packageItem.patients?.full_name} · Parcela #
+                    {paymentTarget.installment.installment_number}
+                  </p>
+                </div>
+                <button
+                  className="p-2 text-slate-400 hover:bg-slate-100 rounded-lg"
+                  onClick={() => setPaymentTarget(null)}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <form onSubmit={handleRegisterPayment} className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                    Valor recebido
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    required
+                    className="mt-2 w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none"
+                    value={paymentAmount}
+                    onChange={(event) => setPaymentAmount(event.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                    Forma de pagamento
+                  </label>
+                  <select
+                    className="mt-2 w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none"
+                    value={paymentMethod}
+                    onChange={(event) => setPaymentMethod(event.target.value)}
+                  >
+                    <option>Pix</option>
+                    <option>Cartão de crédito</option>
+                    <option>Cartão de débito</option>
+                    <option>Dinheiro</option>
+                    <option>Transferência</option>
+                  </select>
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => setPaymentTarget(null)}
+                    disabled={saving}
+                  >
+                    Cancelar
+                  </Button>
+                  <Button type="submit" className="flex-1" isLoading={saving}>
+                    Salvar
+                  </Button>
+                </div>
+              </form>
+            </Card>
+          </div>,
+          document.body,
+        )}
+
+      {commissionTarget &&
+        createPortal(
+          <div className="fixed inset-0 z-[100] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+            <Card className="w-full max-w-md">
+              <div className="flex items-start justify-between mb-6">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900 dark:text-white">
+                    Registrar comissão
+                  </h2>
+                  <p className="text-sm text-slate-500">
+                    {commissionTarget.professionalName}
+                  </p>
+                </div>
+                <button
+                  className="p-2 text-slate-400 hover:bg-slate-100 rounded-lg"
+                  onClick={() => setCommissionTarget(null)}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/60 p-4 mb-4">
+                <p className="text-sm text-slate-500">Valor da comissão</p>
+                <p className="text-2xl font-bold text-slate-900 dark:text-white">
+                  {currencyFormatter.format(commissionTarget.professionalShare)}
                 </p>
               </div>
-              <button
-                className="p-2 text-slate-400 hover:bg-slate-100 rounded-lg"
-                onClick={() => setPaymentTarget(null)}
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <form onSubmit={handleRegisterPayment} className="space-y-4">
-              <div>
-                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                  Valor recebido
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  required
-                  className="mt-2 w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none"
-                  value={paymentAmount}
-                  onChange={(event) => setPaymentAmount(event.target.value)}
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                  Forma de pagamento
-                </label>
-                <select
-                  className="mt-2 w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none"
-                  value={paymentMethod}
-                  onChange={(event) => setPaymentMethod(event.target.value)}
-                >
-                  <option>Pix</option>
-                  <option>Cartão de crédito</option>
-                  <option>Cartão de débito</option>
-                  <option>Dinheiro</option>
-                  <option>Transferência</option>
-                </select>
-              </div>
+
               <div className="flex gap-3 pt-2">
                 <Button
                   type="button"
                   variant="outline"
                   className="flex-1"
-                  onClick={() => setPaymentTarget(null)}
+                  onClick={() => setCommissionTarget(null)}
                   disabled={saving}
                 >
                   Cancelar
                 </Button>
-                <Button type="submit" className="flex-1" isLoading={saving}>
-                  Salvar
+                <Button
+                  type="button"
+                  className="flex-1"
+                  isLoading={saving}
+                  onClick={handleRegisterCommissionPayment}
+                >
+                  Confirmar
                 </Button>
               </div>
-            </form>
-          </Card>
-        </div>
-      )}
-
-      {commissionTarget && (
-        <div className="fixed inset-0 z-[100] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
-          <Card className="w-full max-w-md">
-            <div className="flex items-start justify-between mb-6">
-              <div>
-                <h2 className="text-xl font-bold text-slate-900 dark:text-white">
-                  Registrar comissão
-                </h2>
-                <p className="text-sm text-slate-500">
-                  {commissionTarget.professionalName}
-                </p>
-              </div>
-              <button
-                className="p-2 text-slate-400 hover:bg-slate-100 rounded-lg"
-                onClick={() => setCommissionTarget(null)}
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/60 p-4 mb-4">
-              <p className="text-sm text-slate-500">Valor da comissão</p>
-              <p className="text-2xl font-bold text-slate-900 dark:text-white">
-                {currencyFormatter.format(commissionTarget.professionalShare)}
-              </p>
-            </div>
-
-            <div className="flex gap-3 pt-2">
-              <Button
-                type="button"
-                variant="outline"
-                className="flex-1"
-                onClick={() => setCommissionTarget(null)}
-                disabled={saving}
-              >
-                Cancelar
-              </Button>
-              <Button
-                type="button"
-                className="flex-1"
-                isLoading={saving}
-                onClick={handleRegisterCommissionPayment}
-              >
-                Confirmar
-              </Button>
-            </div>
-          </Card>
-        </div>
-      )}
+            </Card>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 };
