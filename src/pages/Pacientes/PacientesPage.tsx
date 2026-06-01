@@ -66,11 +66,13 @@ function getProcedureTotal(procedure: PatientProcedure): number {
 }
 
 function getPatientProcedureCredits(patient: Patient): PatientProcedure[] {
-  return (
-    patient.lesson_packages?.[0]?.procedure_credits ??
-    patient.procedures ??
-    []
-  );
+  const byType = new Map<string, PatientProcedure>();
+
+  [...(patient.procedures ?? []), ...(patient.lesson_packages?.[0]?.procedure_credits ?? [])]
+    .filter((procedure) => procedure.name?.trim())
+    .forEach((procedure) => byType.set(procedure.type, procedure));
+
+  return Array.from(byType.values());
 }
 
 function openWhatsApp(phone: string | null | undefined, message: string) {
@@ -154,6 +156,9 @@ export const PacientesPage = () => {
   }, [profile]);
 
   const validatePatientForm = (form: NewPatientForm): string | null => {
+    const hasLessons = Number(form.contracted_lessons) > 0;
+    const hasProcedures = form.procedures.length > 0;
+
     if (form.procedures.some((procedure) => Number(procedure.agreed_value) <= 0)) {
       return "Informe o valor unitário de todos os procedimentos selecionados.";
     }
@@ -162,15 +167,19 @@ export const PacientesPage = () => {
       return "Informe a quantidade de créditos de todos os procedimentos selecionados.";
     }
 
-    if (Number(form.contracted_lessons) <= 0) {
-      return "Informe a quantidade de aulas do pacote.";
+    if (Number(form.contracted_lessons) < 0) {
+      return "A quantidade de aulas não pode ser negativa.";
     }
 
-    if (form.fixed_weekdays.length === 0) {
+    if (!hasLessons && !hasProcedures) {
+      return "Informe pelo menos uma aula ou um procedimento.";
+    }
+
+    if (hasLessons && form.fixed_weekdays.length === 0) {
       return "Selecione pelo menos um dia fixo para as aulas.";
     }
 
-    if (!form.fixed_time) {
+    if (hasLessons && !form.fixed_time) {
       return "Informe o horário fixo das aulas.";
     }
 

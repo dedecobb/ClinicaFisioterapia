@@ -596,8 +596,9 @@ export const Financial = () => {
     packageItem: PackageRow,
     installment?: InstallmentRow,
   ) => {
-    const receiptWindow = window.open("", "_blank", "noopener,noreferrer");
+    const receiptWindow = window.open("", "_blank");
     if (!receiptWindow) return;
+    receiptWindow.opener = null;
 
     receiptWindow.document.write(`
       <!doctype html>

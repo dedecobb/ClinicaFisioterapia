@@ -104,6 +104,9 @@ function formFromPatient(
   const procedures = packageProcedures.length > 0 ? packageProcedures : patientProcedures;
   const storedTotalAmount = Number(activePackage?.total_amount) || 0;
   const storedProcedureAmount = Number(activePackage?.procedure_amount) || 0;
+  const storedLessons =
+    activePackage?.total_lessons ?? patient.contracted_lessons ?? 0;
+  const hasStoredLessons = storedLessons > 0;
 
   if (mode === "renew") {
     return {
@@ -134,16 +137,23 @@ function formFromPatient(
     plan_start_date:
       activePackage?.start_date ?? patient.plan_start_date ?? today(),
     contracted_lessons:
-      activePackage?.total_lessons ?? patient.contracted_lessons ?? 8,
+      hasStoredLessons || procedures.length > 0 ? storedLessons : 8,
     fixed_weekdays:
-      activePackage?.fixed_weekdays ?? patient.fixed_weekdays ?? [2, 4],
-    fixed_time: activePackage?.fixed_time?.slice(0, 5) ?? patient.fixed_time?.slice(0, 5) ?? "08:00",
+      activePackage?.fixed_weekdays ??
+      patient.fixed_weekdays ??
+      (hasStoredLessons ? [2, 4] : []),
+    fixed_time:
+      activePackage?.fixed_time?.slice(0, 5) ??
+      patient.fixed_time?.slice(0, 5) ??
+      (hasStoredLessons ? "08:00" : ""),
     lesson_duration_minutes: 50,
     responsible_professional_id: patient.responsible_professional_id ?? "",
     procedures,
     lesson_value: Number(activePackage?.lesson_value) || 0,
     total_amount:
-      storedProcedureAmount > 0
+      !hasStoredLessons
+        ? 0
+        : storedProcedureAmount > 0
         ? Math.max(storedTotalAmount - storedProcedureAmount, 0)
         : storedTotalAmount,
     amount_paid: Number(activePackage?.amount_paid) || 0,
@@ -233,7 +243,9 @@ export const NovoPacienteModal = ({
   };
 
   const proceduresTotal = getProceduresTotal(formData.procedures);
-  const financialTotal = Number(formData.total_amount) + proceduresTotal;
+  const hasLessons = Number(formData.contracted_lessons) > 0;
+  const lessonsTotal = hasLessons ? Number(formData.total_amount) || 0 : 0;
+  const financialTotal = lessonsTotal + proceduresTotal;
 
   return (
     <AnimatePresence>
@@ -257,10 +269,10 @@ export const NovoPacienteModal = ({
                 </h2>
                 <p className="text-sm text-slate-500">
                   {isRenewing
-                    ? "Adicione novos créditos e gere as próximas aulas."
+                    ? "Adicione novos créditos e gere as próximas aulas, se houver."
                     : isEditing
-                    ? "Atualize dados cadastrais, pacote e financeiro."
-                    : "Cadastre cliente, pacote e aulas fixas na agenda."}
+                    ? "Atualize dados cadastrais, procedimentos, pacote e financeiro."
+                    : "Cadastre cliente, procedimentos e aulas fixas quando contratadas."}
                 </p>
               </div>
               <button
@@ -528,8 +540,11 @@ export const NovoPacienteModal = ({
 
                 <div className="space-y-4">
                   <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">
-                    Pacote contratado
+                    Aulas contratadas
                   </h3>
+                  <p className="text-xs text-slate-500">
+                    Informe 0 aulas quando o paciente contratar somente procedimentos.
+                  </p>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
@@ -560,7 +575,7 @@ export const NovoPacienteModal = ({
                       </label>
                       <input
                         type="number"
-                        min={1}
+                        min={0}
                         required
                         disabled={loading}
                         className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
@@ -568,13 +583,14 @@ export const NovoPacienteModal = ({
                         onChange={(event) =>
                           setFormData((current) => {
                             const contractedLessons = Number(event.target.value);
+                            const withLessons = contractedLessons > 0;
 
                             return {
                               ...current,
                               contracted_lessons: contractedLessons,
-                              total_amount: current.lesson_value
+                              total_amount: withLessons
                                 ? current.lesson_value * contractedLessons
-                                : current.total_amount,
+                                : 0,
                             };
                           })
                         }
@@ -595,7 +611,7 @@ export const NovoPacienteModal = ({
                           <button
                             key={day.value}
                             type="button"
-                            disabled={loading}
+                            disabled={loading || !hasLessons}
                             onClick={() => toggleWeekday(day.value)}
                             className={`rounded-xl border px-3 py-2 text-sm font-semibold transition-colors ${
                               selected
@@ -622,8 +638,8 @@ export const NovoPacienteModal = ({
                         />
                         <input
                           type="time"
-                          required
-                          disabled={loading}
+                          required={hasLessons}
+                          disabled={loading || !hasLessons}
                           className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
                           value={formData.fixed_time}
                           onChange={(event) =>
@@ -662,7 +678,7 @@ export const NovoPacienteModal = ({
 
                 <div className="space-y-4">
                   <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">
-                    Financeiro do pacote
+                    Financeiro
                   </h3>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -674,7 +690,7 @@ export const NovoPacienteModal = ({
                         type="number"
                         min={0}
                         step="0.01"
-                        disabled={loading}
+                        disabled={loading || !hasLessons}
                         className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
                         value={formData.lesson_value}
                         onChange={(event) => {
@@ -682,7 +698,9 @@ export const NovoPacienteModal = ({
                           updateField("lesson_value", lessonValue);
                           updateField(
                             "total_amount",
-                            lessonValue * formData.contracted_lessons,
+                            hasLessons
+                              ? lessonValue * formData.contracted_lessons
+                              : 0,
                           );
                         }}
                       />
@@ -696,9 +714,9 @@ export const NovoPacienteModal = ({
                         type="number"
                         min={0}
                         step="0.01"
-                        disabled={loading}
+                        disabled={loading || !hasLessons}
                         className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
-                        value={formData.total_amount}
+                        value={lessonsTotal}
                         onChange={(event) =>
                           updateField("total_amount", Number(event.target.value))
                         }
@@ -729,7 +747,7 @@ export const NovoPacienteModal = ({
                         Aulas
                       </span>
                       <strong className="text-slate-900 dark:text-white">
-                        {currencyFormatter.format(Number(formData.total_amount) || 0)}
+                        {currencyFormatter.format(lessonsTotal)}
                       </strong>
                     </div>
                     <div>
@@ -825,10 +843,14 @@ export const NovoPacienteModal = ({
                 </Button>
                 <Button type="submit" className="flex-[2]" isLoading={loading}>
                   {isRenewing
-                    ? "Renovar e gerar aulas"
+                    ? hasLessons
+                      ? "Renovar e gerar aulas"
+                      : "Adicionar procedimentos"
                     : isEditing
                       ? "Salvar alterações"
-                      : "Cadastrar e gerar aulas"}
+                      : hasLessons
+                        ? "Cadastrar e gerar aulas"
+                        : "Cadastrar procedimentos"}
                 </Button>
               </div>
             </form>

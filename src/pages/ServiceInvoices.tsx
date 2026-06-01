@@ -400,8 +400,9 @@ export const ServiceInvoices = () => {
   };
 
   const printPreview = (invoice: ServiceInvoice) => {
-    const preview = window.open("", "_blank", "noopener,noreferrer");
+    const preview = window.open("", "_blank");
     if (!preview) return;
+    preview.opener = null;
 
     preview.document.write(`
       <!doctype html>

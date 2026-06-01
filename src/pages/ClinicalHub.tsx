@@ -109,6 +109,20 @@ function procedureTotal(procedure: {
   return (Number(procedure.agreed_value) || 0) * procedureQuantity(procedure);
 }
 
+function formatProcedures(
+  procedures:
+    | Array<{ name: string; quantity?: number | string | null }>
+    | null
+    | undefined,
+) {
+  return (procedures ?? [])
+    .map((procedure) => {
+      const quantity = procedureQuantity(procedure);
+      return `${procedure.name}${quantity > 1 ? ` (${quantity}x)` : ""}`;
+    })
+    .join(", ");
+}
+
 // ── Ícone por extensão de arquivo ─────────────────────────────────────────────
 function IconeArquivo({ url, size = 18 }: { url: string; size?: number }) {
   const ext = url.split(".").pop()?.toLowerCase() ?? "";
@@ -796,50 +810,64 @@ export const ClinicalHub = () => {
                       </p>
                     ) : (
                       <div className="space-y-3">
-                        {appointments.map((appointment) => (
-                          <div
-                            key={appointment.id}
-                            className="flex flex-col md:flex-row md:items-center justify-between gap-3 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 p-4"
-                          >
-                            <div>
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-sm font-bold text-slate-900 dark:text-white">
-                                  {formatarData(appointment.start_time)} às{" "}
-                                  {formatarHora(appointment.start_time)}
-                                </span>
-                                <Badge
-                                  variant={
-                                    appointment.status ===
-                                      "presenca_registrada" ||
-                                    appointment.status === "confirmada"
-                                      ? "success"
-                                      : appointment.status === "falta" ||
-                                          appointment.status === "cancelada"
-                                        ? "danger"
-                                        : "warning"
-                                  }
-                                >
-                                  {APPOINTMENT_STATUS_LABEL[
-                                    appointment.status
-                                  ] ?? appointment.status}
-                                </Badge>
-                              </div>
-                              <p className="text-xs text-slate-500 mt-1">
-                                Sessão{" "}
-                                {appointment.package_lesson_number ?? "avulsa"}
-                                {appointment.lesson_packages?.total_lessons
-                                  ? `/${appointment.lesson_packages.total_lessons}`
-                                  : ""}{" "}
-                                · {appointment.profiles?.full_name ?? "Sem profissional"}
-                              </p>
-                              {appointment.notes && (
-                                <p className="text-xs text-slate-400 mt-1">
-                                  {appointment.notes}
+                        {appointments.map((appointment) => {
+                          const procedures = formatProcedures(
+                            appointment.lesson_packages?.procedure_credits ??
+                              patient.procedures,
+                          );
+
+                          return (
+                            <div
+                              key={appointment.id}
+                              className="flex flex-col md:flex-row md:items-center justify-between gap-3 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 p-4"
+                            >
+                              <div>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-sm font-bold text-slate-900 dark:text-white">
+                                    {formatarData(appointment.start_time)} às{" "}
+                                    {formatarHora(appointment.start_time)}
+                                  </span>
+                                  <Badge
+                                    variant={
+                                      appointment.status ===
+                                        "presenca_registrada" ||
+                                      appointment.status === "confirmada"
+                                        ? "success"
+                                        : appointment.status === "falta" ||
+                                            appointment.status === "cancelada"
+                                          ? "danger"
+                                          : "warning"
+                                    }
+                                  >
+                                    {APPOINTMENT_STATUS_LABEL[
+                                      appointment.status
+                                    ] ?? appointment.status}
+                                  </Badge>
+                                </div>
+                                <p className="text-xs text-slate-500 mt-1">
+                                  Sessão{" "}
+                                  {appointment.package_lesson_number ?? "avulsa"}
+                                  {appointment.lesson_packages?.total_lessons
+                                    ? `/${appointment.lesson_packages.total_lessons}`
+                                    : ""}{" "}
+                                  ·{" "}
+                                  {appointment.profiles?.full_name ??
+                                    "Sem profissional"}
                                 </p>
-                              )}
+                                {procedures && (
+                                  <p className="mt-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                                    Procedimentos: {procedures}
+                                  </p>
+                                )}
+                                {appointment.notes && (
+                                  <p className="text-xs text-slate-400 mt-1">
+                                    {appointment.notes}
+                                  </p>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </Card>

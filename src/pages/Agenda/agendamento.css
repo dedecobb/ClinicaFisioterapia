@@ -465,6 +465,22 @@
   font-size: 0.8rem;
   font-weight: 500;
 }
+.ag-procedimentos {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  max-width: 100%;
+  border-radius: 12px;
+  background: var(--green-50);
+  color: var(--green-600);
+  padding: 3px 8px;
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+.ag-procedimentos span {
+  font-weight: 700;
+}
 .ag-convenio {
   font-size: 0.75rem;
   color: var(--blue-700);

@@ -17,6 +17,7 @@ import {
   Fisioterapeuta,
   NovoAgendamentoForm,
   Paciente,
+  PatientProcedure,
   StatusAgendamento,
 } from "./types";
 import "./agendamento.css";
@@ -82,6 +83,19 @@ const STATUS_AGENDA: StatusAgendamento[] = [
   "reposicao",
   "cancelada",
 ];
+
+function procedureQuantity(procedure: PatientProcedure) {
+  return Number(procedure.quantity) || 1;
+}
+
+function formatProcedures(procedures: PatientProcedure[] | undefined): string {
+  return (procedures ?? [])
+    .map((procedure) => {
+      const quantity = procedureQuantity(procedure);
+      return `${procedure.name}${quantity > 1 ? ` (${quantity}x)` : ""}`;
+    })
+    .join(", ");
+}
 
 // ─── component ────────────────────────────────────────────────────────────────
 
@@ -213,7 +227,10 @@ export const AgendamentoPage: React.FC = () => {
       lista = lista.filter(
         (a) =>
           a.paciente.nome.toLowerCase().includes(filtros.busca.toLowerCase()) ||
-          a.tipoSessao.toLowerCase().includes(filtros.busca.toLowerCase()),
+          a.tipoSessao.toLowerCase().includes(filtros.busca.toLowerCase()) ||
+          formatProcedures(a.procedimentos)
+            .toLowerCase()
+            .includes(filtros.busca.toLowerCase()),
       );
 
     return lista.sort((a, b) => a.horaInicio.localeCompare(b.horaInicio));
@@ -550,6 +567,8 @@ const AgendamentoCard: React.FC<CardProps> = ({
   onExcluir,
   onAlterarStatus,
 }) => {
+  const procedimentos = formatProcedures(ag.procedimentos);
+
   return (
     <div className={`ag-card ag-card-${ag.status}`}>
       {/* Barra lateral colorida */}
@@ -584,6 +603,13 @@ const AgendamentoCard: React.FC<CardProps> = ({
         <div className="ag-fisio" style={{ color: ag.fisioterapeuta.cor }}>
           {ag.fisioterapeuta.nome}
         </div>
+
+        {procedimentos && (
+          <div className="ag-procedimentos">
+            <span>Procedimentos</span>
+            {procedimentos}
+          </div>
+        )}
 
         {/* Convênio */}
         {ag.paciente.convenio && (

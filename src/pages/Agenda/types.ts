@@ -23,6 +23,13 @@ export type TipoSessao =
   | "Acupuntura"
   | "Hidroterapia";
 
+export interface PatientProcedure {
+  type: string;
+  name: string;
+  agreed_value: number | string;
+  quantity?: number | string | null;
+}
+
 export interface Paciente {
   id: string;
   nome: string;
@@ -30,6 +37,7 @@ export interface Paciente {
   email: string;
   dataNascimento: string;
   convenio?: string;
+  procedimentos?: PatientProcedure[];
   pacoteAtivo?: {
     id: string;
     professionalId: string | null;
@@ -42,6 +50,7 @@ export interface Paciente {
     horarioFixo: string;
     duracaoMinutos: number;
     statusPagamento: string;
+    procedimentos?: PatientProcedure[];
   };
 }
 
@@ -68,6 +77,7 @@ export interface Agendamento {
   totalSessoes?: number;
   pacoteId?: string;
   valorAula?: number;
+  procedimentos?: PatientProcedure[];
 }
 
 export interface FiltrosAgendamento {

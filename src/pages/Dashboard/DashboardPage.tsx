@@ -197,8 +197,9 @@ export const Dashboard = () => {
   );
 
   const handlePrintReport = () => {
-    const reportWindow = window.open("", "_blank", "noopener,noreferrer");
+    const reportWindow = window.open("", "_blank");
     if (!reportWindow) return;
+    reportWindow.opener = null;
 
     reportWindow.document.write(
       buildReportHtml(dashboard, profile?.full_name ?? "Clinica"),

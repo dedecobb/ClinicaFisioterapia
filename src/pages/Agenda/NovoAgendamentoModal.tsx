@@ -75,16 +75,30 @@ function getNextSessionNumber(patient: Paciente): number {
   return Math.min(aulasConsumidas + 1, pacote.totalAulas);
 }
 
+function formatProcedures(patient: Paciente | undefined): string {
+  return (patient?.procedimentos ?? [])
+    .map((procedure) => {
+      const quantity = Number(procedure.quantity) || 1;
+      return `${procedure.name}${quantity > 1 ? ` (${quantity}x)` : ""}`;
+    })
+    .join(", ");
+}
+
 function applyPatientPackage(
   current: NovoAgendamentoForm,
   patient: Paciente | undefined,
 ): NovoAgendamentoForm {
   if (!patient?.pacoteAtivo) {
+    const procedures = formatProcedures(patient);
+
     return {
       ...current,
       pacienteId: patient?.id ?? current.pacienteId,
+      tipoSessao: procedures ? "Procedimentos combinados" : current.tipoSessao,
       pacoteId: undefined,
       valorAula: undefined,
+      observacoes:
+        current.observacoes || (procedures ? `Procedimentos: ${procedures}.` : ""),
     };
   }
 
@@ -224,7 +238,11 @@ export const NovoAgendamentoModal: React.FC<Props> = ({
 
             {form.pacienteId && (
               <div className="session-credit-box">
-                {pacientes.find((p) => p.id === form.pacienteId)?.pacoteAtivo ? (
+                {(() => {
+                  const patient = pacientes.find((p) => p.id === form.pacienteId);
+                  const procedures = formatProcedures(patient);
+
+                  return patient?.pacoteAtivo ? (
                   <>
                     <strong>
                       Sessão automática: {form.sessaoNumero}/{form.totalSessoes}
@@ -234,12 +252,20 @@ export const NovoAgendamentoModal: React.FC<Props> = ({
                       descontadas do pacote.
                     </span>
                   </>
-                ) : (
+                  ) : procedures ? (
+                    <>
+                      <strong>Procedimentos: {procedures}</strong>
+                      <span>
+                        Atendimento avulso, sem pacote de aulas vinculado.
+                      </span>
+                    </>
+                  ) : (
                   <span>
                     Esta paciente não tem pacote ativo cadastrado. Confira o
                     cadastro antes de agendar.
                   </span>
-                )}
+                  );
+                })()}
               </div>
             )}
 

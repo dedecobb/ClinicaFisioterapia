@@ -198,8 +198,9 @@ export const Certificates = () => {
       return;
     }
 
-    const receiptWindow = window.open("", "_blank", "noopener,noreferrer");
+    const receiptWindow = window.open("", "_blank");
     if (!receiptWindow) return;
+    receiptWindow.opener = null;
 
     const clinicName = clinic?.name ?? "Clínica";
     const professionalName = selectedProfessional.full_name;

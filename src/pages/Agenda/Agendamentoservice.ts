@@ -4,6 +4,7 @@ import {
   Fisioterapeuta,
   NovoAgendamentoForm,
   Paciente,
+  PatientProcedure,
   StatusAgendamento,
   TipoSessao,
 } from "./types";
@@ -20,6 +21,7 @@ type PatientDB = {
   phone: string | null;
   email: string | null;
   birth_date: string | null;
+  procedures?: PatientProcedure[] | null;
   lesson_packages?: PackageDB[];
 };
 
@@ -37,6 +39,7 @@ type PackageDB = {
   payment_status: string;
   status: string;
   start_date: string;
+  procedure_credits?: PatientProcedure[] | null;
 };
 
 type ProfessionalDB = {
@@ -73,7 +76,10 @@ type AppointmentDB = {
   class_price: number | string | null;
   patients: PatientDB | null;
   profiles: ProfessionalDB | null;
-  lesson_packages: { total_lessons: number } | null;
+  lesson_packages: {
+    total_lessons: number;
+    procedure_credits?: PatientProcedure[] | null;
+  } | null;
 };
 
 const PROFESSIONAL_COLORS = [
@@ -184,10 +190,26 @@ function toTipoSessao(value: string): TipoSessao {
     : "Fisioterapia Ortopédica";
 }
 
+function mergeProcedures(
+  ...procedureLists: Array<PatientProcedure[] | null | undefined>
+): PatientProcedure[] {
+  const byType = new Map<string, PatientProcedure>();
+
+  procedureLists
+    .flatMap((procedures) => procedures ?? [])
+    .forEach((procedure) => {
+      if (!procedure.name?.trim()) return;
+      byType.set(procedure.type, procedure);
+    });
+
+  return Array.from(byType.values());
+}
+
 function toPaciente(db: PatientDB): Paciente {
   const pacote = [...(db.lesson_packages ?? [])]
     .filter((item) => item.status === "ativo")
     .sort((a, b) => b.start_date.localeCompare(a.start_date))[0];
+  const procedimentos = mergeProcedures(db.procedures, pacote?.procedure_credits);
 
   return {
     id: db.id,
@@ -195,6 +217,7 @@ function toPaciente(db: PatientDB): Paciente {
     telefone: db.phone ?? "",
     email: db.email ?? "",
     dataNascimento: db.birth_date ?? "",
+    procedimentos,
     pacoteAtivo: pacote
       ? {
           id: pacote.id,
@@ -208,6 +231,7 @@ function toPaciente(db: PatientDB): Paciente {
           horarioFixo: pacote.fixed_time.slice(0, 5),
           duracaoMinutos: pacote.lesson_duration_minutes || 50,
           statusPagamento: pacote.payment_status,
+          procedimentos,
         }
       : undefined,
   };
@@ -230,10 +254,12 @@ function toAgendamento(db: AppointmentDB): Agendamento {
     throw new Error("Agendamento sem paciente ou profissional relacionado.");
   }
 
+  const paciente = toPaciente(db.patients);
+
   return {
     id: db.id,
     pacienteId: db.patient_id,
-    paciente: toPaciente(db.patients),
+    paciente,
     fisioterapeutaId: db.professional_id,
     fisioterapeuta: toFisioterapeuta(db.profiles),
     data: toDate(db.start_time),
@@ -246,6 +272,12 @@ function toAgendamento(db: AppointmentDB): Agendamento {
     sessaoNumero: db.package_lesson_number ?? undefined,
     totalSessoes: db.lesson_packages?.total_lessons,
     valorAula: Number(db.class_price) || undefined,
+    procedimentos: mergeProcedures(
+      db.patients.procedures,
+      paciente.procedimentos,
+      paciente.pacoteAtivo?.procedimentos,
+      db.lesson_packages?.procedure_credits,
+    ),
   };
 }
 
@@ -284,6 +316,7 @@ export async function getPacientes(
       phone,
       email,
       birth_date,
+      procedures,
       lesson_packages (
         id,
         professional_id,
@@ -297,7 +330,8 @@ export async function getPacientes(
         lesson_duration_minutes,
         payment_status,
         status,
-        start_date
+        start_date,
+        procedure_credits
       )
     `,
     )
@@ -335,9 +369,9 @@ export async function getAgendamentos(): Promise<Agendamento[]> {
       package_id,
       package_lesson_number,
       class_price,
-      patients (id, full_name, phone, email, birth_date),
+      patients (id, full_name, phone, email, birth_date, procedures),
       profiles (id, full_name, role),
-      lesson_packages (total_lessons)
+      lesson_packages (total_lessons, procedure_credits)
     `,
     )
     .order("start_time", { ascending: true });
@@ -372,9 +406,9 @@ export async function getAgendamentosPorMes(
       package_id,
       package_lesson_number,
       class_price,
-      patients (id, full_name, phone, email, birth_date),
+      patients (id, full_name, phone, email, birth_date, procedures),
       profiles (id, full_name, role),
-      lesson_packages (total_lessons)
+      lesson_packages (total_lessons, procedure_credits)
     `,
     )
     .gte("start_time", inicio)
@@ -428,9 +462,9 @@ export async function criarAgendamento(
       package_id,
       package_lesson_number,
       class_price,
-      patients (id, full_name, phone, email, birth_date),
+      patients (id, full_name, phone, email, birth_date, procedures),
       profiles (id, full_name, role),
-      lesson_packages (total_lessons)
+      lesson_packages (total_lessons, procedure_credits)
     `,
     )
     .single();
@@ -501,9 +535,9 @@ export async function atualizarAgendamento(
       package_id,
       package_lesson_number,
       class_price,
-      patients (id, full_name, phone, email, birth_date),
+      patients (id, full_name, phone, email, birth_date, procedures),
       profiles (id, full_name, role),
-      lesson_packages (total_lessons)
+      lesson_packages (total_lessons, procedure_credits)
     `,
     )
     .single();

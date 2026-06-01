@@ -21,6 +21,13 @@ export interface PatientProcedure {
   quantity?: number | string | null;
 }
 
+export interface PatientLessonPackage {
+  id: string;
+  status: string | null;
+  start_date: string;
+  procedure_credits?: PatientProcedure[] | null;
+}
+
 export interface Patient {
   id: string;
   clinic_id?: string | null;
@@ -35,6 +42,7 @@ export interface Patient {
   status?: string | null;
   procedures?: PatientProcedure[] | null;
   responsible_professional_id?: string | null;
+  lesson_packages?: PatientLessonPackage[] | null;
   created_at?: string;
 }
 
@@ -60,7 +68,11 @@ export interface PatientAppointment {
   notes: string | null;
   class_price: number | string | null;
   profiles?: { id: string; full_name: string } | null;
-  lesson_packages?: { id: string; total_lessons: number } | null;
+  lesson_packages?: {
+    id: string;
+    total_lessons: number;
+    procedure_credits?: PatientProcedure[] | null;
+  } | null;
 }
 
 export interface CreateEvolutionPayload {
@@ -116,6 +128,19 @@ export function calcularIdade(
   return idade;
 }
 
+function mergeProcedures(
+  ...procedureLists: Array<PatientProcedure[] | null | undefined>
+): PatientProcedure[] {
+  const byType = new Map<string, PatientProcedure>();
+
+  procedureLists.flatMap((list) => list ?? []).forEach((procedure) => {
+    if (!procedure.name?.trim()) return;
+    byType.set(procedure.type, procedure);
+  });
+
+  return Array.from(byType.values());
+}
+
 export function formatarData(iso: string): string {
   return new Date(iso).toLocaleDateString("pt-BR", {
     day: "2-digit",
@@ -153,7 +178,17 @@ export async function getPatientById(
 ): Promise<Patient | null> {
   const { data, error } = await supabase
     .from("patients")
-    .select("*")
+    .select(
+      `
+      *,
+      lesson_packages (
+        id,
+        status,
+        start_date,
+        procedure_credits
+      )
+    `,
+    )
     .eq("id", patientId)
     .single();
 
@@ -161,7 +196,20 @@ export async function getPatientById(
     console.error("Erro ao buscar paciente:", error.message);
     return null;
   }
-  return data as Patient;
+
+  const patient = data as Patient;
+  const currentPackage = [...(patient.lesson_packages ?? [])].sort((a, b) => {
+    if (a.status === "ativo" && b.status !== "ativo") return -1;
+    if (a.status !== "ativo" && b.status === "ativo") return 1;
+    return b.start_date.localeCompare(a.start_date);
+  })[0];
+  const packageProcedures = currentPackage?.procedure_credits ?? [];
+  const procedures = mergeProcedures(patient.procedures, packageProcedures);
+
+  return {
+    ...patient,
+    procedures: procedures.length > 0 ? procedures : patient.procedures,
+  };
 }
 
 // ── Evoluções ─────────────────────────────────────────────────────────────────
@@ -319,7 +367,7 @@ export async function getAppointmentsByPatient(
       notes,
       class_price,
       profiles (id, full_name),
-      lesson_packages (id, total_lessons)
+      lesson_packages (id, total_lessons, procedure_credits)
     `,
     )
     .eq("patient_id", patientId)
