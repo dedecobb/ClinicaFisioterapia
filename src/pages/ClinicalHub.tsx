@@ -98,6 +98,17 @@ const currencyFormatter = new Intl.NumberFormat("pt-BR", {
   currency: "BRL",
 });
 
+function procedureQuantity(procedure: { quantity?: number | string | null }) {
+  return Number(procedure.quantity) || 1;
+}
+
+function procedureTotal(procedure: {
+  agreed_value: number | string;
+  quantity?: number | string | null;
+}) {
+  return (Number(procedure.agreed_value) || 0) * procedureQuantity(procedure);
+}
+
 // ── Ícone por extensão de arquivo ─────────────────────────────────────────────
 function IconeArquivo({ url, size = 18 }: { url: string; size?: number }) {
   const ext = url.split(".").pop()?.toLowerCase() ?? "";
@@ -907,7 +918,7 @@ export const ClinicalHub = () => {
                         <div className="sm:col-span-2 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/60 p-4">
                           <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase text-slate-400">
                             <ClipboardList size={16} />
-                            <span>Procedimentos</span>
+                            <span>Créditos de procedimentos</span>
                           </div>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             {patient.procedures.map((procedure) => (
@@ -917,11 +928,12 @@ export const ClinicalHub = () => {
                               >
                                 <span className="truncate text-slate-600 dark:text-slate-300">
                                   {procedure.name}
+                                  <span className="ml-1 text-xs text-slate-400">
+                                    ({procedureQuantity(procedure)}x)
+                                  </span>
                                 </span>
                                 <span className="shrink-0 font-semibold text-slate-900 dark:text-white">
-                                  {currencyFormatter.format(
-                                    Number(procedure.agreed_value) || 0,
-                                  )}
+                                  {currencyFormatter.format(procedureTotal(procedure))}
                                 </span>
                               </div>
                             ))}

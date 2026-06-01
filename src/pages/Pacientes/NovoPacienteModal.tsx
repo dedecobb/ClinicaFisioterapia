@@ -70,22 +70,58 @@ const currencyFormatter = new Intl.NumberFormat("pt-BR", {
 
 function getProceduresTotal(procedures: NewPatientForm["procedures"]): number {
   return procedures.reduce(
-    (total, item) => total + (Number(item.agreed_value) || 0),
+    (total, item) =>
+      total + (Number(item.agreed_value) || 0) * (Number(item.quantity) || 0),
     0,
   );
+}
+
+function normalizeProceduresForForm(
+  procedures: Patient["procedures"] | undefined | null,
+): NewPatientForm["procedures"] {
+  return (procedures ?? []).map((procedure) => ({
+    ...procedure,
+    quantity: Number(procedure.quantity) || 1,
+    agreed_value: Number(procedure.agreed_value) || 0,
+  }));
 }
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function formFromPatient(patient: Patient | null | undefined): NewPatientForm {
+function formFromPatient(
+  patient: Patient | null | undefined,
+  mode: NovoPacienteModalProps["mode"] = "create",
+): NewPatientForm {
   if (!patient) return emptyForm;
 
   const activePackage = patient.lesson_packages?.[0];
-  const procedures = patient.procedures ?? [];
+  const packageProcedures = normalizeProceduresForForm(
+    activePackage?.procedure_credits,
+  );
+  const patientProcedures = normalizeProceduresForForm(patient.procedures);
+  const procedures = packageProcedures.length > 0 ? packageProcedures : patientProcedures;
   const storedTotalAmount = Number(activePackage?.total_amount) || 0;
   const storedProcedureAmount = Number(activePackage?.procedure_amount) || 0;
+
+  if (mode === "renew") {
+    return {
+      ...emptyForm,
+      full_name: patient.full_name ?? "",
+      cpf: patient.cpf ?? "",
+      email: patient.email ?? "",
+      phone: patient.phone ?? "",
+      birth_date: patient.birth_date ?? "",
+      gender: patient.gender ?? "other",
+      status: "ativo",
+      plan_start_date: today(),
+      contracted_lessons: 0,
+      fixed_weekdays: [],
+      fixed_time: "",
+      responsible_professional_id: patient.responsible_professional_id ?? "",
+    };
+  }
 
   return {
     full_name: patient.full_name ?? "",
@@ -133,9 +169,9 @@ export const NovoPacienteModal = ({
 
   useEffect(() => {
     if (isOpen) {
-      setFormData(formFromPatient(patient));
+      setFormData(formFromPatient(patient, mode));
     }
-  }, [isOpen, patient]);
+  }, [isOpen, mode, patient]);
 
   const updateField = <K extends keyof NewPatientForm>(
     field: K,
@@ -172,7 +208,7 @@ export const NovoPacienteModal = ({
           ? current.procedures.filter((item) => item.type !== type)
           : [
               ...current.procedures,
-              { type, name: option.name, agreed_value: 0 },
+              { type, name: option.name, agreed_value: 0, quantity: 1 },
             ],
       };
     });
@@ -183,6 +219,15 @@ export const NovoPacienteModal = ({
       ...current,
       procedures: current.procedures.map((item) =>
         item.type === type ? { ...item, agreed_value: value } : item,
+      ),
+    }));
+  };
+
+  const updateProcedureQuantity = (type: ProcedureType, value: number) => {
+    setFormData((current) => ({
+      ...current,
+      procedures: current.procedures.map((item) =>
+        item.type === type ? { ...item, quantity: value } : item,
       ),
     }));
   };
@@ -256,7 +301,7 @@ export const NovoPacienteModal = ({
                       />
                       <input
                         required
-                        disabled={loading}
+                        disabled={loading || isRenewing}
                         className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
                         placeholder="Ex: João da Silva"
                         value={formData.full_name}
@@ -278,7 +323,7 @@ export const NovoPacienteModal = ({
                           size={18}
                         />
                         <input
-                          disabled={loading}
+                          disabled={loading || isRenewing}
                           className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
                           placeholder="000.000.000-00"
                           value={formData.cpf}
@@ -300,7 +345,7 @@ export const NovoPacienteModal = ({
                         />
                         <input
                           type="date"
-                          disabled={loading}
+                          disabled={loading || isRenewing}
                           className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
                           value={formData.birth_date}
                           onChange={(event) =>
@@ -316,7 +361,7 @@ export const NovoPacienteModal = ({
                       Status do cliente
                     </label>
                     <select
-                      disabled={loading}
+                      disabled={loading || isRenewing}
                       className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
                       value={formData.status}
                       onChange={(event) =>
@@ -351,7 +396,7 @@ export const NovoPacienteModal = ({
                         />
                         <input
                           required
-                          disabled={loading}
+                          disabled={loading || isRenewing}
                           className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
                           placeholder="(00) 00000-0000"
                           value={formData.phone}
@@ -373,7 +418,7 @@ export const NovoPacienteModal = ({
                         />
                         <input
                           type="email"
-                          disabled={loading}
+                          disabled={loading || isRenewing}
                           className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
                           placeholder="paciente@email.com"
                           value={formData.email}
@@ -424,6 +469,24 @@ export const NovoPacienteModal = ({
                               </span>
                             </label>
 
+                            <div className="w-full sm:w-28">
+                              <input
+                                type="number"
+                                min={1}
+                                disabled={loading || !selected}
+                                aria-label={`Créditos para ${procedure.name}`}
+                                className="w-full px-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
+                                placeholder="Qtd."
+                                value={selectedProcedure?.quantity ?? ""}
+                                onChange={(event) =>
+                                  updateProcedureQuantity(
+                                    procedure.type,
+                                    Number(event.target.value),
+                                  )
+                                }
+                              />
+                            </div>
+
                             <div className="relative w-full sm:w-40">
                               <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400">
                                 R$
@@ -433,9 +496,9 @@ export const NovoPacienteModal = ({
                                 min={0}
                                 step="0.01"
                                 disabled={loading || !selected}
-                                aria-label={`Valor combinado para ${procedure.name}`}
+                                aria-label={`Valor unitário para ${procedure.name}`}
                                 className="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
-                                placeholder="0,00"
+                                placeholder="Valor unit."
                                 value={selectedProcedure?.agreed_value ?? ""}
                                 onChange={(event) =>
                                   updateProcedureValue(

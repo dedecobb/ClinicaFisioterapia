@@ -2,7 +2,7 @@
 # Patient procedures
 
 Stores the procedures chosen in the patient registration. Each item keeps the
-procedure type, display name and agreed value for that patient.
+procedure type, display name, credit quantity and agreed unit value.
 */
 
 ALTER TABLE IF EXISTS public.patients

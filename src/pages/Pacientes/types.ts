@@ -17,6 +17,7 @@ export interface PatientProcedure {
   type: ProcedureType;
   name: string;
   agreed_value: number;
+  quantity: number;
 }
 
 export interface PackageSummary {
@@ -28,6 +29,7 @@ export interface PackageSummary {
   justified_absence_limit: number;
   lesson_value: number;
   procedure_amount: number;
+  procedure_credits: PatientProcedure[] | null;
   total_amount: number;
   amount_paid: number;
   payment_status: PaymentStatus;

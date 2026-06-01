@@ -20,7 +20,6 @@ type PatientOption = {
   id: string;
   full_name: string;
   cpf: string | null;
-  procedures: { name: string }[] | null;
 };
 
 type ProfessionalOption = {
@@ -118,7 +117,7 @@ export const Certificates = () => {
             .single(),
           supabase
             .from("patients")
-            .select("id, full_name, cpf, procedures")
+            .select("id, full_name, cpf")
             .eq("clinic_id", profile.clinic_id)
             .order("full_name", { ascending: true }),
           supabase
@@ -171,15 +170,6 @@ export const Certificates = () => {
     (professional) => professional.id === professionalId,
   );
 
-  const procedureText = useMemo(() => {
-    const procedures = selectedPatient?.procedures ?? [];
-    if (procedures.length === 0) return "atendimento fisioterapêutico";
-    if (procedures.length === 1) return procedures[0].name.toLowerCase();
-
-    const names = procedures.map((procedure) => procedure.name.toLowerCase());
-    return `${names.slice(0, -1).join(", ")} e ${names[names.length - 1]}`;
-  }, [selectedPatient]);
-
   const certificateText = useMemo(() => {
     if (!selectedPatient || !selectedProfessional) return "";
 
@@ -187,16 +177,15 @@ export const Certificates = () => {
     const noteText = notes.trim() ? ` Observação: ${notes.trim()}` : "";
 
     if (kind === "afastamento") {
-      return `Atesto, para os devidos fins, que ${patient} esteve em atendimento de ${procedureText} em ${formatDateBr(attendanceDate)} e necessita de afastamento de suas atividades por ${restDays} dia(s), a contar desta data.${noteText}`;
+      return `Atesto, para os devidos fins, que ${patient} foi atendido(a) nesta clínica em contexto de cuidado fisioterapêutico, em ${formatDateBr(attendanceDate)}, e, por motivo de saúde, necessita de afastamento de suas atividades por ${restDays} dia(s), a contar desta data.${noteText}`;
     }
 
-    return `Atesto, para os devidos fins, que ${patient} compareceu a atendimento de ${procedureText} nesta clínica em ${formatDateBr(attendanceDate)}, no horário de ${startTime} às ${endTime}.${noteText}`;
+    return `Atesto, para os devidos fins, que ${patient} compareceu a esta clínica para atendimento em saúde, em acompanhamento fisioterapêutico, no dia ${formatDateBr(attendanceDate)}, permanecendo em atendimento no horário de ${startTime} às ${endTime}.${noteText}`;
   }, [
     attendanceDate,
     endTime,
     kind,
     notes,
-    procedureText,
     restDays,
     selectedPatient,
     selectedProfessional,

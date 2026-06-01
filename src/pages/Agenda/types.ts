@@ -30,11 +30,6 @@ export interface Paciente {
   email: string;
   dataNascimento: string;
   convenio?: string;
-  procedimentos?: {
-    type: string;
-    name: string;
-    agreedValue: number;
-  }[];
   pacoteAtivo?: {
     id: string;
     professionalId: string | null;

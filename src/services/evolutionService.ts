@@ -18,6 +18,7 @@ export interface PatientProcedure {
   type: string;
   name: string;
   agreed_value: number | string;
+  quantity?: number | string | null;
 }
 
 export interface Patient {

@@ -27,7 +27,7 @@ import {
   renovarPacotePaciente,
 } from "./PacientesService";
 import { NovoPacienteModal } from "./NovoPacienteModal";
-import { NewPatientForm, Patient } from "./types";
+import { NewPatientForm, Patient, PatientProcedure } from "./types";
 
 const STATUS_LABEL = {
   ativo: "Ativo",
@@ -55,6 +55,22 @@ function formatDateBr(value: string | null | undefined): string {
     month: "2-digit",
     year: "numeric",
   });
+}
+
+function getProcedureQuantity(procedure: PatientProcedure): number {
+  return Number(procedure.quantity) || 1;
+}
+
+function getProcedureTotal(procedure: PatientProcedure): number {
+  return (Number(procedure.agreed_value) || 0) * getProcedureQuantity(procedure);
+}
+
+function getPatientProcedureCredits(patient: Patient): PatientProcedure[] {
+  return (
+    patient.lesson_packages?.[0]?.procedure_credits ??
+    patient.procedures ??
+    []
+  );
 }
 
 function openWhatsApp(phone: string | null | undefined, message: string) {
@@ -138,16 +154,24 @@ export const PacientesPage = () => {
   }, [profile]);
 
   const validatePatientForm = (form: NewPatientForm): string | null => {
-    if (form.procedures.length === 0) {
-      return "Selecione pelo menos um procedimento para o paciente.";
+    if (form.procedures.some((procedure) => Number(procedure.agreed_value) <= 0)) {
+      return "Informe o valor unitário de todos os procedimentos selecionados.";
     }
 
-    if (form.procedures.some((procedure) => Number(procedure.agreed_value) <= 0)) {
-      return "Informe o valor combinado de todos os procedimentos selecionados.";
+    if (form.procedures.some((procedure) => Number(procedure.quantity) <= 0)) {
+      return "Informe a quantidade de créditos de todos os procedimentos selecionados.";
+    }
+
+    if (Number(form.contracted_lessons) <= 0) {
+      return "Informe a quantidade de aulas do pacote.";
     }
 
     if (form.fixed_weekdays.length === 0) {
       return "Selecione pelo menos um dia fixo para as aulas.";
+    }
+
+    if (!form.fixed_time) {
+      return "Informe o horário fixo das aulas.";
     }
 
     return null;
@@ -390,25 +414,23 @@ export const PacientesPage = () => {
                 {STATUS_LABEL[patient.status] ?? patient.status}
               </p>
 
-              {patient.procedures && patient.procedures.length > 0 && (
+              {getPatientProcedureCredits(patient).length > 0 && (
                 <div className="mt-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-950 p-3 space-y-2">
                   <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
                     <ClipboardList size={14} />
-                    <span>Procedimentos</span>
+                    <span>Créditos de procedimentos</span>
                   </div>
                   <div className="space-y-1">
-                    {patient.procedures.map((procedure) => (
+                    {getPatientProcedureCredits(patient).map((procedure) => (
                       <div
                         key={procedure.type}
                         className="flex items-center justify-between gap-3 text-xs"
                       >
                         <span className="truncate text-slate-600 dark:text-slate-300">
-                          {procedure.name}
+                          {getProcedureQuantity(procedure)}x {procedure.name}
                         </span>
                         <span className="shrink-0 font-semibold text-slate-900 dark:text-white">
-                          {currencyFormatter.format(
-                            Number(procedure.agreed_value) || 0,
-                          )}
+                          {currencyFormatter.format(getProcedureTotal(procedure))}
                         </span>
                       </div>
                     ))}

@@ -75,26 +75,6 @@ function getNextSessionNumber(patient: Paciente): number {
   return Math.min(aulasConsumidas + 1, pacote.totalAulas);
 }
 
-function toTipoSessao(value: string): TipoSessao {
-  return TIPOS_SESSAO.includes(value as TipoSessao)
-    ? (value as TipoSessao)
-    : "Fisioterapia";
-}
-
-function getPatientSessionType(patient: Paciente | undefined): TipoSessao {
-  const procedures = patient?.procedimentos ?? [];
-
-  if (procedures.length === 1) {
-    return toTipoSessao(procedures[0].name);
-  }
-
-  if (procedures.length > 1) {
-    return "Procedimentos combinados";
-  }
-
-  return "Pilates Clínico";
-}
-
 function applyPatientPackage(
   current: NovoAgendamentoForm,
   patient: Paciente | undefined,
@@ -117,7 +97,7 @@ function applyPatientPackage(
     fisioterapeutaId: pacote.professionalId ?? current.fisioterapeutaId,
     horaInicio,
     horaFim: addMinutesToTime(horaInicio, pacote.duracaoMinutos),
-    tipoSessao: getPatientSessionType(patient),
+    tipoSessao: "Fisioterapia",
     status:
       pacote.statusPagamento === "inadimplente" ? "agendada" : current.status,
     sessaoNumero: getNextSessionNumber(patient),

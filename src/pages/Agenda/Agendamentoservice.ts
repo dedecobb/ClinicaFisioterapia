@@ -20,11 +20,6 @@ type PatientDB = {
   phone: string | null;
   email: string | null;
   birth_date: string | null;
-  procedures?: {
-    type: string;
-    name: string;
-    agreed_value: number | string;
-  }[] | null;
   lesson_packages?: PackageDB[];
 };
 
@@ -190,9 +185,9 @@ function toTipoSessao(value: string): TipoSessao {
 }
 
 function toPaciente(db: PatientDB): Paciente {
-  const pacote = (db.lesson_packages ?? []).find(
-    (item) => item.status === "ativo",
-  );
+  const pacote = [...(db.lesson_packages ?? [])]
+    .filter((item) => item.status === "ativo")
+    .sort((a, b) => b.start_date.localeCompare(a.start_date))[0];
 
   return {
     id: db.id,
@@ -200,11 +195,6 @@ function toPaciente(db: PatientDB): Paciente {
     telefone: db.phone ?? "",
     email: db.email ?? "",
     dataNascimento: db.birth_date ?? "",
-    procedimentos: (db.procedures ?? []).map((procedure) => ({
-      type: procedure.type,
-      name: procedure.name,
-      agreedValue: Number(procedure.agreed_value) || 0,
-    })),
     pacoteAtivo: pacote
       ? {
           id: pacote.id,
@@ -294,7 +284,6 @@ export async function getPacientes(
       phone,
       email,
       birth_date,
-      procedures,
       lesson_packages (
         id,
         professional_id,

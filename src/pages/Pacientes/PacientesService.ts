@@ -44,36 +44,16 @@ function normalizeProcedures(form: NewPatientForm): PatientProcedure[] {
         type: procedure.type,
         name: option?.name ?? procedure.name,
         agreed_value: Number(procedure.agreed_value) || 0,
+        quantity: Number(procedure.quantity) || 1,
       };
     })
     .filter((procedure) => procedure.name.trim());
 }
 
-function appointmentTypeFromProcedures(form: NewPatientForm): string {
-  if (form.procedures.length === 1) {
-    return form.procedures[0].name;
-  }
-
-  if (form.procedures.length > 1) {
-    return "Procedimentos combinados";
-  }
-
-  return "Fisioterapia";
-}
-
-function proceduresNote(form: NewPatientForm): string {
-  const procedures = normalizeProcedures(form);
-
-  if (procedures.length === 0) return "";
-
-  return ` Procedimentos: ${procedures
-    .map((procedure) => `${procedure.name} (${procedure.agreed_value.toFixed(2)})`)
-    .join(", ")}.`;
-}
-
 function getProcedureAmount(form: NewPatientForm): number {
   return normalizeProcedures(form).reduce(
-    (total, procedure) => total + procedure.agreed_value,
+    (total, procedure) =>
+      total + procedure.agreed_value * procedure.quantity,
     0,
   );
 }
@@ -134,6 +114,7 @@ export async function listarPacientes(
         justified_absence_limit,
         lesson_value,
         procedure_amount,
+        procedure_credits,
         total_amount,
         amount_paid,
         payment_status,
@@ -324,8 +305,6 @@ export async function criarPaciente(
     form.payment_status,
   );
   const procedures = normalizeProcedures(form);
-  const appointmentType = appointmentTypeFromProcedures(form);
-  const procedureNote = proceduresNote(form);
 
   const { data, error } = await supabase
     .from(PATIENTS_TABLE)
@@ -374,6 +353,7 @@ export async function criarPaciente(
       total_lessons: form.contracted_lessons,
       lesson_value: Number(form.lesson_value) || 0,
       procedure_amount: procedureAmount,
+      procedure_credits: procedures,
       total_amount: totalAmount,
       amount_paid: amountPaid,
       payment_method: emptyToNull(form.payment_method),
@@ -386,7 +366,7 @@ export async function criarPaciente(
       lesson_duration_minutes: form.lesson_duration_minutes,
     })
     .select(
-      "id, total_lessons, completed_lessons, missed_lessons, justified_absences, justified_absence_limit, lesson_value, procedure_amount, total_amount, amount_paid, payment_status, payment_method, installments, start_date, expected_end_date, fixed_weekdays, fixed_time, status",
+      "id, total_lessons, completed_lessons, missed_lessons, justified_absences, justified_absence_limit, lesson_value, procedure_amount, procedure_credits, total_amount, amount_paid, payment_status, payment_method, installments, start_date, expected_end_date, fixed_weekdays, fixed_time, status",
     )
     .single();
 
@@ -412,9 +392,9 @@ export async function criarPaciente(
     class_price: Number(form.lesson_value) || 0,
     start_time: toDateTime(lessonDate, form.fixed_time),
     end_time: toDateTime(lessonDate, endTime),
-    type: appointmentType,
+    type: "Fisioterapia",
     status: "agendada",
-    notes: `Aula ${index + 1}/${form.contracted_lessons} do pacote.${procedureNote}`,
+    notes: `Aula ${index + 1}/${form.contracted_lessons} do pacote.`,
   }));
 
   const { error: appointmentsError } = await supabase
@@ -448,19 +428,11 @@ export async function renovarPacotePaciente(
     form.payment_status,
   );
   const procedures = normalizeProcedures(form);
-  const appointmentType = appointmentTypeFromProcedures(form);
-  const procedureNote = proceduresNote(form);
 
   const { data: patientData, error: patientError } = await supabase
     .from(PATIENTS_TABLE)
     .update({
       status: "ativo",
-      plan_start_date: form.plan_start_date,
-      contracted_lessons: form.contracted_lessons,
-      fixed_weekdays: form.fixed_weekdays,
-      fixed_time: form.fixed_time,
-      responsible_professional_id: form.responsible_professional_id,
-      procedures,
     })
     .eq("id", patientId)
     .select(
@@ -471,12 +443,6 @@ export async function renovarPacotePaciente(
   if (patientError) {
     throw formatSupabaseError("Erro ao atualizar paciente", patientError);
   }
-
-  await supabase
-    .from(PACKAGES_TABLE)
-    .update({ status: "concluido" })
-    .eq("patient_id", patientId)
-    .eq("status", "ativo");
 
   const lessonDates = generateLessonDates(
     form.plan_start_date,
@@ -497,6 +463,7 @@ export async function renovarPacotePaciente(
       total_lessons: form.contracted_lessons,
       lesson_value: Number(form.lesson_value) || 0,
       procedure_amount: procedureAmount,
+      procedure_credits: procedures,
       total_amount: totalAmount,
       amount_paid: amountPaid,
       payment_method: emptyToNull(form.payment_method),
@@ -509,7 +476,7 @@ export async function renovarPacotePaciente(
       lesson_duration_minutes: form.lesson_duration_minutes,
     })
     .select(
-      "id, total_lessons, completed_lessons, missed_lessons, justified_absences, justified_absence_limit, lesson_value, procedure_amount, total_amount, amount_paid, payment_status, payment_method, installments, start_date, expected_end_date, fixed_weekdays, fixed_time, status",
+      "id, total_lessons, completed_lessons, missed_lessons, justified_absences, justified_absence_limit, lesson_value, procedure_amount, procedure_credits, total_amount, amount_paid, payment_status, payment_method, installments, start_date, expected_end_date, fixed_weekdays, fixed_time, status",
     )
     .single();
 
@@ -535,9 +502,9 @@ export async function renovarPacotePaciente(
     class_price: Number(form.lesson_value) || 0,
     start_time: toDateTime(lessonDate, form.fixed_time),
     end_time: toDateTime(lessonDate, endTime),
-    type: appointmentType,
+    type: "Fisioterapia",
     status: "agendada",
-    notes: `Renovação: aula ${index + 1}/${form.contracted_lessons} do pacote.${procedureNote}`,
+    notes: `Renovação: aula ${index + 1}/${form.contracted_lessons} do novo pacote.`,
   }));
 
   const { error: appointmentsError } = await supabase
@@ -621,6 +588,7 @@ async function atualizarPacotePrincipal(
 
   const packageId = (packageRow as { id: string; clinic_id: string }).id;
   const clinicId = (packageRow as { id: string; clinic_id: string }).clinic_id;
+  const procedures = normalizeProcedures(form);
   const procedureAmount = getProcedureAmount(form);
   const amountPaid = Number(form.amount_paid) || 0;
   const paymentStatus = paymentStatusFromAmounts(
@@ -641,6 +609,7 @@ async function atualizarPacotePrincipal(
       total_lessons: form.contracted_lessons,
       lesson_value: Number(form.lesson_value) || 0,
       procedure_amount: procedureAmount,
+      procedure_credits: procedures,
       total_amount: totalAmount,
       amount_paid: amountPaid,
       payment_method: emptyToNull(form.payment_method),
@@ -655,7 +624,7 @@ async function atualizarPacotePrincipal(
     })
     .eq("id", packageId)
     .select(
-      "id, total_lessons, completed_lessons, missed_lessons, justified_absences, justified_absence_limit, lesson_value, procedure_amount, total_amount, amount_paid, payment_status, payment_method, installments, start_date, expected_end_date, fixed_weekdays, fixed_time, status",
+      "id, total_lessons, completed_lessons, missed_lessons, justified_absences, justified_absence_limit, lesson_value, procedure_amount, procedure_credits, total_amount, amount_paid, payment_status, payment_method, installments, start_date, expected_end_date, fixed_weekdays, fixed_time, status",
     )
     .single();
 
