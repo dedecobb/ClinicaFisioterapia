@@ -24,6 +24,7 @@ import {
   Phone,
   Mail,
   Calendar,
+  ClipboardList,
   Shield,
   Download,
   ExternalLink,
@@ -60,6 +61,28 @@ import {
 // ── Tipos de aba ──────────────────────────────────────────────────────────────
 type Tab = "timeline" | "agenda" | "details" | "files";
 
+type SpeechRecognitionEventLike = {
+  results: ArrayLike<ArrayLike<{ transcript: string }>>;
+};
+
+type SpeechRecognitionInstance = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionInstance;
+
+type BrowserSpeechRecognitionWindow = Window & {
+  SpeechRecognition?: SpeechRecognitionConstructor;
+  webkitSpeechRecognition?: SpeechRecognitionConstructor;
+};
+
 const APPOINTMENT_STATUS_LABEL: Record<string, string> = {
   agendada: "Agendada",
   confirmada: "Confirmada",
@@ -69,6 +92,11 @@ const APPOINTMENT_STATUS_LABEL: Record<string, string> = {
   reposicao: "Reposição",
   cancelada: "Cancelada",
 };
+
+const currencyFormatter = new Intl.NumberFormat("pt-BR", {
+  style: "currency",
+  currency: "BRL",
+});
 
 // ── Ícone por extensão de arquivo ─────────────────────────────────────────────
 function IconeArquivo({ url, size = 18 }: { url: string; size?: number }) {
@@ -116,7 +144,7 @@ export const ClinicalHub = () => {
   const [editingText, setEditingText] = useState("");
 
   // ── Voz ─────────────────────────────────────────────────────────────────────
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
 
   // ── Carga inicial ────────────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
@@ -161,17 +189,9 @@ export const ClinicalHub = () => {
 
   // ── Web Speech API ───────────────────────────────────────────────────────────
   const toggleRecording = () => {
+    const browserWindow = window as BrowserSpeechRecognitionWindow;
     const SpeechRec =
-      (
-        window as unknown as {
-          SpeechRecognition?: typeof window.SpeechRecognition;
-        }
-      ).SpeechRecognition ??
-      (
-        window as unknown as {
-          webkitSpeechRecognition?: typeof window.SpeechRecognition;
-        }
-      ).webkitSpeechRecognition;
+      browserWindow.SpeechRecognition ?? browserWindow.webkitSpeechRecognition;
 
     if (!SpeechRec) {
       alert(
@@ -188,7 +208,7 @@ export const ClinicalHub = () => {
     r.lang = "pt-BR";
     r.continuous = true;
     r.interimResults = false;
-    r.onresult = (e) => {
+    r.onresult = (e: SpeechRecognitionEventLike) => {
       const transcript = Array.from(e.results)
         .map((x) => x[0].transcript)
         .join(" ");
@@ -883,6 +903,31 @@ export const ClinicalHub = () => {
                         label="Gênero"
                         value={patient.gender ?? "—"}
                       />
+                      {patient.procedures && patient.procedures.length > 0 && (
+                        <div className="sm:col-span-2 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/60 p-4">
+                          <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase text-slate-400">
+                            <ClipboardList size={16} />
+                            <span>Procedimentos</span>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {patient.procedures.map((procedure) => (
+                              <div
+                                key={procedure.type}
+                                className="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2 text-sm dark:bg-slate-950"
+                              >
+                                <span className="truncate text-slate-600 dark:text-slate-300">
+                                  {procedure.name}
+                                </span>
+                                <span className="shrink-0 font-semibold text-slate-900 dark:text-white">
+                                  {currencyFormatter.format(
+                                    Number(procedure.agreed_value) || 0,
+                                  )}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                       {patient.address && (
                         <div className="sm:col-span-2">
                           <InfoField

@@ -39,6 +39,7 @@ type PackageRow = {
   total_lessons: number;
   completed_lessons: number;
   missed_lessons: number;
+  procedure_amount: number | string;
   total_amount: number | string;
   amount_paid: number | string;
   payment_status: PaymentStatus;
@@ -297,6 +298,7 @@ export const Financial = () => {
             total_lessons,
             completed_lessons,
             missed_lessons,
+            procedure_amount,
             total_amount,
             amount_paid,
             payment_status,
@@ -548,7 +550,7 @@ export const Financial = () => {
       type: "income",
       category: "Recebimento de pacote",
       status: "paid",
-      description: `Recebimento de ${paymentTarget.packageItem.patients?.full_name ?? "paciente"} - pacote ${paymentTarget.packageItem.total_lessons} aulas (${paymentMethod})`,
+      description: `Recebimento de ${paymentTarget.packageItem.patients?.full_name ?? "paciente"} - pacote ${paymentTarget.packageItem.total_lessons} aulas e procedimentos (${paymentMethod})`,
       due_date: todayDate(),
     });
 
@@ -614,7 +616,7 @@ export const Financial = () => {
           <div class="box">
             <h1>Recibo de pagamento</h1>
             <p>Paciente: <strong>${packageItem.patients?.full_name ?? "-"}</strong></p>
-            <p>Pacote: ${packageItem.total_lessons} aulas</p>
+            <p>Pacote: ${packageItem.total_lessons} aulas${money(packageItem.procedure_amount) > 0 ? ` + ${currencyFormatter.format(money(packageItem.procedure_amount))} em procedimentos` : ""}</p>
             <p>Parcela: ${installment?.installment_number ?? "-"}</p>
             <p>Forma de pagamento: ${installment?.payment_method ?? packageItem.payment_method ?? "-"}</p>
             <p class="value">${currencyFormatter.format(money(installment?.amount_paid ?? packageItem.amount_paid))}</p>
@@ -657,7 +659,7 @@ export const Financial = () => {
           <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
             {!isPhysio && (
               <>
-                <FinancialCard label="Pacotes vendidos" value={totals.sold} icon={TrendingUp} />
+                <FinancialCard label="Receita vendida" value={totals.sold} icon={TrendingUp} />
                 <FinancialCard label="Valor recebido" value={totals.paid} icon={DollarSign} />
                 <FinancialCard label="Parcela atual" value={totals.currentDue} icon={AlertTriangle} danger />
                 <FinancialCard label="Total em aberto" value={totals.open} icon={AlertTriangle} danger />
@@ -836,6 +838,15 @@ export const Financial = () => {
                             {packageItem.total_lessons} aulas consumidas · início em{" "}
                             {formatDate(packageItem.start_date)}
                           </p>
+                          {money(packageItem.procedure_amount) > 0 && (
+                            <p className="text-xs text-slate-500 mt-1">
+                              Inclui{" "}
+                              {currencyFormatter.format(
+                                money(packageItem.procedure_amount),
+                              )}{" "}
+                              em procedimentos.
+                            </p>
+                          )}
                         </div>
                         <div className="text-sm lg:text-right">
                           <p className="font-semibold text-slate-900 dark:text-white">
@@ -871,7 +882,7 @@ export const Financial = () => {
                               onClick={() =>
                                 openWhatsApp(
                                   packageItem.patients?.phone,
-                                  `Olá, ${packageItem.patients?.full_name ?? "tudo bem"}! A parcela ${currentInstallment.installment_number} do seu pacote de Pilates vence em ${formatDate(currentInstallment.due_date)} no valor de ${currencyFormatter.format(getRemainingInstallment(currentInstallment))}. Posso te enviar os dados para pagamento?`,
+                                  `Olá, ${packageItem.patients?.full_name ?? "tudo bem"}! A parcela ${currentInstallment.installment_number} do seu pacote vence em ${formatDate(currentInstallment.due_date)} no valor de ${currencyFormatter.format(getRemainingInstallment(currentInstallment))}. Posso te enviar os dados para pagamento?`,
                                 )
                               }
                               disabled={!onlyDigits(packageItem.patients?.phone)}

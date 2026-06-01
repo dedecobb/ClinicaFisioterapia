@@ -10,9 +10,11 @@ import { Dashboard } from "./pages/Dashboard";
 import { Agenda } from "./pages/Agenda";
 import { Patients } from "./pages/Pacientes";
 import { Financial } from "./pages/Financial";
+import { ServiceInvoices } from "./pages/ServiceInvoices";
 import { WhatsApp } from "./pages/WhatsApp";
 import { Team } from "./pages/Team";
 import { ClinicalHub } from "./pages/ClinicalHub";
+import { Certificates } from "./pages/Certificates";
 import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
 import { SetupClinic } from "./pages/SetupClinic";
@@ -94,6 +96,22 @@ function App() {
             element={
               <ProtectedLayout>
                 <Financial />
+              </ProtectedLayout>
+            }
+          />
+          <Route
+            path="/notas-fiscais"
+            element={
+              <ProtectedLayout>
+                <ServiceInvoices />
+              </ProtectedLayout>
+            }
+          />
+          <Route
+            path="/atestados"
+            element={
+              <ProtectedLayout>
+                <Certificates />
               </ProtectedLayout>
             }
           />

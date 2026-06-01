@@ -14,6 +14,12 @@ export interface Evolution {
   appointments?: { id: string } | null;
 }
 
+export interface PatientProcedure {
+  type: string;
+  name: string;
+  agreed_value: number | string;
+}
+
 export interface Patient {
   id: string;
   clinic_id?: string | null;
@@ -26,6 +32,7 @@ export interface Patient {
   address?: string | null;
   clinical_notes?: string | null;
   status?: string | null;
+  procedures?: PatientProcedure[] | null;
   responsible_professional_id?: string | null;
   created_at?: string;
 }
@@ -239,7 +246,6 @@ export async function uploadExame(
   patientId: string,
   file: File,
 ): Promise<string> {
-  const ext = file.name.split(".").pop();
   const path = `${patientId}/${Date.now()}_${file.name}`;
 
   const { error: uploadError } = await supabase.storage

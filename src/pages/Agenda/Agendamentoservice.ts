@@ -20,6 +20,11 @@ type PatientDB = {
   phone: string | null;
   email: string | null;
   birth_date: string | null;
+  procedures?: {
+    type: string;
+    name: string;
+    agreed_value: number | string;
+  }[] | null;
   lesson_packages?: PackageDB[];
 };
 
@@ -109,12 +114,36 @@ const statusToDb: Record<StatusAgendamento, AppointmentStatusDB> = {
   cancelada: "cancelada",
 };
 
+const CLINIC_TIME_ZONE = "America/Sao_Paulo";
+const CLINIC_UTC_OFFSET = "-03:00";
+
+function getDateParts(value: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: CLINIC_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(value));
+
+  return {
+    year: parts.find((part) => part.type === "year")?.value ?? "",
+    month: parts.find((part) => part.type === "month")?.value ?? "",
+    day: parts.find((part) => part.type === "day")?.value ?? "",
+  };
+}
+
 function toTime(value: string): string {
-  return new Date(value).toISOString().slice(11, 16);
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone: CLINIC_TIME_ZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date(value));
 }
 
 function toDate(value: string): string {
-  return new Date(value).toISOString().slice(0, 10);
+  const { year, month, day } = getDateParts(value);
+  return `${year}-${month}-${day}`;
 }
 
 function formatDateBr(value: string): string {
@@ -126,7 +155,15 @@ function formatDateBr(value: string): string {
 }
 
 function toDateTime(date: string, time: string): string {
-  return new Date(`${date}T${time}:00`).toISOString();
+  return new Date(`${date}T${time}:00${CLINIC_UTC_OFFSET}`).toISOString();
+}
+
+function toMonthBoundary(year: number, month: number): string {
+  const boundary = new Date(year, month, 1);
+  const date = `${boundary.getFullYear()}-${String(
+    boundary.getMonth() + 1,
+  ).padStart(2, "0")}-01`;
+  return toDateTime(date, "00:00");
 }
 
 function toTipoSessao(value: string): TipoSessao {
@@ -137,6 +174,12 @@ function toTipoSessao(value: string): TipoSessao {
     "Fisioterapia Respiratória",
     "Pilates Clínico",
     "RPG",
+    "Drenagem linfática",
+    "Liberação miofascial",
+    "Massagem relaxante",
+    "Fisioterapia",
+    "Fisioterapia pélvica",
+    "Procedimentos combinados",
     "Acupuntura",
     "Hidroterapia",
   ];
@@ -157,6 +200,11 @@ function toPaciente(db: PatientDB): Paciente {
     telefone: db.phone ?? "",
     email: db.email ?? "",
     dataNascimento: db.birth_date ?? "",
+    procedimentos: (db.procedures ?? []).map((procedure) => ({
+      type: procedure.type,
+      name: procedure.name,
+      agreedValue: Number(procedure.agreed_value) || 0,
+    })),
     pacoteAtivo: pacote
       ? {
           id: pacote.id,
@@ -246,6 +294,7 @@ export async function getPacientes(
       phone,
       email,
       birth_date,
+      procedures,
       lesson_packages (
         id,
         professional_id,
@@ -316,8 +365,8 @@ export async function getAgendamentosPorMes(
   mes: number,
   profile?: AccessProfile | null,
 ): Promise<Agendamento[]> {
-  const inicio = new Date(ano, mes, 1).toISOString();
-  const fim = new Date(ano, mes + 1, 1).toISOString();
+  const inicio = toMonthBoundary(ano, mes);
+  const fim = toMonthBoundary(ano, mes + 1);
 
   let query = supabase
     .from("appointments")

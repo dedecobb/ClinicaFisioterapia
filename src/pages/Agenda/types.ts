@@ -14,6 +14,12 @@ export type TipoSessao =
   | "Fisioterapia Respiratória"
   | "Pilates Clínico"
   | "RPG"
+  | "Drenagem linfática"
+  | "Liberação miofascial"
+  | "Massagem relaxante"
+  | "Fisioterapia"
+  | "Fisioterapia pélvica"
+  | "Procedimentos combinados"
   | "Acupuntura"
   | "Hidroterapia";
 
@@ -24,6 +30,11 @@ export interface Paciente {
   email: string;
   dataNascimento: string;
   convenio?: string;
+  procedimentos?: {
+    type: string;
+    name: string;
+    agreedValue: number;
+  }[];
   pacoteAtivo?: {
     id: string;
     professionalId: string | null;

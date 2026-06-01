@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Calendar,
+  ClipboardList,
   CreditCard,
   Edit3,
   Filter,
@@ -137,6 +138,14 @@ export const PacientesPage = () => {
   }, [profile]);
 
   const validatePatientForm = (form: NewPatientForm): string | null => {
+    if (form.procedures.length === 0) {
+      return "Selecione pelo menos um procedimento para o paciente.";
+    }
+
+    if (form.procedures.some((procedure) => Number(procedure.agreed_value) <= 0)) {
+      return "Informe o valor combinado de todos os procedimentos selecionados.";
+    }
+
     if (form.fixed_weekdays.length === 0) {
       return "Selecione pelo menos um dia fixo para as aulas.";
     }
@@ -380,6 +389,32 @@ export const PacientesPage = () => {
               <p className="text-xs text-slate-500 mt-1">
                 {STATUS_LABEL[patient.status] ?? patient.status}
               </p>
+
+              {patient.procedures && patient.procedures.length > 0 && (
+                <div className="mt-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-950 p-3 space-y-2">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
+                    <ClipboardList size={14} />
+                    <span>Procedimentos</span>
+                  </div>
+                  <div className="space-y-1">
+                    {patient.procedures.map((procedure) => (
+                      <div
+                        key={procedure.type}
+                        className="flex items-center justify-between gap-3 text-xs"
+                      >
+                        <span className="truncate text-slate-600 dark:text-slate-300">
+                          {procedure.name}
+                        </span>
+                        <span className="shrink-0 font-semibold text-slate-900 dark:text-white">
+                          {currencyFormatter.format(
+                            Number(procedure.agreed_value) || 0,
+                          )}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {patient.lesson_packages?.[0] && (
                 <div className="mt-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/60 p-3 space-y-2">

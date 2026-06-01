@@ -2,6 +2,23 @@ export type PatientStatus = "ativo" | "pausado" | "inadimplente" | "encerrado";
 
 export type PaymentStatus = "pago" | "pendente" | "parcial" | "inadimplente";
 
+export const PROCEDURE_OPTIONS = [
+  { type: "rpg", name: "RPG" },
+  { type: "drenagem_linfatica", name: "Drenagem linfática" },
+  { type: "liberacao_miofascial", name: "Liberação miofascial" },
+  { type: "massagem_relaxante", name: "Massagem relaxante" },
+  { type: "fisioterapia", name: "Fisioterapia" },
+  { type: "fisioterapia_pelvica", name: "Fisioterapia pélvica" },
+] as const;
+
+export type ProcedureType = (typeof PROCEDURE_OPTIONS)[number]["type"];
+
+export interface PatientProcedure {
+  type: ProcedureType;
+  name: string;
+  agreed_value: number;
+}
+
 export interface PackageSummary {
   id: string;
   total_lessons: number;
@@ -10,6 +27,7 @@ export interface PackageSummary {
   justified_absences: number;
   justified_absence_limit: number;
   lesson_value: number;
+  procedure_amount: number;
   total_amount: number;
   amount_paid: number;
   payment_status: PaymentStatus;
@@ -37,6 +55,7 @@ export interface Patient {
   fixed_weekdays: number[] | null;
   fixed_time: string | null;
   responsible_professional_id: string | null;
+  procedures: PatientProcedure[] | null;
   created_at: string | null;
   lesson_packages?: PackageSummary[];
 }
@@ -55,6 +74,7 @@ export interface NewPatientForm {
   fixed_time: string;
   lesson_duration_minutes: number;
   responsible_professional_id: string;
+  procedures: PatientProcedure[];
   lesson_value: number;
   total_amount: number;
   amount_paid: number;

@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   Calendar,
   Clock,
+  ClipboardList,
   CreditCard,
   Hash,
   Mail,
@@ -11,7 +12,12 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "../../components/ui/Button";
-import { NewPatientForm, Patient } from "./types";
+import {
+  NewPatientForm,
+  Patient,
+  PROCEDURE_OPTIONS,
+  ProcedureType,
+} from "./types";
 import { Fisioterapeuta } from "../Agenda/types";
 
 interface NovoPacienteModalProps {
@@ -39,6 +45,7 @@ const emptyForm: NewPatientForm = {
   fixed_time: "08:00",
   lesson_duration_minutes: 50,
   responsible_professional_id: "",
+  procedures: [],
   lesson_value: 0,
   total_amount: 0,
   amount_paid: 0,
@@ -56,6 +63,18 @@ const WEEKDAYS = [
   { value: 6, label: "Sáb" },
 ];
 
+const currencyFormatter = new Intl.NumberFormat("pt-BR", {
+  style: "currency",
+  currency: "BRL",
+});
+
+function getProceduresTotal(procedures: NewPatientForm["procedures"]): number {
+  return procedures.reduce(
+    (total, item) => total + (Number(item.agreed_value) || 0),
+    0,
+  );
+}
+
 function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -64,6 +83,9 @@ function formFromPatient(patient: Patient | null | undefined): NewPatientForm {
   if (!patient) return emptyForm;
 
   const activePackage = patient.lesson_packages?.[0];
+  const procedures = patient.procedures ?? [];
+  const storedTotalAmount = Number(activePackage?.total_amount) || 0;
+  const storedProcedureAmount = Number(activePackage?.procedure_amount) || 0;
 
   return {
     full_name: patient.full_name ?? "",
@@ -82,8 +104,12 @@ function formFromPatient(patient: Patient | null | undefined): NewPatientForm {
     fixed_time: activePackage?.fixed_time?.slice(0, 5) ?? patient.fixed_time?.slice(0, 5) ?? "08:00",
     lesson_duration_minutes: 50,
     responsible_professional_id: patient.responsible_professional_id ?? "",
+    procedures,
     lesson_value: Number(activePackage?.lesson_value) || 0,
-    total_amount: Number(activePackage?.total_amount) || 0,
+    total_amount:
+      storedProcedureAmount > 0
+        ? Math.max(storedTotalAmount - storedProcedureAmount, 0)
+        : storedTotalAmount,
     amount_paid: Number(activePackage?.amount_paid) || 0,
     payment_method: activePackage?.payment_method ?? "",
     payment_status: activePackage?.payment_status ?? "pendente",
@@ -132,6 +158,37 @@ export const NovoPacienteModal = ({
       return { ...current, fixed_weekdays };
     });
   };
+
+  const toggleProcedure = (type: ProcedureType) => {
+    const option = PROCEDURE_OPTIONS.find((item) => item.type === type);
+    if (!option) return;
+
+    setFormData((current) => {
+      const selected = current.procedures.some((item) => item.type === type);
+
+      return {
+        ...current,
+        procedures: selected
+          ? current.procedures.filter((item) => item.type !== type)
+          : [
+              ...current.procedures,
+              { type, name: option.name, agreed_value: 0 },
+            ],
+      };
+    });
+  };
+
+  const updateProcedureValue = (type: ProcedureType, value: number) => {
+    setFormData((current) => ({
+      ...current,
+      procedures: current.procedures.map((item) =>
+        item.type === type ? { ...item, agreed_value: value } : item,
+      ),
+    }));
+  };
+
+  const proceduresTotal = getProceduresTotal(formData.procedures);
+  const financialTotal = Number(formData.total_amount) + proceduresTotal;
 
   return (
     <AnimatePresence>
@@ -330,6 +387,83 @@ export const NovoPacienteModal = ({
                 </div>
 
                 <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <ClipboardList size={16} className="text-slate-400" />
+                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">
+                      Procedimentos
+                    </h3>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-2">
+                    {PROCEDURE_OPTIONS.map((procedure) => {
+                      const selectedProcedure = formData.procedures.find(
+                        (item) => item.type === procedure.type,
+                      );
+                      const selected = Boolean(selectedProcedure);
+
+                      return (
+                        <div
+                          key={procedure.type}
+                          className={`rounded-xl border px-3 py-3 transition-colors ${
+                            selected
+                              ? "border-brand-500 bg-brand-50/70"
+                              : "border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900"
+                          }`}
+                        >
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                            <label className="flex min-w-0 flex-1 items-center gap-3">
+                              <input
+                                type="checkbox"
+                                disabled={loading}
+                                checked={selected}
+                                onChange={() => toggleProcedure(procedure.type)}
+                                className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500 disabled:cursor-not-allowed disabled:opacity-60"
+                              />
+                              <span className="truncate text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                {procedure.name}
+                              </span>
+                            </label>
+
+                            <div className="relative w-full sm:w-40">
+                              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400">
+                                R$
+                              </span>
+                              <input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                disabled={loading || !selected}
+                                aria-label={`Valor combinado para ${procedure.name}`}
+                                className="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
+                                placeholder="0,00"
+                                value={selectedProcedure?.agreed_value ?? ""}
+                                onChange={(event) =>
+                                  updateProcedureValue(
+                                    procedure.type,
+                                    Number(event.target.value),
+                                  )
+                                }
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {formData.procedures.length > 0 && (
+                    <div className="flex items-center justify-between rounded-xl border border-slate-100 bg-white px-4 py-3 text-sm dark:border-slate-800 dark:bg-slate-950">
+                      <span className="font-medium text-slate-500">
+                        Total dos procedimentos
+                      </span>
+                      <strong className="text-slate-900 dark:text-white">
+                        {currencyFormatter.format(proceduresTotal)}
+                      </strong>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-4">
                   <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">
                     Pacote contratado
                   </h3>
@@ -369,10 +503,17 @@ export const NovoPacienteModal = ({
                         className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
                         value={formData.contracted_lessons}
                         onChange={(event) =>
-                          updateField(
-                            "contracted_lessons",
-                            Number(event.target.value),
-                          )
+                          setFormData((current) => {
+                            const contractedLessons = Number(event.target.value);
+
+                            return {
+                              ...current,
+                              contracted_lessons: contractedLessons,
+                              total_amount: current.lesson_value
+                                ? current.lesson_value * contractedLessons
+                                : current.total_amount,
+                            };
+                          })
                         }
                       />
                     </div>
@@ -486,7 +627,7 @@ export const NovoPacienteModal = ({
 
                     <div className="space-y-2">
                       <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                        Valor do pacote
+                        Valor das aulas
                       </label>
                       <input
                         type="number"
@@ -516,6 +657,33 @@ export const NovoPacienteModal = ({
                           updateField("amount_paid", Number(event.target.value))
                         }
                       />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 rounded-xl border border-slate-100 bg-white p-4 text-sm dark:border-slate-800 dark:bg-slate-950">
+                    <div>
+                      <span className="block text-xs font-semibold uppercase text-slate-400">
+                        Aulas
+                      </span>
+                      <strong className="text-slate-900 dark:text-white">
+                        {currencyFormatter.format(Number(formData.total_amount) || 0)}
+                      </strong>
+                    </div>
+                    <div>
+                      <span className="block text-xs font-semibold uppercase text-slate-400">
+                        Procedimentos
+                      </span>
+                      <strong className="text-slate-900 dark:text-white">
+                        {currencyFormatter.format(proceduresTotal)}
+                      </strong>
+                    </div>
+                    <div>
+                      <span className="block text-xs font-semibold uppercase text-slate-400">
+                        Total financeiro
+                      </span>
+                      <strong className="text-slate-900 dark:text-white">
+                        {currencyFormatter.format(financialTotal)}
+                      </strong>
                     </div>
                   </div>
 

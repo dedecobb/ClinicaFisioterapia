@@ -1,9 +1,10 @@
-import React from 'react';
 import { 
   LayoutDashboard, 
   Calendar, 
   Users, 
   CreditCard, 
+  ReceiptText,
+  FileText,
   Activity, 
   MessageSquare, 
   LogOut,
@@ -21,7 +22,9 @@ export const Sidebar = () => {
     { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
     { icon: Calendar, label: 'Agenda', path: '/agenda' },
     { icon: Users, label: 'Pacientes', path: '/pacientes' },
+    { icon: FileText, label: 'Atestados', path: '/atestados' },
     { icon: CreditCard, label: 'Financeiro', path: '/financeiro' },
+    ...(isAdmin ? [{ icon: ReceiptText, label: 'Notas Fiscais', path: '/notas-fiscais' }] : []),
     ...(isAdmin ? [{ icon: MessageSquare, label: 'WhatsApp', path: '/whatsapp' }] : []),
     ...(isAdmin ? [{ icon: UserCog, label: 'Equipe', path: '/equipe' }] : []),
   ];
