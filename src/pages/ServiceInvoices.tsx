@@ -226,6 +226,25 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#039;");
 }
 
+function findNextUnissuedTransaction(
+  transactions: TransactionOption[],
+  invoices: ServiceInvoice[],
+): TransactionOption | null {
+  const invoiceByTransactionId = new Map<string, ServiceInvoice>();
+  invoices.forEach((invoice) => {
+    if (invoice.transaction_id) {
+      invoiceByTransactionId.set(invoice.transaction_id, invoice);
+    }
+  });
+
+  return (
+    transactions.find(
+      (transaction) =>
+        invoiceByTransactionId.get(transaction.id)?.status !== "issued",
+    ) ?? null
+  );
+}
+
 export const ServiceInvoices = () => {
   const { profile } = useAuth();
   const [transactions, setTransactions] = useState<TransactionOption[]>([]);
@@ -344,10 +363,38 @@ export const ServiceInvoices = () => {
     setBorrowerComplement(address?.additionalInformation ?? "");
   }, []);
 
+  const clearInvoiceForm = useCallback(() => {
+    setTransactionId("");
+    setAmount(0);
+    setServiceDescription("Serviços de fisioterapia");
+    setServiceCode("");
+    setTaxRate(0);
+    setIssueDate(today());
+    applyBorrowerFields(undefined, null);
+  }, [applyBorrowerFields]);
+
+  const applyTransactionToForm = useCallback((
+    transaction: TransactionOption,
+    invoice?: ServiceInvoice,
+  ) => {
+    const requestedPayload = invoice?.requested_payload;
+
+    setAmount(money(invoice?.amount ?? transaction.amount));
+    setServiceDescription(
+      invoice?.service_description ??
+        transaction.description ??
+        "Serviços de fisioterapia",
+    );
+    setServiceCode(invoice?.service_code ?? "");
+    setTaxRate(money(invoice?.tax_rate ?? 0));
+    setIssueDate(requestedPayload?.issueDate ?? today());
+    applyBorrowerFields(requestedPayload?.borrower, transaction.patients);
+  }, [applyBorrowerFields]);
+
   const loadData = async () => {
     if (!profile?.clinic_id) {
       setLoading(false);
-      return;
+      return null;
     }
 
     setLoading(true);
@@ -409,24 +456,41 @@ export const ServiceInvoices = () => {
           : failed.error.message,
       );
       setLoading(false);
-      return;
+      return null;
     }
 
     const loadedTransactions =
       (transactionsResult.data ?? []) as unknown as TransactionOption[];
+    const loadedInvoices =
+      (invoicesResult.data ?? []) as unknown as ServiceInvoice[];
 
     setTransactions(loadedTransactions);
-    setInvoices((invoicesResult.data ?? []) as unknown as ServiceInvoice[]);
+    setInvoices(loadedInvoices);
 
-    if (!transactionId && loadedTransactions[0]) {
-      const first = loadedTransactions[0];
-      setTransactionId(first.id);
-      setAmount(money(first.amount));
-      setServiceDescription(first.description ?? "Serviços de fisioterapia");
-      applyBorrowerFields(undefined, first.patients);
+    if (!transactionId) {
+      const nextTransaction = findNextUnissuedTransaction(
+        loadedTransactions,
+        loadedInvoices,
+      );
+
+      if (nextTransaction) {
+        setTransactionId(nextTransaction.id);
+        applyTransactionToForm(
+          nextTransaction,
+          loadedInvoices.find(
+            (invoice) => invoice.transaction_id === nextTransaction.id,
+          ),
+        );
+      } else {
+        clearInvoiceForm();
+      }
     }
 
     setLoading(false);
+    return {
+      transactions: loadedTransactions,
+      invoices: loadedInvoices,
+    };
   };
 
   useEffect(() => {
@@ -437,19 +501,8 @@ export const ServiceInvoices = () => {
     if (!selectedTransaction) return;
 
     const existing = invoiceByTransaction.get(selectedTransaction.id);
-    const requestedPayload = existing?.requested_payload;
-
-    setAmount(money(existing?.amount ?? selectedTransaction.amount));
-    setServiceDescription(
-      existing?.service_description ??
-        selectedTransaction.description ??
-        "Serviços de fisioterapia",
-    );
-    setServiceCode(existing?.service_code ?? "");
-    setTaxRate(money(existing?.tax_rate ?? 0));
-    setIssueDate(requestedPayload?.issueDate ?? today());
-    applyBorrowerFields(requestedPayload?.borrower, selectedTransaction.patients);
-  }, [selectedTransaction, invoiceByTransaction, applyBorrowerFields]);
+    applyTransactionToForm(selectedTransaction, existing);
+  }, [selectedTransaction, invoiceByTransaction, applyTransactionToForm]);
 
   const saveInvoice = async (status: InvoiceStatus) => {
     if (!profile?.clinic_id || !selectedTransaction) {
@@ -565,6 +618,7 @@ export const ServiceInvoices = () => {
     }
 
     let issueMessage: string | null = null;
+    let issuedSuccessfully = false;
 
     try {
       const result = await issueServiceInvoice({
@@ -598,6 +652,7 @@ export const ServiceInvoices = () => {
         .eq("id", invoice.id);
 
       if (issueError) throw issueError;
+      issuedSuccessfully = true;
     } catch (err) {
       issueMessage =
         err instanceof Error ? err.message : "Erro ao emitir nota fiscal.";
@@ -607,8 +662,34 @@ export const ServiceInvoices = () => {
         .eq("id", invoice.id);
     } finally {
       setSaving(false);
-      await loadData();
-      if (issueMessage) setError(issueMessage);
+      const loadedData = await loadData();
+
+      if (issueMessage) {
+        setError(issueMessage);
+      } else if (issuedSuccessfully && loadedData) {
+        const nextTransaction = findNextUnissuedTransaction(
+          loadedData.transactions,
+          loadedData.invoices,
+        );
+
+        if (nextTransaction) {
+          setTransactionId(nextTransaction.id);
+          applyTransactionToForm(
+            nextTransaction,
+            loadedData.invoices.find(
+              (item) => item.transaction_id === nextTransaction.id,
+            ),
+          );
+          setNotice(
+            "NFS-e emitida com sucesso. O formulário foi preparado para a próxima nota pendente.",
+          );
+        } else {
+          clearInvoiceForm();
+          setNotice(
+            "NFS-e emitida com sucesso. Não há outros recebimentos pendentes para preparar.",
+          );
+        }
+      }
     }
   };
 
