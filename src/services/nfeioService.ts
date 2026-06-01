@@ -1,13 +1,35 @@
+import { supabase } from "../lib/supabase";
+
+export type NfeioBorrowerType = "NaturalPerson" | "LegalEntity";
+
+export type NfeioBorrowerAddress = {
+  country?: string;
+  postalCode: string;
+  street: string;
+  number: string;
+  additionalInformation?: string | null;
+  district: string;
+  city: {
+    code: string;
+    name: string;
+  };
+  state: string;
+};
+
 export type NfeioInvoicePayload = {
   invoiceId: string;
   amount: number;
   serviceDescription: string;
   serviceCode: string;
+  taxRate?: number;
+  issueDate?: string;
   customer: {
+    type?: NfeioBorrowerType;
     name: string;
     document: string | null;
     email: string | null;
     phone: string | null;
+    address: NfeioBorrowerAddress | null;
   };
 };
 
@@ -15,6 +37,13 @@ export type NfeioIssueResult = {
   providerInvoiceId: string | null;
   verificationUrl: string | null;
   rawResponse: unknown;
+};
+
+export type NfeioPdfResult = {
+  pdfBase64?: string;
+  pdfContentType?: string;
+  pdfUrl?: string;
+  rawResponse?: unknown;
 };
 
 const proxyUrl = import.meta.env.VITE_NFEIO_PROXY_URL as string | undefined;
@@ -32,9 +61,18 @@ export async function issueServiceInvoice(
     );
   }
 
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (session?.access_token) {
+    headers.Authorization = `Bearer ${session.access_token}`;
+  }
+
   const response = await fetch(proxyUrl, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(payload),
   });
 
@@ -60,4 +98,55 @@ export async function issueServiceInvoice(
     verificationUrl: data?.verificationUrl ?? data?.url ?? null,
     rawResponse: data,
   };
+}
+
+export async function downloadServiceInvoicePdf(
+  providerInvoiceId: string,
+): Promise<NfeioPdfResult> {
+  return callInvoiceAction<NfeioPdfResult>("downloadPdf", providerInvoiceId);
+}
+
+export async function sendServiceInvoiceEmail(
+  providerInvoiceId: string,
+): Promise<{ ok: boolean; rawResponse?: unknown }> {
+  return callInvoiceAction("sendEmail", providerInvoiceId);
+}
+
+async function callInvoiceAction<T>(
+  action: "downloadPdf" | "sendEmail",
+  providerInvoiceId: string,
+): Promise<T> {
+  if (!proxyUrl) {
+    throw new Error("Integração NFe.io ainda não configurada.");
+  }
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (session?.access_token) {
+    headers.Authorization = `Bearer ${session.access_token}`;
+  }
+
+  const response = await fetch(proxyUrl, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ action, providerInvoiceId }),
+  });
+
+  const data = (await response.json().catch(() => null)) as
+    | ({ message?: string } & T)
+    | null;
+
+  if (!response.ok) {
+    throw new Error(
+      data?.message ??
+        (action === "downloadPdf"
+          ? "Erro ao baixar PDF da NFS-e."
+          : "Erro ao enviar NFS-e por e-mail."),
+    );
+  }
+
+  return data as T;
 }

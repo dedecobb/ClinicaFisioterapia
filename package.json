@@ -8,6 +8,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "lint:dualite": "eslint --config eslint.dualite.config.js .",
+    "nfeio:smoke": "node scripts/nfeio-smoke-test.mjs",
     "tsc:dualite": "yarn tsc -p tsconfig.dualite.json",
     "preview": "vite preview"
   },
@@ -39,6 +40,7 @@
     "eslint-plugin-react-refresh": "^0.4.20",
     "globals": "^16.2.0",
     "postcss": "^8.4.35",
+    "supabase": "^2.103.0",
     "tailwindcss": "^3.4.1",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.32.1",

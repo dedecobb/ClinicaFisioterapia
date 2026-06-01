@@ -71,6 +71,7 @@ type ProfessionalReport = {
 
 type TransactionRow = {
   id: string;
+  patient_id: string | null;
   amount: number | string;
   type: "income" | "expense";
   category: string;
@@ -81,16 +82,40 @@ type TransactionRow = {
   patients: { full_name: string } | null;
 };
 
+type TransactionStatus = TransactionRow["status"];
+
 type ReceivableFilter = "open" | "paid" | "all";
 type DueSort = "asc" | "desc";
 
 type ReceivableRow = {
+  kind: "package";
   packageItem: PackageRow;
   installment: InstallmentRow;
   patientName: string;
   remaining: number;
   status: PaymentStatus;
 };
+
+type ProcedureReceivableRow = {
+  kind: "procedure";
+  transaction: TransactionRow;
+  patientName: string;
+  remaining: number;
+  status: PaymentStatus;
+};
+
+type ReceivableItem = ReceivableRow | ProcedureReceivableRow;
+
+type PaymentTarget =
+  | {
+      kind: "package";
+      packageItem: PackageRow;
+      installment: InstallmentRow;
+    }
+  | {
+      kind: "procedure";
+      transaction: TransactionRow;
+    };
 
 const currencyFormatter = new Intl.NumberFormat("pt-BR", {
   style: "currency",
@@ -102,6 +127,13 @@ const paymentLabel: Record<PaymentStatus, string> = {
   pendente: "Pendente",
   parcial: "Parcial",
   inadimplente: "Inadimplente",
+};
+
+const transactionStatusLabel: Record<TransactionStatus, string> = {
+  paid: "Pago",
+  pending: "Pendente",
+  overdue: "Vencido",
+  cancelled: "Cancelado",
 };
 
 function money(value: number | string | null | undefined): number {
@@ -175,6 +207,12 @@ function getInstallmentPaymentStatus(installment: InstallmentRow): PaymentStatus
   return installment.status === "inadimplente" ? "inadimplente" : status;
 }
 
+function paymentStatusFromTransaction(status: TransactionStatus): PaymentStatus {
+  if (status === "paid") return "pago";
+  if (status === "overdue") return "inadimplente";
+  return "pendente";
+}
+
 function getPackagePaymentStatus(packageItem: PackageRow): PaymentStatus {
   const status = statusFromPayment(
     money(packageItem.total_amount),
@@ -189,6 +227,43 @@ function badgeVariantForPayment(status: PaymentStatus) {
   if (status === "pago") return "success";
   if (status === "inadimplente") return "danger";
   return "warning";
+}
+
+function badgeVariantForTransaction(status: TransactionStatus) {
+  if (status === "paid") return "success";
+  if (status === "overdue") return "danger";
+  if (status === "cancelled") return "neutral";
+  return "warning";
+}
+
+function isStandaloneProcedureIncome(transaction: TransactionRow): boolean {
+  return (
+    transaction.type === "income" &&
+    transaction.category === "Recebimento de procedimentos"
+  );
+}
+
+function dedupeProcedureTransactions(
+  transactions: TransactionRow[],
+): TransactionRow[] {
+  const seen = new Set<string>();
+
+  return transactions.filter((transaction) => {
+    if (!isStandaloneProcedureIncome(transaction)) return true;
+
+    const key = [
+      transaction.patient_id ?? transaction.description ?? transaction.id,
+      transaction.type,
+      transaction.category,
+      transaction.status,
+      transaction.due_date,
+      cents(transaction.amount),
+    ].join("|");
+
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function todayDate(): string {
@@ -243,10 +318,7 @@ export const Financial = () => {
   const [appointments, setAppointments] = useState<CommissionAppointment[]>([]);
   const [transactions, setTransactions] = useState<TransactionRow[]>([]);
   const [ownerId, setOwnerId] = useState<string | null>(null);
-  const [paymentTarget, setPaymentTarget] = useState<{
-    packageItem: PackageRow;
-    installment: InstallmentRow;
-  } | null>(null);
+  const [paymentTarget, setPaymentTarget] = useState<PaymentTarget | null>(null);
   const [commissionTarget, setCommissionTarget] =
     useState<ProfessionalReport | null>(null);
   const [paymentAmount, setPaymentAmount] = useState("");
@@ -326,7 +398,7 @@ export const Financial = () => {
         supabase
           .from("transactions")
           .select(
-            "id, amount, type, category, status, description, due_date, created_at, patients (full_name)",
+            "id, patient_id, amount, type, category, status, description, due_date, created_at, patients (full_name)",
           )
           .eq("clinic_id", profile.clinic_id)
           .order("created_at", { ascending: false }),
@@ -364,6 +436,11 @@ export const Financial = () => {
     [appointments, ownerId],
   );
 
+  const visibleTransactions = useMemo(
+    () => dedupeProcedureTransactions(transactions),
+    [transactions],
+  );
+
   const commissionReport = useMemo(
     () =>
       rawCommissionReport.map((item) => {
@@ -388,34 +465,48 @@ export const Financial = () => {
   );
 
   const totals = useMemo(() => {
+    const standaloneProcedures = visibleTransactions.filter(
+      isStandaloneProcedureIncome,
+    );
+    const procedureSold = standaloneProcedures.reduce(
+      (total, item) => total + money(item.amount),
+      0,
+    );
+    const procedurePaid = standaloneProcedures
+      .filter((item) => item.status === "paid")
+      .reduce((total, item) => total + money(item.amount), 0);
+    const procedureOpen = standaloneProcedures
+      .filter((item) => item.status === "pending" || item.status === "overdue")
+      .reduce((total, item) => total + money(item.amount), 0);
     const sold = packages.reduce(
       (total, item) => total + money(item.total_amount),
-      0,
+      procedureSold,
     );
     const paid = packages.reduce(
       (total, item) => total + money(item.amount_paid),
-      0,
+      procedurePaid,
     );
     const open = packages.reduce(
       (total, item) =>
         total + Math.max(money(item.total_amount) - money(item.amount_paid), 0),
-      0,
+      procedureOpen,
     );
     const currentDue = packages.reduce((total, item) => {
       const installment = getCurrentInstallment(item);
       return total + (installment ? getRemainingInstallment(installment) : 0);
-    }, 0);
+    }, procedureOpen);
     const professionalShare = commissionReport.reduce(
       (total, item) => total + item.professionalShare,
       0,
     );
 
     return { sold, paid, open, currentDue, professionalShare };
-  }, [commissionReport, packages]);
+  }, [commissionReport, packages, visibleTransactions]);
 
   const receivables = useMemo(() => {
-    const rows = packages.flatMap((packageItem) =>
+    const packageRows: ReceivableItem[] = packages.flatMap((packageItem) =>
       getInstallments(packageItem).map((installment) => ({
+        kind: "package" as const,
         packageItem,
         installment,
         patientName: packageItem.patients?.full_name ?? "Paciente",
@@ -423,6 +514,19 @@ export const Financial = () => {
         status: getInstallmentPaymentStatus(installment),
       })),
     );
+    const procedureRows: ReceivableItem[] = visibleTransactions
+      .filter(isStandaloneProcedureIncome)
+      .map((transaction) => ({
+        kind: "procedure" as const,
+        transaction,
+        patientName: transaction.patients?.full_name ?? "Paciente",
+        remaining:
+          transaction.status === "paid" || transaction.status === "cancelled"
+            ? 0
+            : money(transaction.amount),
+        status: paymentStatusFromTransaction(transaction.status),
+      }));
+    const rows = [...packageRows, ...procedureRows];
 
     return rows
       .filter((row) => {
@@ -432,17 +536,27 @@ export const Financial = () => {
       })
       .sort((a, b) => {
         const direction = dueSort === "asc" ? 1 : -1;
-        return a.installment.due_date.localeCompare(b.installment.due_date) * direction;
+        const aDate =
+          a.kind === "package" ? a.installment.due_date : a.transaction.due_date;
+        const bDate =
+          b.kind === "package" ? b.installment.due_date : b.transaction.due_date;
+        return aDate.localeCompare(bDate) * direction;
       });
-  }, [dueSort, packages, receivableFilter]);
+  }, [dueSort, packages, receivableFilter, visibleTransactions]);
 
   const openPaymentModal = (
     packageItem: PackageRow,
     installment: InstallmentRow,
   ) => {
-    setPaymentTarget({ packageItem, installment });
+    setPaymentTarget({ kind: "package", packageItem, installment });
     setPaymentAmount(String(getRemainingInstallment(installment) || ""));
     setPaymentMethod(installment.payment_method ?? packageItem.payment_method ?? "Pix");
+  };
+
+  const openProcedurePaymentModal = (transaction: TransactionRow) => {
+    setPaymentTarget({ kind: "procedure", transaction });
+    setPaymentAmount(String(money(transaction.amount) || ""));
+    setPaymentMethod("Pix");
   };
 
   const handleRegisterPayment = async (event: FormEvent<HTMLFormElement>) => {
@@ -452,6 +566,80 @@ export const Financial = () => {
     const amount = Number(paymentAmount);
     if (!amount || amount <= 0) {
       setError("Informe um valor de pagamento válido.");
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+
+    if (paymentTarget.kind === "procedure") {
+      const openAmount = money(paymentTarget.transaction.amount);
+
+      if (amount > openAmount) {
+        setError(
+          `O valor informado é maior que o saldo do procedimento (${currencyFormatter.format(openAmount)}).`,
+        );
+        setSaving(false);
+        return;
+      }
+
+      const paymentDate = todayDate();
+      const remainingAmount = Math.max(openAmount - amount, 0);
+      const baseDescription =
+        paymentTarget.transaction.description ?? "Recebimento de procedimentos";
+
+      if (remainingAmount <= 0) {
+        const { error: updateError } = await supabase
+          .from("transactions")
+          .update({
+            status: "paid",
+            due_date: paymentDate,
+            description: `${baseDescription} (${paymentMethod})`,
+          })
+          .eq("id", paymentTarget.transaction.id);
+
+        if (updateError) {
+          setError(updateError.message);
+          setSaving(false);
+          return;
+        }
+      } else {
+        const { error: updateError } = await supabase
+          .from("transactions")
+          .update({
+            amount: remainingAmount,
+            status: "pending",
+            description: `${baseDescription} - saldo restante`,
+          })
+          .eq("id", paymentTarget.transaction.id);
+
+        if (updateError) {
+          setError(updateError.message);
+          setSaving(false);
+          return;
+        }
+
+        const { error: insertError } = await supabase.from("transactions").insert({
+          clinic_id: profile?.clinic_id,
+          patient_id: paymentTarget.transaction.patient_id,
+          amount,
+          type: "income",
+          category: "Recebimento de procedimentos",
+          status: "paid",
+          description: `${baseDescription} - recebido (${paymentMethod})`,
+          due_date: paymentDate,
+        });
+
+        if (insertError) {
+          setError(insertError.message);
+          setSaving(false);
+          return;
+        }
+      }
+
+      setPaymentTarget(null);
+      setSaving(false);
+      await loadFinancialData();
       return;
     }
 
@@ -465,11 +653,9 @@ export const Financial = () => {
       setError(
         `O valor informado é maior que o saldo do pacote (${currencyFormatter.format(packageOpen)}).`,
       );
+      setSaving(false);
       return;
     }
-
-    setSaving(true);
-    setError(null);
 
     const installments = getInstallments(paymentTarget.packageItem);
     const selectedIndex = installments.findIndex(
@@ -678,10 +864,10 @@ export const Financial = () => {
               <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                 <div>
                   <h3 className="text-lg font-bold text-slate-900 dark:text-white">
-                    Parcelas
+                    Recebíveis
                   </h3>
                   <p className="text-sm text-slate-500">
-                    Veja o que está em aberto, pago ou tudo junto.
+                    Veja parcelas e procedimentos em aberto, pagos ou tudo junto.
                   </p>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-2">
@@ -727,31 +913,55 @@ export const Financial = () => {
                     {receivables.length === 0 ? (
                       <tr>
                         <td colSpan={8} className="px-6 py-10 text-center text-sm text-slate-500">
-                          Nenhuma parcela encontrada para este filtro.
+                          Nenhum recebível encontrado para este filtro.
                         </td>
                       </tr>
                     ) : (
-                      receivables.map((row: ReceivableRow) => (
-                        <tr key={row.installment.id}>
+                      receivables.map((row: ReceivableItem) => (
+                        <tr
+                          key={
+                            row.kind === "package"
+                              ? row.installment.id
+                              : row.transaction.id
+                          }
+                        >
                           <td className="px-6 py-4">
                             <p className="text-sm font-semibold text-slate-900 dark:text-white">
                               {row.patientName}
                             </p>
                             <p className="text-xs text-slate-500">
-                              Pacote de {row.packageItem.total_lessons} aulas
+                              {row.kind === "package"
+                                ? `Pacote de ${row.packageItem.total_lessons} aulas`
+                                : "Procedimentos avulsos"}
                             </p>
                           </td>
                           <td className="px-6 py-4 text-sm font-semibold">
-                            #{row.installment.installment_number}
+                            {row.kind === "package"
+                              ? `#${row.installment.installment_number}`
+                              : "Procedimento"}
                           </td>
                           <td className="px-6 py-4 text-sm text-slate-500">
-                            {formatDate(row.installment.due_date)}
+                            {formatDate(
+                              row.kind === "package"
+                                ? row.installment.due_date
+                                : row.transaction.due_date,
+                            )}
                           </td>
                           <td className="px-6 py-4 text-sm">
-                            {currencyFormatter.format(money(row.installment.amount))}
+                            {currencyFormatter.format(
+                              row.kind === "package"
+                                ? money(row.installment.amount)
+                                : money(row.transaction.amount),
+                            )}
                           </td>
                           <td className="px-6 py-4 text-sm text-emerald-600 font-semibold">
-                            {currencyFormatter.format(money(row.installment.amount_paid))}
+                            {currencyFormatter.format(
+                              row.kind === "package"
+                                ? money(row.installment.amount_paid)
+                                : row.transaction.status === "paid"
+                                  ? money(row.transaction.amount)
+                                  : 0,
+                            )}
                           </td>
                           <td className="px-6 py-4 text-sm font-semibold">
                             {currencyFormatter.format(row.remaining)}
@@ -768,19 +978,28 @@ export const Financial = () => {
                                   size="sm"
                                   variant="outline"
                                   onClick={() =>
-                                    openPaymentModal(row.packageItem, row.installment)
+                                    row.kind === "package"
+                                      ? openPaymentModal(
+                                          row.packageItem,
+                                          row.installment,
+                                        )
+                                      : openProcedurePaymentModal(row.transaction)
                                   }
                                 >
                                   Registrar
                                 </Button>
                               )}
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => printReceipt(row.packageItem, row.installment)}
-                              >
-                                <Receipt size={14} />
-                              </Button>
+                              {row.kind === "package" && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() =>
+                                    printReceipt(row.packageItem, row.installment)
+                                  }
+                                >
+                                  <Receipt size={14} />
+                                </Button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -1060,10 +1279,10 @@ export const Financial = () => {
             <Card className="p-0 overflow-hidden">
               <div className="p-6 border-b border-slate-100 dark:border-slate-800">
                 <h3 className="text-lg font-bold text-slate-900 dark:text-white">
-                  Histórico de pagamentos
+                  Histórico financeiro
                 </h3>
                 <p className="text-sm text-slate-500">
-                  Entradas recebidas e comissões pagas ficam registradas aqui.
+                  Entradas, pendências e comissões pagas ficam registradas aqui.
                 </p>
               </div>
               <div className="overflow-x-auto">
@@ -1073,30 +1292,40 @@ export const Financial = () => {
                       <th className="px-6 py-4">Data</th>
                       <th className="px-6 py-4">Tipo</th>
                       <th className="px-6 py-4">Categoria</th>
+                      <th className="px-6 py-4">Status</th>
                       <th className="px-6 py-4">Descrição</th>
                       <th className="px-6 py-4">Valor</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {transactions.length === 0 ? (
+                    {visibleTransactions.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-6 py-10 text-center text-sm text-slate-500">
+                        <td colSpan={6} className="px-6 py-10 text-center text-sm text-slate-500">
                           Nenhum pagamento registrado ainda.
                         </td>
                       </tr>
                     ) : (
-                      transactions.map((transaction) => (
+                      visibleTransactions.map((transaction) => (
                         <tr key={transaction.id}>
                           <td className="px-6 py-4 text-sm text-slate-500">
                             {formatDate(transaction.due_date)}
                           </td>
                           <td className="px-6 py-4">
                             <Badge variant={transaction.type === "income" ? "success" : "warning"}>
-                              {transaction.type === "income" ? "Recebido" : "Pago"}
+                              {transaction.type === "income" ? "Entrada" : "Saída"}
                             </Badge>
                           </td>
                           <td className="px-6 py-4 text-sm font-semibold">
                             {transaction.category}
+                          </td>
+                          <td className="px-6 py-4">
+                            <Badge
+                              variant={badgeVariantForTransaction(
+                                transaction.status,
+                              )}
+                            >
+                              {transactionStatusLabel[transaction.status]}
+                            </Badge>
                           </td>
                           <td className="px-6 py-4 text-sm text-slate-500">
                             {transaction.description ?? transaction.patients?.full_name ?? "-"}
@@ -1133,8 +1362,9 @@ export const Financial = () => {
                     Registrar pagamento
                   </h2>
                   <p className="text-sm text-slate-500">
-                    {paymentTarget.packageItem.patients?.full_name} · Parcela #
-                    {paymentTarget.installment.installment_number}
+                    {paymentTarget.kind === "package"
+                      ? `${paymentTarget.packageItem.patients?.full_name ?? "Paciente"} · Parcela #${paymentTarget.installment.installment_number}`
+                      : `${paymentTarget.transaction.patients?.full_name ?? "Paciente"} · Procedimentos`}
                   </p>
                 </div>
                 <button

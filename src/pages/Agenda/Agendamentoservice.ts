@@ -169,25 +169,17 @@ function toMonthBoundary(year: number, month: number): string {
 
 function toTipoSessao(value: string): TipoSessao {
   const tipos: TipoSessao[] = [
-    "Avaliação Inicial",
-    "Fisioterapia Ortopédica",
-    "Fisioterapia Neurológica",
-    "Fisioterapia Respiratória",
-    "Pilates Clínico",
     "RPG",
     "Drenagem linfática",
     "Liberação miofascial",
     "Massagem relaxante",
     "Fisioterapia",
     "Fisioterapia pélvica",
-    "Procedimentos combinados",
-    "Acupuntura",
-    "Hidroterapia",
   ];
 
   return tipos.includes(value as TipoSessao)
     ? (value as TipoSessao)
-    : "Fisioterapia Ortopédica";
+    : "Fisioterapia";
 }
 
 function mergeProcedures(
@@ -255,6 +247,16 @@ function toAgendamento(db: AppointmentDB): Agendamento {
   }
 
   const paciente = toPaciente(db.patients);
+  const allProcedures = mergeProcedures(
+    db.patients.procedures,
+    paciente.procedimentos,
+    paciente.pacoteAtivo?.procedimentos,
+    db.lesson_packages?.procedure_credits,
+  );
+  const standaloneProcedure =
+    !db.package_id
+      ? allProcedures.find((procedure) => procedure.name === db.type)
+      : undefined;
 
   return {
     id: db.id,
@@ -272,12 +274,7 @@ function toAgendamento(db: AppointmentDB): Agendamento {
     sessaoNumero: db.package_lesson_number ?? undefined,
     totalSessoes: db.lesson_packages?.total_lessons,
     valorAula: Number(db.class_price) || undefined,
-    procedimentos: mergeProcedures(
-      db.patients.procedures,
-      paciente.procedimentos,
-      paciente.pacoteAtivo?.procedimentos,
-      db.lesson_packages?.procedure_credits,
-    ),
+    procedimentos: standaloneProcedure ? [standaloneProcedure] : allProcedures,
   };
 }
 

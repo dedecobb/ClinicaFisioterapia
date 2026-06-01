@@ -41,6 +41,7 @@ import {
   Documento,
   Evolution,
   Patient,
+  PatientAddress,
   PatientAppointment,
   Profile,
   addAttachmentsToEvolution,
@@ -121,6 +122,30 @@ function formatProcedures(
       return `${procedure.name}${quantity > 1 ? ` (${quantity}x)` : ""}`;
     })
     .join(", ");
+}
+
+function formatPatientAddress(
+  address: PatientAddress | string | null | undefined,
+): string {
+  if (!address) return "";
+  if (typeof address === "string") return address;
+
+  const streetAndNumber = [address.street, address.number]
+    .filter(Boolean)
+    .join(", ");
+  const cityAndState = [address.city?.name, address.state]
+    .filter(Boolean)
+    .join(" - ");
+  const cep = address.postalCode ? `CEP ${address.postalCode}` : "";
+
+  return [
+    streetAndNumber,
+    address.district,
+    cityAndState,
+    cep,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 // ── Ícone por extensão de arquivo ─────────────────────────────────────────────
@@ -973,7 +998,7 @@ export const ClinicalHub = () => {
                           <InfoField
                             icon={FileText}
                             label="Endereço"
-                            value={patient.address}
+                            value={formatPatientAddress(patient.address)}
                           />
                         </div>
                       )}

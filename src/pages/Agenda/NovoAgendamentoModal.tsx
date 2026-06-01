@@ -8,20 +8,12 @@ import {
 } from "./types";
 
 const TIPOS_SESSAO: TipoSessao[] = [
-  "Avaliação Inicial",
-  "Fisioterapia Ortopédica",
-  "Fisioterapia Neurológica",
-  "Fisioterapia Respiratória",
-  "Pilates Clínico",
   "RPG",
   "Drenagem linfática",
   "Liberação miofascial",
   "Massagem relaxante",
   "Fisioterapia",
   "Fisioterapia pélvica",
-  "Procedimentos combinados",
-  "Acupuntura",
-  "Hidroterapia",
 ];
 
 const STATUS_LABEL = {
@@ -52,7 +44,7 @@ const formVazio: NovoAgendamentoForm = {
   data: "",
   horaInicio: "08:00",
   horaFim: "08:50",
-  tipoSessao: "Fisioterapia Ortopédica",
+  tipoSessao: "Fisioterapia",
   status: "agendada",
   observacoes: "",
   sessaoNumero: 1,
@@ -84,21 +76,42 @@ function formatProcedures(patient: Paciente | undefined): string {
     .join(", ");
 }
 
+function toSessionType(value: string | undefined): TipoSessao {
+  return TIPOS_SESSAO.includes(value as TipoSessao)
+    ? (value as TipoSessao)
+    : "Fisioterapia";
+}
+
+function getPrimaryProcedure(patient: Paciente | undefined) {
+  return patient?.procedimentos?.[0];
+}
+
 function applyPatientPackage(
   current: NovoAgendamentoForm,
   patient: Paciente | undefined,
 ): NovoAgendamentoForm {
   if (!patient?.pacoteAtivo) {
     const procedures = formatProcedures(patient);
+    const primaryProcedure = getPrimaryProcedure(patient);
+    const totalProcedureCredits = Number(primaryProcedure?.quantity) || 1;
 
     return {
       ...current,
       pacienteId: patient?.id ?? current.pacienteId,
-      tipoSessao: procedures ? "Procedimentos combinados" : current.tipoSessao,
+      tipoSessao: procedures
+        ? toSessionType(primaryProcedure?.name)
+        : current.tipoSessao,
       pacoteId: undefined,
-      valorAula: undefined,
+      sessaoNumero: 1,
+      totalSessoes: totalProcedureCredits,
+      valorAula: Number(primaryProcedure?.agreed_value) || undefined,
       observacoes:
-        current.observacoes || (procedures ? `Procedimentos: ${procedures}.` : ""),
+        current.observacoes ||
+        (primaryProcedure
+          ? `Procedimento avulso: ${primaryProcedure.name}.`
+          : procedures
+            ? `Procedimentos: ${procedures}.`
+            : ""),
     };
   }
 
@@ -134,6 +147,16 @@ export const NovoAgendamentoModal: React.FC<Props> = ({
   onSalvar,
 }) => {
   const [form, setForm] = useState<NovoAgendamentoForm>(formVazio);
+  const selectedPatient = pacientes.find((p) => p.id === form.pacienteId);
+  const tipoOptions = selectedPatient?.pacoteAtivo
+    ? ["Fisioterapia"]
+    : (selectedPatient?.procedimentos ?? [])
+        .map((procedure) => toSessionType(procedure.name))
+        .filter(
+          (tipo, index, list) =>
+            list.indexOf(tipo) === index && TIPOS_SESSAO.includes(tipo),
+        );
+  const sessionTypeOptions = tipoOptions.length > 0 ? tipoOptions : TIPOS_SESSAO;
 
   useEffect(() => {
     if (agendamento) {
@@ -190,6 +213,27 @@ export const NovoAgendamentoModal: React.FC<Props> = ({
     );
   };
 
+  const handleTipoSessaoChange = (tipoSessao: TipoSessao) => {
+    const procedure = selectedPatient?.procedimentos?.find(
+      (item) => item.name === tipoSessao,
+    );
+
+    setForm((current) => ({
+      ...current,
+      tipoSessao,
+      valorAula: procedure
+        ? Number(procedure.agreed_value) || undefined
+        : current.valorAula,
+      totalSessoes: procedure
+        ? Number(procedure.quantity) || 1
+        : current.totalSessoes,
+      observacoes:
+        !selectedPatient?.pacoteAtivo && procedure
+          ? `Procedimento avulso: ${procedure.name}.`
+          : current.observacoes,
+    }));
+  };
+
   if (!aberto) return null;
 
   return (
@@ -239,17 +283,15 @@ export const NovoAgendamentoModal: React.FC<Props> = ({
             {form.pacienteId && (
               <div className="session-credit-box">
                 {(() => {
-                  const patient = pacientes.find((p) => p.id === form.pacienteId);
-                  const procedures = formatProcedures(patient);
+                  const procedures = formatProcedures(selectedPatient);
 
-                  return patient?.pacoteAtivo ? (
+                  return selectedPatient?.pacoteAtivo ? (
                   <>
                     <strong>
-                      Sessão automática: {form.sessaoNumero}/{form.totalSessoes}
+                      Pacote ativo
                     </strong>
                     <span>
-                      Calculada pelas aulas com presença registrada e faltas já
-                      descontadas do pacote.
+                      A numeração é calculada automaticamente pelo pacote.
                     </span>
                   </>
                   ) : procedures ? (
@@ -328,11 +370,11 @@ export const NovoAgendamentoModal: React.FC<Props> = ({
                 className="form-select"
                 value={form.tipoSessao}
                 onChange={(e) =>
-                  campo("tipoSessao", e.target.value as TipoSessao)
+                  handleTipoSessaoChange(e.target.value as TipoSessao)
                 }
                 required
               >
-                {TIPOS_SESSAO.map((t) => (
+                {sessionTypeOptions.map((t) => (
                   <option key={t} value={t}>
                     {t}
                   </option>
@@ -372,32 +414,21 @@ export const NovoAgendamentoModal: React.FC<Props> = ({
               </div>
             </div>
 
-            {/* Sessão */}
-            <div className="form-row">
-              <div className="form-group">
-                <label className="form-label">Sessão nº</label>
-                <input
-                  type="number"
-                  className="form-input"
-                  min={1}
-                  value={form.sessaoNumero}
-                  onChange={(e) =>
-                    campo("sessaoNumero", Number(e.target.value))
-                  }
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Total de sessões</label>
-                <input
-                  type="number"
-                  className="form-input"
-                  min={1}
-                  value={form.totalSessoes}
-                  onChange={(e) =>
-                    campo("totalSessoes", Number(e.target.value))
-                  }
-                />
-              </div>
+            <div className="form-group">
+              <label className="form-label">Valor do atendimento</label>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                className="form-input"
+                value={form.valorAula ?? ""}
+                onChange={(e) =>
+                  campo(
+                    "valorAula",
+                    e.target.value ? Number(e.target.value) : undefined,
+                  )
+                }
+              />
             </div>
 
             {/* Observações */}

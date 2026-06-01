@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Calendar,
@@ -6,7 +6,9 @@ import {
   ClipboardList,
   CreditCard,
   Hash,
+  Loader2,
   Mail,
+  MapPin,
   Phone,
   User,
   X,
@@ -15,6 +17,8 @@ import { Button } from "../../components/ui/Button";
 import {
   NewPatientForm,
   Patient,
+  PatientAddress,
+  PatientAddressForm,
   PROCEDURE_OPTIONS,
   ProcedureType,
 } from "./types";
@@ -39,6 +43,16 @@ const emptyForm: NewPatientForm = {
   birth_date: "",
   gender: "other",
   status: "ativo",
+  address: {
+    postalCode: "",
+    street: "",
+    number: "",
+    additionalInformation: "",
+    district: "",
+    cityCode: "",
+    cityName: "",
+    state: "",
+  },
   plan_start_date: "",
   contracted_lessons: 8,
   fixed_weekdays: [2, 4],
@@ -68,6 +82,98 @@ const currencyFormatter = new Intl.NumberFormat("pt-BR", {
   currency: "BRL",
 });
 
+type ViaCepResponse = {
+  cep?: string;
+  logradouro?: string;
+  bairro?: string;
+  localidade?: string;
+  uf?: string;
+  ibge?: string;
+  complemento?: string;
+  erro?: boolean;
+};
+
+function pad2(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+function onlyDigits(value: string): string {
+  return value.replace(/\D/g, "");
+}
+
+function formatCep(value: string): string {
+  const digits = onlyDigits(value).slice(0, 8);
+  if (digits.length <= 5) return digits;
+  return `${digits.slice(0, 5)}-${digits.slice(5)}`;
+}
+
+function uppercaseState(value: string): string {
+  return value.replace(/[^a-zA-Z]/g, "").slice(0, 2).toUpperCase();
+}
+
+function emptyAddressForm(): PatientAddressForm {
+  return {
+    postalCode: "",
+    street: "",
+    number: "",
+    additionalInformation: "",
+    district: "",
+    cityCode: "",
+    cityName: "",
+    state: "",
+  };
+}
+
+function addressField(value: unknown, aliases: string[]): string {
+  if (!value || typeof value !== "object") return "";
+  const record = value as Record<string, unknown>;
+
+  for (const alias of aliases) {
+    const field = record[alias];
+    if (typeof field === "string" || typeof field === "number") {
+      return String(field);
+    }
+  }
+
+  return "";
+}
+
+function addressFormFromPatientAddress(
+  value: PatientAddress | string | null | undefined,
+): PatientAddressForm {
+  if (!value) return emptyAddressForm();
+
+  if (typeof value === "string") {
+    return {
+      ...emptyAddressForm(),
+      street: value,
+    };
+  }
+
+  const cityValue = value.city;
+
+  return {
+    postalCode: addressField(value, ["postalCode", "postal_code", "zip", "cep"]),
+    street: addressField(value, ["street", "logradouro", "rua", "address"]),
+    number: addressField(value, ["number", "numero"]),
+    additionalInformation: addressField(value, [
+      "additionalInformation",
+      "complement",
+      "complemento",
+    ]),
+    district: addressField(value, ["district", "neighborhood", "bairro"]),
+    cityCode:
+      cityValue && typeof cityValue === "object"
+        ? addressField(cityValue, ["code", "ibgeCode", "cityCode"])
+        : addressField(value, ["cityCode", "city_code", "ibgeCode"]),
+    cityName:
+      cityValue && typeof cityValue === "object"
+        ? addressField(cityValue, ["name", "city"])
+        : addressField(value, ["cityName", "city_name", "city", "cidade"]),
+    state: addressField(value, ["state", "uf"]),
+  };
+}
+
 function getProceduresTotal(procedures: NewPatientForm["procedures"]): number {
   return procedures.reduce(
     (total, item) =>
@@ -76,18 +182,88 @@ function getProceduresTotal(procedures: NewPatientForm["procedures"]): number {
   );
 }
 
-function normalizeProceduresForForm(
-  procedures: Patient["procedures"] | undefined | null,
-): NewPatientForm["procedures"] {
-  return (procedures ?? []).map((procedure) => ({
-    ...procedure,
-    quantity: Number(procedure.quantity) || 1,
-    agreed_value: Number(procedure.agreed_value) || 0,
-  }));
+function clinicNowParts() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+
+  return {
+    date: `${values.year}-${values.month}-${values.day}`,
+    time: `${values.hour}:${values.minute}`,
+  };
 }
 
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return clinicNowParts().date;
+}
+
+function nextAvailableTime(): string {
+  const [, hour = "0", minute = "0"] =
+    clinicNowParts().time.match(/^(\d{2}):(\d{2})$/) ?? [];
+  const totalMinutes = Number(hour) * 60 + Number(minute);
+  const roundedMinutes = Math.min(
+    Math.max(Math.ceil(totalMinutes / 5) * 5, totalMinutes),
+    23 * 60 + 59,
+  );
+
+  return `${pad2(Math.floor(roundedMinutes / 60))}:${pad2(
+    roundedMinutes % 60,
+  )}`;
+}
+
+function addMinutesToSchedule(
+  date: string,
+  time: string,
+  minutes: number,
+): { date: string; time: string } {
+  const [year, month, day] = date.split("-").map(Number);
+  const [hour, minute] = time.split(":").map(Number);
+  const value = new Date(year, month - 1, day, hour, minute + minutes, 0);
+
+  return {
+    date: `${value.getFullYear()}-${pad2(value.getMonth() + 1)}-${pad2(
+      value.getDate(),
+    )}`,
+    time: value.toTimeString().slice(0, 5),
+  };
+}
+
+function defaultProcedureSchedule(offsetSlots = 0, durationMinutes = 50) {
+  return addMinutesToSchedule(
+    today(),
+    nextAvailableTime(),
+    offsetSlots * durationMinutes,
+  );
+}
+
+function normalizeProcedureTimeForDate(date: string, time: string): string {
+  const minTime = nextAvailableTime();
+
+  if (date === today() && time < minTime) return minTime;
+  return time;
+}
+
+function normalizeProceduresForForm(
+  procedures: Patient["procedures"] | undefined | null,
+): NewPatientForm["procedures"] {
+  return (procedures ?? []).map((procedure, index) => {
+    const fallback = defaultProcedureSchedule(index);
+
+    return {
+      ...procedure,
+      quantity: Number(procedure.quantity) || 1,
+      agreed_value: Number(procedure.agreed_value) || 0,
+      scheduled_date: procedure.scheduled_date ?? fallback.date,
+      scheduled_time: procedure.scheduled_time ?? fallback.time,
+    };
+  });
 }
 
 function formFromPatient(
@@ -107,6 +283,7 @@ function formFromPatient(
   const storedLessons =
     activePackage?.total_lessons ?? patient.contracted_lessons ?? 0;
   const hasStoredLessons = storedLessons > 0;
+  const address = addressFormFromPatientAddress(patient.address);
 
   if (mode === "renew") {
     return {
@@ -118,6 +295,7 @@ function formFromPatient(
       birth_date: patient.birth_date ?? "",
       gender: patient.gender ?? "other",
       status: "ativo",
+      address,
       plan_start_date: today(),
       contracted_lessons: 0,
       fixed_weekdays: [],
@@ -134,6 +312,7 @@ function formFromPatient(
     birth_date: patient.birth_date ?? "",
     gender: patient.gender ?? "other",
     status: patient.status ?? "ativo",
+    address,
     plan_start_date:
       activePackage?.start_date ?? patient.plan_start_date ?? today(),
     contracted_lessons:
@@ -174,20 +353,103 @@ export const NovoPacienteModal = ({
   mode = "create",
 }: NovoPacienteModalProps) => {
   const [formData, setFormData] = useState<NewPatientForm>(emptyForm);
+  const [cepLoading, setCepLoading] = useState(false);
+  const [cepError, setCepError] = useState<string | null>(null);
+  const lastFetchedCep = useRef("");
   const isEditing = mode === "edit";
   const isRenewing = mode === "renew";
+  const cepDigits = onlyDigits(formData.address.postalCode);
 
   useEffect(() => {
     if (isOpen) {
       setFormData(formFromPatient(patient, mode));
+      setCepError(null);
+      lastFetchedCep.current = "";
     }
   }, [isOpen, mode, patient]);
+
+  useEffect(() => {
+    if (!isOpen || cepDigits.length !== 8 || lastFetchedCep.current === cepDigits) {
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(async () => {
+      setCepLoading(true);
+      setCepError(null);
+
+      try {
+        const response = await fetch(
+          `https://viacep.com.br/ws/${cepDigits}/json/`,
+          { signal: controller.signal },
+        );
+
+        if (!response.ok) {
+          throw new Error("Não foi possível consultar o CEP.");
+        }
+
+        const data = (await response.json()) as ViaCepResponse;
+        if (data.erro) {
+          throw new Error("CEP não encontrado.");
+        }
+
+        lastFetchedCep.current = cepDigits;
+        setFormData((current) => ({
+          ...current,
+          address: {
+            ...current.address,
+            postalCode: onlyDigits(data.cep ?? cepDigits),
+            street: data.logradouro?.trim() || current.address.street,
+            additionalInformation:
+              current.address.additionalInformation ||
+              data.complemento?.trim() ||
+              "",
+            district: data.bairro?.trim() || current.address.district,
+            cityName: data.localidade?.trim() || current.address.cityName,
+            cityCode: onlyDigits(data.ibge ?? current.address.cityCode),
+            state: uppercaseState(data.uf ?? current.address.state),
+          },
+        }));
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        setCepError(
+          err instanceof Error ? err.message : "Não foi possível consultar o CEP.",
+        );
+      } finally {
+        if (!controller.signal.aborted) setCepLoading(false);
+      }
+    }, 350);
+
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [cepDigits, isOpen]);
 
   const updateField = <K extends keyof NewPatientForm>(
     field: K,
     value: NewPatientForm[K],
   ) => {
     setFormData((current) => ({ ...current, [field]: value }));
+  };
+
+  const updateAddressField = <K extends keyof PatientAddressForm>(
+    field: K,
+    value: PatientAddressForm[K],
+  ) => {
+    setFormData((current) => ({
+      ...current,
+      address: {
+        ...current.address,
+        [field]:
+          field === "postalCode"
+            ? onlyDigits(value).slice(0, 8)
+            : field === "state"
+              ? uppercaseState(value)
+              : value,
+      },
+    }));
+    if (field === "postalCode") setCepError(null);
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -216,10 +478,28 @@ export const NovoPacienteModal = ({
         ...current,
         procedures: selected
           ? current.procedures.filter((item) => item.type !== type)
-          : [
-              ...current.procedures,
-              { type, name: option.name, agreed_value: 0, quantity: 1 },
-            ],
+          : (() => {
+              const selectedCredits = current.procedures.reduce(
+                (total, item) => total + (Number(item.quantity) || 1),
+                0,
+              );
+              const schedule = defaultProcedureSchedule(
+                selectedCredits,
+                Number(current.lesson_duration_minutes) || 50,
+              );
+
+              return [
+                ...current.procedures,
+                {
+                  type,
+                  name: option.name,
+                  agreed_value: 0,
+                  quantity: 1,
+                  scheduled_date: schedule.date,
+                  scheduled_time: schedule.time,
+                },
+              ];
+            })(),
       };
     });
   };
@@ -230,6 +510,32 @@ export const NovoPacienteModal = ({
       procedures: current.procedures.map((item) =>
         item.type === type ? { ...item, agreed_value: value } : item,
       ),
+    }));
+  };
+
+  const updateProcedureSchedule = (
+    type: ProcedureType,
+    field: "scheduled_date" | "scheduled_time",
+    value: string,
+  ) => {
+    setFormData((current) => ({
+      ...current,
+      procedures: current.procedures.map((item) => {
+        if (item.type !== type) return item;
+
+        const nextDate =
+          field === "scheduled_date" ? value : (item.scheduled_date ?? today());
+        const nextTime =
+          field === "scheduled_time"
+            ? value
+            : (item.scheduled_time ?? nextAvailableTime());
+
+        return {
+          ...item,
+          scheduled_date: nextDate,
+          scheduled_time: normalizeProcedureTimeForDate(nextDate, nextTime),
+        };
+      }),
     }));
   };
 
@@ -445,6 +751,158 @@ export const NovoPacienteModal = ({
 
                 <div className="space-y-4">
                   <div className="flex items-center gap-2">
+                    <MapPin size={16} className="text-slate-400" />
+                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">
+                      Endereço
+                    </h3>
+                    {cepLoading && (
+                      <Loader2
+                        size={14}
+                        className="animate-spin text-slate-400"
+                      />
+                    )}
+                  </div>
+
+                  {cepError && (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                      {cepError}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                        CEP
+                      </label>
+                      <input
+                        inputMode="numeric"
+                        disabled={loading || isRenewing}
+                        className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
+                        placeholder="00000-000"
+                        value={formatCep(formData.address.postalCode)}
+                        onChange={(event) =>
+                          updateAddressField("postalCode", event.target.value)
+                        }
+                      />
+                    </div>
+
+                    <div className="space-y-2 sm:col-span-2">
+                      <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                        Logradouro
+                      </label>
+                      <input
+                        disabled={loading || isRenewing}
+                        className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
+                        placeholder="Rua, avenida..."
+                        value={formData.address.street}
+                        onChange={(event) =>
+                          updateAddressField("street", event.target.value)
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                        Número
+                      </label>
+                      <input
+                        disabled={loading || isRenewing}
+                        className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
+                        placeholder="Nº"
+                        value={formData.address.number}
+                        onChange={(event) =>
+                          updateAddressField("number", event.target.value)
+                        }
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                        Bairro
+                      </label>
+                      <input
+                        disabled={loading || isRenewing}
+                        className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
+                        placeholder="Bairro"
+                        value={formData.address.district}
+                        onChange={(event) =>
+                          updateAddressField("district", event.target.value)
+                        }
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                        Complemento
+                      </label>
+                      <input
+                        disabled={loading || isRenewing}
+                        className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
+                        placeholder="Sala, bloco..."
+                        value={formData.address.additionalInformation}
+                        onChange={(event) =>
+                          updateAddressField(
+                            "additionalInformation",
+                            event.target.value,
+                          )
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                        UF
+                      </label>
+                      <input
+                        disabled={loading || isRenewing}
+                        className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
+                        placeholder="UF"
+                        value={formData.address.state}
+                        onChange={(event) =>
+                          updateAddressField("state", event.target.value)
+                        }
+                      />
+                    </div>
+
+                    <div className="space-y-2 sm:col-span-2">
+                      <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                        Cidade
+                      </label>
+                      <input
+                        disabled={loading || isRenewing}
+                        className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
+                        placeholder="Cidade"
+                        value={formData.address.cityName}
+                        onChange={(event) =>
+                          updateAddressField("cityName", event.target.value)
+                        }
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                        IBGE
+                      </label>
+                      <input
+                        inputMode="numeric"
+                        disabled={loading || isRenewing}
+                        className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
+                        placeholder="Código"
+                        value={formData.address.cityCode}
+                        onChange={(event) =>
+                          updateAddressField("cityCode", event.target.value)
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
                     <ClipboardList size={16} className="text-slate-400" />
                     <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">
                       Procedimentos
@@ -521,6 +979,75 @@ export const NovoPacienteModal = ({
                               />
                             </div>
                           </div>
+
+                          {selectedProcedure && (
+                            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3 border-t border-slate-200 pt-3 dark:border-slate-800">
+                              <div className="space-y-1">
+                                <label className="text-xs font-semibold uppercase text-slate-400">
+                                  Data
+                                </label>
+                                <div className="relative">
+                                  <Calendar
+                                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                                    size={16}
+                                  />
+                                  <input
+                                    type="date"
+                                    min={today()}
+                                    disabled={loading}
+                                    className="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
+                                    value={
+                                      selectedProcedure.scheduled_date ?? today()
+                                    }
+                                    onChange={(event) =>
+                                      updateProcedureSchedule(
+                                        procedure.type,
+                                        "scheduled_date",
+                                        event.target.value,
+                                      )
+                                    }
+                                    required
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="space-y-1">
+                                <label className="text-xs font-semibold uppercase text-slate-400">
+                                  Horário
+                                </label>
+                                <div className="relative">
+                                  <Clock
+                                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                                    size={16}
+                                  />
+                                  <input
+                                    type="time"
+                                    step={300}
+                                    min={
+                                      (selectedProcedure.scheduled_date ??
+                                        today()) === today()
+                                        ? nextAvailableTime()
+                                        : undefined
+                                    }
+                                    disabled={loading}
+                                    className="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
+                                    value={
+                                      selectedProcedure.scheduled_time ??
+                                      nextAvailableTime()
+                                    }
+                                    onChange={(event) =>
+                                      updateProcedureSchedule(
+                                        procedure.type,
+                                        "scheduled_time",
+                                        event.target.value,
+                                      )
+                                    }
+                                    required
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -540,10 +1067,10 @@ export const NovoPacienteModal = ({
 
                 <div className="space-y-4">
                   <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">
-                    Aulas contratadas
+                    Agenda e aulas contratadas
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Informe 0 aulas quando o paciente contratar somente procedimentos.
+                    Aulas usam dias e horário fixos. Procedimentos avulsos usam a data e o horário definidos em cada procedimento.
                   </p>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -558,10 +1085,10 @@ export const NovoPacienteModal = ({
                         />
                         <input
                           type="date"
-                          required
-                          disabled={loading}
+                          required={hasLessons}
+                          disabled={loading || !hasLessons}
                           className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
-                          value={formData.plan_start_date}
+                          value={hasLessons ? formData.plan_start_date : ""}
                           onChange={(event) =>
                             updateField("plan_start_date", event.target.value)
                           }
@@ -600,7 +1127,7 @@ export const NovoPacienteModal = ({
 
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                      Dias fixos das aulas
+                      Dias fixos
                     </label>
                     <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
                       {WEEKDAYS.map((day) => {
@@ -629,7 +1156,7 @@ export const NovoPacienteModal = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                        Horário fixo
+                        Horário fixo das aulas
                       </label>
                       <div className="relative">
                         <Clock
@@ -845,12 +1372,12 @@ export const NovoPacienteModal = ({
                   {isRenewing
                     ? hasLessons
                       ? "Renovar e gerar aulas"
-                      : "Adicionar procedimentos"
+                      : "Adicionar e agendar procedimentos"
                     : isEditing
                       ? "Salvar alterações"
                       : hasLessons
                         ? "Cadastrar e gerar aulas"
-                        : "Cadastrar procedimentos"}
+                        : "Cadastrar e agendar procedimentos"}
                 </Button>
               </div>
             </form>

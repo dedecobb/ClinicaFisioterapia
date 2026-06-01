@@ -19,6 +19,8 @@ export interface PatientProcedure {
   name: string;
   agreed_value: number | string;
   quantity?: number | string | null;
+  scheduled_date?: string | null;
+  scheduled_time?: string | null;
 }
 
 export interface PatientLessonPackage {
@@ -26,6 +28,19 @@ export interface PatientLessonPackage {
   status: string | null;
   start_date: string;
   procedure_credits?: PatientProcedure[] | null;
+}
+
+export interface PatientAddress {
+  postalCode?: string | null;
+  street?: string | null;
+  number?: string | null;
+  additionalInformation?: string | null;
+  district?: string | null;
+  city?: {
+    code?: string | null;
+    name?: string | null;
+  } | null;
+  state?: string | null;
 }
 
 export interface Patient {
@@ -37,7 +52,7 @@ export interface Patient {
   phone?: string | null;
   birth_date?: string | null;
   gender?: string | null;
-  address?: string | null;
+  address?: PatientAddress | string | null;
   clinical_notes?: string | null;
   status?: string | null;
   procedures?: PatientProcedure[] | null;

@@ -3,6 +3,7 @@ import {
   NewPatientForm,
   PackageSummary,
   Patient,
+  PatientAddress,
   PatientProcedure,
   PROCEDURE_OPTIONS,
 } from "./types";
@@ -12,6 +13,10 @@ const PACKAGES_TABLE = "lesson_packages";
 const INSTALLMENTS_TABLE = "package_installments";
 const TRANSACTIONS_TABLE = "transactions";
 const CLINIC_UTC_OFFSET = "-03:00";
+
+function pad2(value: number): string {
+  return String(value).padStart(2, "0");
+}
 
 type SupabaseErrorLike = {
   message: string;
@@ -23,6 +28,10 @@ type SupabaseErrorLike = {
 function emptyToNull(value: string): string | null {
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
+}
+
+function onlyDigits(value: string): string {
+  return value.replace(/\D/g, "");
 }
 
 function formatSupabaseError(
@@ -50,9 +59,45 @@ function normalizeProcedures(form: NewPatientForm): PatientProcedure[] {
         name: option?.name ?? procedure.name,
         agreed_value: Number(procedure.agreed_value) || 0,
         quantity: Number(procedure.quantity) || 1,
+        ...(procedure.scheduled_date
+          ? { scheduled_date: procedure.scheduled_date }
+          : {}),
+        ...(procedure.scheduled_time
+          ? { scheduled_time: procedure.scheduled_time }
+          : {}),
       };
     })
     .filter((procedure) => procedure.name.trim());
+}
+
+function normalizeAddress(form: NewPatientForm): PatientAddress | null {
+  const address = form.address;
+  const hasAddress = [
+    address.postalCode,
+    address.street,
+    address.number,
+    address.additionalInformation,
+    address.district,
+    address.cityCode,
+    address.cityName,
+    address.state,
+  ].some((value) => value.trim());
+
+  if (!hasAddress) return null;
+
+  return {
+    country: "BRA",
+    postalCode: onlyDigits(address.postalCode),
+    street: address.street.trim(),
+    number: address.number.trim(),
+    additionalInformation: emptyToNull(address.additionalInformation),
+    district: address.district.trim(),
+    city: {
+      code: onlyDigits(address.cityCode),
+      name: address.cityName.trim(),
+    },
+    state: address.state.replace(/[^a-zA-Z]/g, "").slice(0, 2).toUpperCase(),
+  };
 }
 
 function getProcedureAmount(form: NewPatientForm): number {
@@ -108,6 +153,7 @@ export async function listarPacientes(
       phone,
       birth_date,
       gender,
+      address,
       status,
       plan_start_date,
       contracted_lessons,
@@ -175,6 +221,23 @@ function addMinutesToTime(time: string, minutes: number): string {
   return date.toTimeString().slice(0, 5);
 }
 
+function addMinutesToSchedule(
+  date: string,
+  time: string,
+  minutes: number,
+): { date: string; time: string } {
+  const [year, month, day] = date.split("-").map(Number);
+  const [hour, minute] = time.split(":").map(Number);
+  const value = new Date(year, month - 1, day, hour, minute + minutes, 0);
+
+  return {
+    date: `${value.getFullYear()}-${pad2(value.getMonth() + 1)}-${pad2(
+      value.getDate(),
+    )}`,
+    time: value.toTimeString().slice(0, 5),
+  };
+}
+
 function toDateTime(date: string, time: string): string {
   return new Date(`${date}T${time}:00${CLINIC_UTC_OFFSET}`).toISOString();
 }
@@ -210,17 +273,43 @@ function addMonths(date: string, months: number): string {
 }
 
 function todayDate(): string {
-  return new Date().toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function currentClinicTime(): string {
+  const parts = new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+
+  return `${values.hour}:${values.minute}`;
 }
 
 function getPatientPlanFields(form: NewPatientForm) {
   const withLessons = hasLessonPackage(form);
+  const procedures = normalizeProcedures(form);
+  const firstProcedure = procedures[0];
+  const withProcedures = procedures.length > 0;
 
   return {
-    plan_start_date: emptyToNull(form.plan_start_date),
+    plan_start_date: withLessons
+      ? emptyToNull(form.plan_start_date)
+      : withProcedures
+        ? firstProcedure.scheduled_date ?? todayDate()
+        : null,
     contracted_lessons: withLessons ? form.contracted_lessons : null,
     fixed_weekdays: withLessons ? form.fixed_weekdays : null,
-    fixed_time: withLessons ? emptyToNull(form.fixed_time) : null,
+    fixed_time: withLessons
+      ? emptyToNull(form.fixed_time)
+      : (firstProcedure.scheduled_time ?? null),
   };
 }
 
@@ -229,6 +318,109 @@ function validateLessonPackageFields(form: NewPatientForm) {
 
   if (!form.plan_start_date || !form.fixed_time || form.fixed_weekdays.length === 0) {
     throw new Error("Informe data inicial, dias fixos e horário para gerar as aulas.");
+  }
+}
+
+function validateStandaloneProcedureFields(form: NewPatientForm) {
+  if (hasLessonPackage(form)) return;
+
+  const procedures = normalizeProcedures(form);
+  if (procedures.length === 0) return;
+
+  if (
+    procedures.some(
+      (procedure) => !procedure.scheduled_date || !procedure.scheduled_time,
+    )
+  ) {
+    throw new Error(
+      "Informe data e horário para todos os procedimentos selecionados.",
+    );
+  }
+
+  const today = todayDate();
+  const now = currentClinicTime();
+  const hasPastSchedule = procedures.some((procedure) => {
+    const scheduledDate = procedure.scheduled_date ?? "";
+    const scheduledTime = procedure.scheduled_time ?? "";
+
+    return scheduledDate < today || (scheduledDate === today && scheduledTime < now);
+  });
+
+  if (hasPastSchedule) {
+    throw new Error(
+      "Procedimentos para hoje precisam ficar em um horário igual ou posterior ao horário atual.",
+    );
+  }
+}
+
+function getProcedureCredits(procedures: PatientProcedure[]) {
+  return procedures.flatMap((procedure) => {
+    const quantity = Math.max(Number(procedure.quantity) || 1, 1);
+
+    return Array.from({ length: quantity }, (_, index) => ({
+      procedure,
+      creditNumber: index + 1,
+      totalCredits: quantity,
+    }));
+  });
+}
+
+async function criarAgendamentosProcedimentosAvulsos({
+  clinicId,
+  patientId,
+  professionalId,
+  form,
+  procedures,
+  isRenewal = false,
+}: {
+  clinicId: string;
+  patientId: string;
+  professionalId: string;
+  form: NewPatientForm;
+  procedures: PatientProcedure[];
+  isRenewal?: boolean;
+}) {
+  if (procedures.length === 0) return;
+
+  validateStandaloneProcedureFields(form);
+
+  const credits = getProcedureCredits(procedures);
+  const duration = Number(form.lesson_duration_minutes) || 50;
+
+  const appointments = credits.map((credit) => {
+    const scheduledDate = credit.procedure.scheduled_date ?? todayDate();
+    const scheduledTime = credit.procedure.scheduled_time ?? form.fixed_time;
+    const start = addMinutesToSchedule(
+      scheduledDate,
+      scheduledTime,
+      duration * (credit.creditNumber - 1),
+    );
+    const end = addMinutesToSchedule(start.date, start.time, duration);
+    const procedureName = credit.procedure.name || "Procedimento";
+
+    return {
+      clinic_id: clinicId,
+      patient_id: patientId,
+      professional_id: professionalId,
+      start_time: toDateTime(start.date, start.time),
+      end_time: toDateTime(end.date, end.time),
+      type: procedureName,
+      status: "agendada",
+      package_id: null,
+      package_lesson_number: null,
+      class_price: Number(credit.procedure.agreed_value) || 0,
+      notes: `${isRenewal ? "Renovação: " : ""}Procedimento avulso ${credit.creditNumber}/${credit.totalCredits}: ${procedureName}.`,
+    };
+  });
+
+  const { error } = await supabase.from("appointments").insert(appointments);
+
+  if (error) {
+    throw formatSupabaseError(
+      "Erro ao gerar procedimentos na agenda",
+      error,
+      "appointments",
+    );
   }
 }
 
@@ -355,6 +547,108 @@ async function registrarRecebimentoInicial({
   }
 }
 
+async function registrarFinanceiroProcedimentosAvulsos({
+  clinicId,
+  patientId,
+  patientName,
+  totalAmount,
+  amountPaid,
+  paymentMethod,
+  isRenewal = false,
+  replaceExisting = false,
+}: {
+  clinicId: string;
+  patientId: string;
+  patientName: string;
+  totalAmount: number;
+  amountPaid: number;
+  paymentMethod: string;
+  isRenewal?: boolean;
+  replaceExisting?: boolean;
+}) {
+  if (replaceExisting) {
+    const { error: deleteError } = await supabase
+      .from(TRANSACTIONS_TABLE)
+      .delete()
+      .eq("patient_id", patientId)
+      .eq("category", "Recebimento de procedimentos");
+
+    if (deleteError) {
+      throw formatSupabaseError(
+        "Erro ao substituir financeiro dos procedimentos",
+        deleteError,
+        TRANSACTIONS_TABLE,
+      );
+    }
+  }
+
+  if (totalAmount <= 0) return;
+
+  const method = emptyToNull(paymentMethod);
+  const paymentDate = todayDate();
+  const safePaid = Math.min(Math.max(amountPaid, 0), totalAmount);
+  const pendingAmount = Math.max(totalAmount - safePaid, 0);
+  const baseDescription = `${isRenewal ? "Renovação" : "Contratação"} de procedimentos de ${
+    patientName || "paciente"
+  }`;
+  const rows = [
+    safePaid > 0
+      ? {
+          clinic_id: clinicId,
+          patient_id: patientId,
+          amount: safePaid,
+          type: "income",
+          category: "Recebimento de procedimentos",
+          status: "paid",
+          description: `${baseDescription} - recebido${method ? ` (${method})` : ""}`,
+          due_date: paymentDate,
+        }
+      : null,
+    pendingAmount > 0
+      ? {
+          clinic_id: clinicId,
+          patient_id: patientId,
+          amount: pendingAmount,
+          type: "income",
+          category: "Recebimento de procedimentos",
+          status: "pending",
+          description: `${baseDescription} - saldo em aberto`,
+          due_date: paymentDate,
+        }
+      : null,
+  ].filter(Boolean);
+
+  if (rows.length === 0) return;
+
+  const { error } = await supabase.from(TRANSACTIONS_TABLE).insert(rows);
+
+  if (error) {
+    throw formatSupabaseError(
+      "Erro ao registrar financeiro dos procedimentos",
+      error,
+      TRANSACTIONS_TABLE,
+    );
+  }
+}
+
+async function hasStandaloneProcedureAppointments(patientId: string): Promise<boolean> {
+  const { count, error } = await supabase
+    .from("appointments")
+    .select("id", { count: "exact", head: true })
+    .eq("patient_id", patientId)
+    .is("package_id", null);
+
+  if (error) {
+    throw formatSupabaseError(
+      "Erro ao verificar procedimentos na agenda",
+      error,
+      "appointments",
+    );
+  }
+
+  return (count ?? 0) > 0;
+}
+
 async function sincronizarParcelasPacote(
   clinicId: string,
   packageId: string,
@@ -412,6 +706,11 @@ export async function criarPaciente(
   );
   const procedures = normalizeProcedures(form);
   const patientPlanFields = getPatientPlanFields(form);
+  const address = normalizeAddress(form);
+
+  if (!withLessons) {
+    validateStandaloneProcedureFields(form);
+  }
 
   const { data, error } = await supabase
     .from(PATIENTS_TABLE)
@@ -423,13 +722,14 @@ export async function criarPaciente(
       phone: emptyToNull(form.phone),
       birth_date: emptyToNull(form.birth_date),
       gender: emptyToNull(form.gender),
+      address,
       status: form.status,
       ...patientPlanFields,
       responsible_professional_id: form.responsible_professional_id,
       procedures,
     })
     .select(
-      "id, clinic_id, full_name, cpf, email, phone, birth_date, gender, status, plan_start_date, contracted_lessons, fixed_weekdays, fixed_time, responsible_professional_id, procedures, created_at",
+      "id, clinic_id, full_name, cpf, email, phone, birth_date, gender, address, status, plan_start_date, contracted_lessons, fixed_weekdays, fixed_time, responsible_professional_id, procedures, created_at",
     )
     .single();
 
@@ -439,12 +739,20 @@ export async function criarPaciente(
 
   const patient = data as Patient;
   if (!withLessons) {
-    await registrarRecebimentoInicial({
+    await criarAgendamentosProcedimentosAvulsos({
+      clinicId,
+      patientId: patient.id,
+      professionalId: form.responsible_professional_id,
+      form,
+      procedures,
+    });
+
+    await registrarFinanceiroProcedimentosAvulsos({
       clinicId,
       patientId: patient.id,
       patientName: patient.full_name,
+      totalAmount,
       amountPaid,
-      procedureAmount,
       paymentMethod: form.payment_method,
     });
 
@@ -562,18 +870,24 @@ export async function renovarPacotePaciente(
   );
   const procedures = normalizeProcedures(form);
   const patientPlanFields = getPatientPlanFields(form);
+  const address = normalizeAddress(form);
+
+  if (!withLessons) {
+    validateStandaloneProcedureFields(form);
+  }
 
   const { data: patientData, error: patientError } = await supabase
     .from(PATIENTS_TABLE)
     .update({
       status: "ativo",
+      address,
       ...patientPlanFields,
       responsible_professional_id: form.responsible_professional_id,
       procedures,
     })
     .eq("id", patientId)
     .select(
-      "id, clinic_id, full_name, cpf, email, phone, birth_date, gender, status, plan_start_date, contracted_lessons, fixed_weekdays, fixed_time, responsible_professional_id, procedures, created_at",
+      "id, clinic_id, full_name, cpf, email, phone, birth_date, gender, address, status, plan_start_date, contracted_lessons, fixed_weekdays, fixed_time, responsible_professional_id, procedures, created_at",
     )
     .single();
 
@@ -582,12 +896,21 @@ export async function renovarPacotePaciente(
   }
 
   if (!withLessons) {
-    await registrarRecebimentoInicial({
+    await criarAgendamentosProcedimentosAvulsos({
+      clinicId,
+      patientId,
+      professionalId: form.responsible_professional_id,
+      form,
+      procedures,
+      isRenewal: true,
+    });
+
+    await registrarFinanceiroProcedimentosAvulsos({
       clinicId,
       patientId,
       patientName: (patientData as Patient).full_name,
+      totalAmount,
       amountPaid,
-      procedureAmount,
       paymentMethod: form.payment_method,
       isRenewal: true,
     });
@@ -695,9 +1018,16 @@ export async function atualizarPaciente(
   patientId: string,
   form: NewPatientForm,
 ): Promise<Patient> {
+  const withLessons = hasLessonPackage(form);
   const totalAmount = getFinancialTotalAmount(form);
   const procedures = normalizeProcedures(form);
+  const amountPaid = Number(form.amount_paid) || 0;
   const patientPlanFields = getPatientPlanFields(form);
+  const address = normalizeAddress(form);
+
+  if (!withLessons && procedures.length > 0) {
+    validateStandaloneProcedureFields(form);
+  }
 
   const { data, error } = await supabase
     .from(PATIENTS_TABLE)
@@ -708,6 +1038,7 @@ export async function atualizarPaciente(
       phone: emptyToNull(form.phone),
       birth_date: emptyToNull(form.birth_date),
       gender: emptyToNull(form.gender),
+      address,
       status: form.status,
       ...patientPlanFields,
       responsible_professional_id: form.responsible_professional_id,
@@ -715,7 +1046,7 @@ export async function atualizarPaciente(
     })
     .eq("id", patientId)
     .select(
-      "id, clinic_id, full_name, cpf, email, phone, birth_date, gender, status, plan_start_date, contracted_lessons, fixed_weekdays, fixed_time, responsible_professional_id, procedures, created_at",
+      "id, clinic_id, full_name, cpf, email, phone, birth_date, gender, address, status, plan_start_date, contracted_lessons, fixed_weekdays, fixed_time, responsible_professional_id, procedures, created_at",
     )
     .single();
 
@@ -725,6 +1056,30 @@ export async function atualizarPaciente(
 
   const patient = data as Patient;
   const activePackage = await atualizarPacotePrincipal(patientId, form, totalAmount);
+
+  if (!withLessons && procedures.length > 0) {
+    const hasAgenda = await hasStandaloneProcedureAppointments(patientId);
+
+    if (!hasAgenda) {
+      await criarAgendamentosProcedimentosAvulsos({
+        clinicId: patient.clinic_id,
+        patientId,
+        professionalId: form.responsible_professional_id,
+        form,
+        procedures,
+      });
+    }
+
+    await registrarFinanceiroProcedimentosAvulsos({
+      clinicId: patient.clinic_id,
+      patientId,
+      patientName: patient.full_name,
+      totalAmount,
+      amountPaid,
+      paymentMethod: form.payment_method,
+      replaceExisting: true,
+    });
+  }
 
   return {
     ...patient,

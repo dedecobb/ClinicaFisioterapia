@@ -167,6 +167,14 @@ export const PacientesPage = () => {
       return "Informe a quantidade de créditos de todos os procedimentos selecionados.";
     }
 
+    if (
+      form.procedures.some(
+        (procedure) => !procedure.scheduled_date || !procedure.scheduled_time,
+      )
+    ) {
+      return "Informe data e horário de todos os procedimentos selecionados.";
+    }
+
     if (Number(form.contracted_lessons) < 0) {
       return "A quantidade de aulas não pode ser negativa.";
     }

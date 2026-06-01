@@ -13,11 +13,38 @@ export const PROCEDURE_OPTIONS = [
 
 export type ProcedureType = (typeof PROCEDURE_OPTIONS)[number]["type"];
 
+export interface PatientAddress {
+  country?: string | null;
+  postalCode?: string | null;
+  street?: string | null;
+  number?: string | null;
+  additionalInformation?: string | null;
+  district?: string | null;
+  city?: {
+    code?: string | null;
+    name?: string | null;
+  } | null;
+  state?: string | null;
+}
+
+export interface PatientAddressForm {
+  postalCode: string;
+  street: string;
+  number: string;
+  additionalInformation: string;
+  district: string;
+  cityCode: string;
+  cityName: string;
+  state: string;
+}
+
 export interface PatientProcedure {
   type: ProcedureType;
   name: string;
   agreed_value: number;
   quantity: number;
+  scheduled_date?: string;
+  scheduled_time?: string;
 }
 
 export interface PackageSummary {
@@ -57,6 +84,7 @@ export interface Patient {
   fixed_weekdays: number[] | null;
   fixed_time: string | null;
   responsible_professional_id: string | null;
+  address: PatientAddress | string | null;
   procedures: PatientProcedure[] | null;
   created_at: string | null;
   lesson_packages?: PackageSummary[];
@@ -70,6 +98,7 @@ export interface NewPatientForm {
   birth_date: string;
   gender: string;
   status: PatientStatus;
+  address: PatientAddressForm;
   plan_start_date: string;
   contracted_lessons: number;
   fixed_weekdays: number[];

@@ -97,6 +97,18 @@ function formatProcedures(procedures: PatientProcedure[] | undefined): string {
     .join(", ");
 }
 
+type ProcedureProgress = {
+  label: string;
+  done: number;
+  total: number;
+};
+
+function getMatchingProcedure(agendamento: Agendamento): PatientProcedure | undefined {
+  return (agendamento.procedimentos ?? []).find(
+    (procedure) => procedure.name === agendamento.tipoSessao,
+  );
+}
+
 // ─── component ────────────────────────────────────────────────────────────────
 
 export const AgendamentoPage: React.FC = () => {
@@ -328,6 +340,33 @@ export const AgendamentoPage: React.FC = () => {
     }
   };
 
+  const getProcedureProgress = (
+    agendamento: Agendamento,
+  ): ProcedureProgress | undefined => {
+    if (agendamento.pacoteId) return undefined;
+
+    const procedure = getMatchingProcedure(agendamento);
+    if (!procedure) return undefined;
+
+    const done = agendamentos.filter((item) => {
+      if (item.pacienteId !== agendamento.pacienteId || item.pacoteId) {
+        return false;
+      }
+
+      const itemProcedure = getMatchingProcedure(item);
+      return (
+        item.status === "presenca_registrada" &&
+        itemProcedure?.name === procedure.name
+      );
+    }).length;
+
+    return {
+      label: procedure.name,
+      done,
+      total: procedureQuantity(procedure),
+    };
+  };
+
   // ── render ──────────────────────────────────────────────────────────────────
 
   const dataSel = new Date(dataSelecionada + "T12:00:00");
@@ -344,9 +383,21 @@ export const AgendamentoPage: React.FC = () => {
         <div>
           <h1 className="page-title">Agendamentos</h1>
           <p className="page-subtitle">
-            Gerencie aulas, presenças, faltas e reposições
+            Gerencie aulas, procedimentos, presenças, faltas e reposições
           </p>
         </div>
+        {canManageAgenda && (
+          <button
+            className="btn btn-primary"
+            onClick={() => {
+              setAgendamentoEditando(null);
+              setPacienteInicialId(undefined);
+              setModalAberto(true);
+            }}
+          >
+            Novo atendimento
+          </button>
+        )}
       </div>
 
       {erro && <div className="card error-card">{erro}</div>}
@@ -498,7 +549,7 @@ export const AgendamentoPage: React.FC = () => {
           <div className="dia-header">
             <h2 className="dia-titulo">{dataSelFormatada}</h2>
             <span className="dia-contador">
-              {agendamentosDia.length} aula
+              {agendamentosDia.length} atendimento
               {agendamentosDia.length !== 1 ? "s" : ""}
             </span>
           </div>
@@ -511,10 +562,10 @@ export const AgendamentoPage: React.FC = () => {
           ) : agendamentosDia.length === 0 ? (
             <div className="empty-state">
               <div className="empty-icon">📅</div>
-              <p className="empty-title">Nenhuma aula neste dia</p>
+              <p className="empty-title">Nenhum atendimento neste dia</p>
               <p className="empty-sub">
-                As aulas aparecem automaticamente após cadastrar ou renovar um
-                pacote no paciente.
+                Os atendimentos aparecem após cadastrar pacotes, procedimentos
+                ou criar um agendamento.
               </p>
             </div>
           ) : (
@@ -524,6 +575,7 @@ export const AgendamentoPage: React.FC = () => {
                   key={ag.id}
                   agendamento={ag}
                   canManage={canManageAgenda}
+                  procedureProgress={getProcedureProgress(ag)}
                   onEditar={() => abrirEditarModal(ag)}
                   onExcluir={() => excluirAgendamento(ag.id)}
                   onAlterarStatus={(status) => alterarStatus(ag.id, status)}
@@ -555,6 +607,7 @@ export const AgendamentoPage: React.FC = () => {
 interface CardProps {
   agendamento: Agendamento;
   canManage: boolean;
+  procedureProgress?: ProcedureProgress;
   onEditar: () => void;
   onExcluir: () => void;
   onAlterarStatus: (status: StatusAgendamento) => void;
@@ -563,6 +616,7 @@ interface CardProps {
 const AgendamentoCard: React.FC<CardProps> = ({
   agendamento: ag,
   canManage,
+  procedureProgress,
   onEditar,
   onExcluir,
   onAlterarStatus,
@@ -611,6 +665,14 @@ const AgendamentoCard: React.FC<CardProps> = ({
           </div>
         )}
 
+        {procedureProgress && (
+          <div className="ag-procedimentos">
+            <span>Controle</span>
+            {procedureProgress.label}: {procedureProgress.done}/
+            {procedureProgress.total} realizados
+          </div>
+        )}
+
         {/* Convênio */}
         {ag.paciente.convenio && (
           <div className="ag-convenio">{ag.paciente.convenio}</div>
@@ -621,6 +683,15 @@ const AgendamentoCard: React.FC<CardProps> = ({
 
         {canManage && (
           <div className="ag-acoes">
+            {procedureProgress && ag.status !== "presenca_registrada" && (
+              <button
+                className="btn-status btn-status-presenca_registrada"
+                onClick={() => onAlterarStatus("presenca_registrada")}
+                title="Confirmar procedimento realizado"
+              >
+                Confirmar realizado
+              </button>
+            )}
             <div className="ag-status-group">
               {STATUS_AGENDA.map((s) => (
                 <button

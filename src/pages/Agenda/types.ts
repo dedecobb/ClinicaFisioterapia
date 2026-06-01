@@ -8,26 +8,20 @@ export type StatusAgendamento =
   | "cancelada";
 
 export type TipoSessao =
-  | "Avaliação Inicial"
-  | "Fisioterapia Ortopédica"
-  | "Fisioterapia Neurológica"
-  | "Fisioterapia Respiratória"
-  | "Pilates Clínico"
   | "RPG"
   | "Drenagem linfática"
   | "Liberação miofascial"
   | "Massagem relaxante"
   | "Fisioterapia"
-  | "Fisioterapia pélvica"
-  | "Procedimentos combinados"
-  | "Acupuntura"
-  | "Hidroterapia";
+  | "Fisioterapia pélvica";
 
 export interface PatientProcedure {
   type: string;
   name: string;
   agreed_value: number | string;
   quantity?: number | string | null;
+  scheduled_date?: string | null;
+  scheduled_time?: string | null;
 }
 
 export interface Paciente {

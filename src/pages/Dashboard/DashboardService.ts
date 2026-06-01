@@ -14,9 +14,13 @@ type PatientRow = {
 };
 
 type TransactionRow = {
+  id: string;
+  patient_id: string | null;
   amount: number | string;
   type: "income" | "expense";
+  category: string;
   status: "paid" | "pending" | "overdue" | "cancelled";
+  description: string | null;
   due_date: string | null;
   created_at: string | null;
 };
@@ -41,6 +45,40 @@ function monthKey(date: Date): string {
 
 function moneyValue(value: number | string): number {
   return Number(value) || 0;
+}
+
+function cents(value: number | string): number {
+  return Math.round(moneyValue(value) * 100);
+}
+
+function isStandaloneProcedureIncome(transaction: TransactionRow): boolean {
+  return (
+    transaction.type === "income" &&
+    transaction.category === "Recebimento de procedimentos"
+  );
+}
+
+function dedupeProcedureTransactions(
+  transactions: TransactionRow[],
+): TransactionRow[] {
+  const seen = new Set<string>();
+
+  return transactions.filter((transaction) => {
+    if (!isStandaloneProcedureIncome(transaction)) return true;
+
+    const key = [
+      transaction.patient_id ?? transaction.description ?? transaction.id,
+      transaction.type,
+      transaction.category,
+      transaction.status,
+      transaction.due_date,
+      cents(transaction.amount),
+    ].join("|");
+
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function getTransactionDate(transaction: TransactionRow): Date {
@@ -203,12 +241,12 @@ export async function getDashboardData(
     appointmentsCountQuery,
     supabase
       .from("transactions")
-      .select("amount, type, status, due_date, created_at")
+      .select("id, patient_id, amount, type, category, status, description, due_date, created_at")
       .eq("clinic_id", clinicId)
       .gte("created_at", monthStart.toISOString()),
     supabase
       .from("transactions")
-      .select("amount, type, status, due_date, created_at")
+      .select("id, patient_id, amount, type, category, status, description, due_date, created_at")
       .eq("clinic_id", clinicId)
       .gte("created_at", sixMonthsStart.toISOString()),
     birthdayPatientsQuery,
@@ -227,8 +265,9 @@ export async function getDashboardData(
     throw new Error(`Erro ao carregar dashboard: ${failed.error.message}`);
   }
 
-  const monthTransactions =
-    (monthTransactionsResult.data ?? []) as TransactionRow[];
+  const monthTransactions = dedupeProcedureTransactions(
+    (monthTransactionsResult.data ?? []) as TransactionRow[],
+  );
   const paidIncome = monthTransactions
     .filter(
       (transaction) =>
@@ -255,7 +294,9 @@ export async function getDashboardData(
   return {
     stats,
     chartData: buildFinancialChart(
-      (chartTransactionsResult.data ?? []) as TransactionRow[],
+      dedupeProcedureTransactions(
+        (chartTransactionsResult.data ?? []) as TransactionRow[],
+      ),
     ),
     birthdays: mapBirthdays((birthdayPatientsResult.data ?? []) as PatientRow[]),
   };
