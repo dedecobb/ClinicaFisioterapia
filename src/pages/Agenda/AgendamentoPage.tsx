@@ -348,22 +348,31 @@ export const AgendamentoPage: React.FC = () => {
     const procedure = getMatchingProcedure(agendamento);
     if (!procedure) return undefined;
 
-    const done = agendamentos.filter((item) => {
+    const procedureAppointments = agendamentos.filter((item) => {
       if (item.pacienteId !== agendamento.pacienteId || item.pacoteId) {
         return false;
       }
 
       const itemProcedure = getMatchingProcedure(item);
-      return (
-        item.status === "presenca_registrada" &&
-        itemProcedure?.name === procedure.name
-      );
+      return item.status !== "cancelada" && itemProcedure?.name === procedure.name;
+    }).length;
+    const done = agendamentos.filter((item) => {
+      if (
+        item.pacienteId !== agendamento.pacienteId ||
+        item.pacoteId ||
+        item.status !== "presenca_registrada"
+      ) {
+        return false;
+      }
+
+      const itemProcedure = getMatchingProcedure(item);
+      return itemProcedure?.name === procedure.name;
     }).length;
 
     return {
       label: procedure.name,
       done,
-      total: procedureQuantity(procedure),
+      total: Math.max(procedureQuantity(procedure), procedureAppointments),
     };
   };
 

@@ -11,6 +11,7 @@ import {
   PlugZap,
   Printer,
   ReceiptText,
+  RotateCcw,
   Send,
 } from "lucide-react";
 import { Badge } from "../components/ui/Badge";
@@ -49,6 +50,7 @@ type InvoiceRequestedPayload = {
   serviceDescription?: string;
   serviceCode?: string | null;
   taxRate?: number;
+  taxBreakdown?: InvoiceTaxBreakdown;
   borrower?: {
     type?: NfeioBorrowerType;
     document?: string | null;
@@ -61,7 +63,10 @@ type InvoiceRequestedPayload = {
 type TransactionOption = {
   id: string;
   patient_id: string | null;
+  appointment_id: string | null;
   amount: number | string;
+  category: string;
+  status: string;
   description: string | null;
   due_date: string;
   created_at: string;
@@ -88,6 +93,18 @@ type ServiceInvoice = {
   patients: PatientSummary | null;
 };
 
+type InvoiceTaxItem = {
+  rate: number;
+  reductionRate: number;
+  effectiveRate: number;
+  amount: number;
+};
+
+type InvoiceTaxBreakdown = {
+  cbs: InvoiceTaxItem;
+  ibsState: InvoiceTaxItem;
+};
+
 const statusLabel: Record<InvoiceStatus, string> = {
   draft: "Rascunho",
   ready: "Pronta",
@@ -111,8 +128,66 @@ const currencyFormatter = new Intl.NumberFormat("pt-BR", {
   currency: "BRL",
 });
 
+const percentageFormatter = new Intl.NumberFormat("pt-BR", {
+  maximumFractionDigits: 2,
+});
+
+const DEFAULT_ISS_TAX_RATE = 2.01;
+const DEFAULT_SERVICE_CODE = "04.08.02";
+
+const DEFAULT_TAX_CONFIG = {
+  cbs: {
+    rate: 0.9,
+    reductionRate: 60,
+  },
+  ibsState: {
+    rate: 0.1,
+    reductionRate: 60,
+  },
+} as const;
+
 function money(value: number | string | null | undefined): number {
   return Number(value) || 0;
+}
+
+function cents(value: number | string | null | undefined): number {
+  return Math.round(money(value) * 100);
+}
+
+function percent(value: number): string {
+  return `${percentageFormatter.format(value)}%`;
+}
+
+function effectiveRate(rate: number, reductionRate: number): number {
+  return Number((rate * (1 - reductionRate / 100)).toFixed(2));
+}
+
+function taxAmount(baseAmount: number, effectiveRatePercent: number): number {
+  return Number(((baseAmount * effectiveRatePercent) / 100).toFixed(2));
+}
+
+function buildInvoiceTaxBreakdown(baseAmount: number): InvoiceTaxBreakdown {
+  const cbsEffectiveRate = effectiveRate(
+    DEFAULT_TAX_CONFIG.cbs.rate,
+    DEFAULT_TAX_CONFIG.cbs.reductionRate,
+  );
+  const ibsStateEffectiveRate = effectiveRate(
+    DEFAULT_TAX_CONFIG.ibsState.rate,
+    DEFAULT_TAX_CONFIG.ibsState.reductionRate,
+  );
+
+  return {
+    cbs: {
+      ...DEFAULT_TAX_CONFIG.cbs,
+      effectiveRate: cbsEffectiveRate,
+      amount: taxAmount(baseAmount, cbsEffectiveRate),
+    },
+    ibsState: {
+      ...DEFAULT_TAX_CONFIG.ibsState,
+      effectiveRate: ibsStateEffectiveRate,
+      amount: taxAmount(baseAmount, ibsStateEffectiveRate),
+    },
+  };
 }
 
 function today(): string {
@@ -126,6 +201,34 @@ function today(): string {
 
 function formatDate(value: string): string {
   return new Date(`${value.slice(0, 10)}T12:00:00`).toLocaleDateString("pt-BR");
+}
+
+function normalizeSearch(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function transactionOptionLabel(
+  transaction: TransactionOption,
+  invoice?: ServiceInvoice,
+): string {
+  const patientName = transaction.patients?.full_name ?? "Paciente";
+  const status = invoice ? ` (${statusLabel[invoice.status]})` : "";
+
+  return `${patientName} - ${currencyFormatter.format(
+    money(transaction.amount),
+  )} - ${formatDate(transaction.due_date)}${status}`;
+}
+
+function duplicateProcedureTransactionKey(transaction: TransactionOption): string {
+  return [
+    transaction.patient_id ?? "",
+    cents(transaction.amount),
+    transaction.due_date,
+  ].join("|");
 }
 
 function onlyDigits(value: string | null | undefined): string | null {
@@ -250,11 +353,13 @@ export const ServiceInvoices = () => {
   const [transactions, setTransactions] = useState<TransactionOption[]>([]);
   const [invoices, setInvoices] = useState<ServiceInvoice[]>([]);
   const [transactionId, setTransactionId] = useState("");
+  const [transactionSearch, setTransactionSearch] = useState("");
+  const [transactionPickerOpen, setTransactionPickerOpen] = useState(false);
   const [serviceDescription, setServiceDescription] = useState(
     "Serviços de fisioterapia",
   );
-  const [serviceCode, setServiceCode] = useState("");
-  const [taxRate, setTaxRate] = useState(0);
+  const [serviceCode, setServiceCode] = useState(DEFAULT_SERVICE_CODE);
+  const [taxRate, setTaxRate] = useState(DEFAULT_ISS_TAX_RATE);
   const [amount, setAmount] = useState(0);
   const [issueDate, setIssueDate] = useState(today());
   const [borrowerDocument, setBorrowerDocument] = useState("");
@@ -281,6 +386,31 @@ export const ServiceInvoices = () => {
     (transaction) => transaction.id === transactionId,
   );
 
+  const visibleTransactions = useMemo(() => {
+    const linkedProcedureKeys = new Set(
+      transactions
+        .filter(
+          (transaction) =>
+            transaction.category === "Recebimento de procedimentos" &&
+            transaction.status === "paid" &&
+            Boolean(transaction.appointment_id),
+        )
+        .map(duplicateProcedureTransactionKey),
+    );
+
+    return transactions.filter((transaction) => {
+      if (
+        transaction.category !== "Recebimento de procedimentos" ||
+        transaction.status !== "paid" ||
+        transaction.appointment_id
+      ) {
+        return true;
+      }
+
+      return !linkedProcedureKeys.has(duplicateProcedureTransactionKey(transaction));
+    });
+  }, [transactions]);
+
   const invoiceByTransaction = useMemo(() => {
     const map = new Map<string, ServiceInvoice>();
     invoices.forEach((invoice) => {
@@ -289,7 +419,31 @@ export const ServiceInvoices = () => {
     return map;
   }, [invoices]);
 
+  const availableTransactions = useMemo(
+    () =>
+      visibleTransactions.filter(
+        (transaction) =>
+          invoiceByTransaction.get(transaction.id)?.status !== "issued",
+      ),
+    [invoiceByTransaction, visibleTransactions],
+  );
+
+  useEffect(() => {
+    if (!selectedTransaction) return;
+    setTransactionSearch(
+      transactionOptionLabel(
+        selectedTransaction,
+        invoiceByTransaction.get(selectedTransaction.id),
+      ),
+    );
+  }, [invoiceByTransaction, selectedTransaction]);
+
   const hasIssuedDateFilter = Boolean(issuedFrom || issuedTo);
+
+  const taxBreakdown = useMemo(
+    () => buildInvoiceTaxBreakdown(amount),
+    [amount],
+  );
 
   const filteredInvoices = useMemo(
     () =>
@@ -321,6 +475,67 @@ export const ServiceInvoices = () => {
       issuedAmount,
     };
   }, [filteredInvoices]);
+
+  const visibleTransactionOptions = useMemo(() => {
+    const normalizedSearch = normalizeSearch(transactionSearch);
+    const filtered = normalizedSearch
+      ? availableTransactions.filter((transaction) => {
+          const invoice = invoiceByTransaction.get(transaction.id);
+          const searchableText = [
+            transactionOptionLabel(transaction, invoice),
+            transaction.patients?.full_name,
+            transaction.description,
+            currencyFormatter.format(money(transaction.amount)),
+            formatDate(transaction.due_date),
+          ]
+            .filter(Boolean)
+            .join(" ");
+
+          return normalizeSearch(searchableText).includes(normalizedSearch);
+        })
+      : availableTransactions;
+
+    return filtered.slice(0, 20);
+  }, [availableTransactions, invoiceByTransaction, transactionSearch]);
+
+  const findTransactionBySearch = (value: string): TransactionOption | undefined => {
+    const normalizedValue = normalizeSearch(value);
+    if (!normalizedValue) return undefined;
+
+    const exactByLabel = availableTransactions.find((transaction) => {
+      const invoice = invoiceByTransaction.get(transaction.id);
+      return (
+        normalizeSearch(transactionOptionLabel(transaction, invoice)) ===
+        normalizedValue
+      );
+    });
+    if (exactByLabel) return exactByLabel;
+
+    const exactByPatient = availableTransactions.filter(
+      (transaction) =>
+        normalizeSearch(transaction.patients?.full_name ?? "Paciente") ===
+        normalizedValue,
+    );
+
+    return exactByPatient.length === 1 ? exactByPatient[0] : undefined;
+  };
+
+  const handleTransactionSearchChange = (value: string) => {
+    setTransactionSearch(value);
+    setTransactionId(findTransactionBySearch(value)?.id ?? "");
+    setTransactionPickerOpen(true);
+  };
+
+  const selectTransaction = (transaction: TransactionOption) => {
+    setTransactionId(transaction.id);
+    setTransactionSearch(
+      transactionOptionLabel(
+        transaction,
+        invoiceByTransaction.get(transaction.id),
+      ),
+    );
+    setTransactionPickerOpen(false);
+  };
 
   const buildBorrowerPayload = (): NonNullable<
     InvoiceRequestedPayload["borrower"]
@@ -365,10 +580,12 @@ export const ServiceInvoices = () => {
 
   const clearInvoiceForm = useCallback(() => {
     setTransactionId("");
+    setTransactionSearch("");
+    setTransactionPickerOpen(false);
     setAmount(0);
     setServiceDescription("Serviços de fisioterapia");
-    setServiceCode("");
-    setTaxRate(0);
+    setServiceCode(DEFAULT_SERVICE_CODE);
+    setTaxRate(DEFAULT_ISS_TAX_RATE);
     setIssueDate(today());
     applyBorrowerFields(undefined, null);
   }, [applyBorrowerFields]);
@@ -385,8 +602,12 @@ export const ServiceInvoices = () => {
         transaction.description ??
         "Serviços de fisioterapia",
     );
-    setServiceCode(invoice?.service_code ?? "");
-    setTaxRate(money(invoice?.tax_rate ?? 0));
+    setServiceCode(DEFAULT_SERVICE_CODE);
+    setTaxRate(
+      money(invoice?.tax_rate) ||
+        money(requestedPayload?.taxRate) ||
+        DEFAULT_ISS_TAX_RATE,
+    );
     setIssueDate(requestedPayload?.issueDate ?? today());
     applyBorrowerFields(requestedPayload?.borrower, transaction.patients);
   }, [applyBorrowerFields]);
@@ -407,7 +628,10 @@ export const ServiceInvoices = () => {
           `
           id,
           patient_id,
+          appointment_id,
           amount,
+          category,
+          status,
           description,
           due_date,
           created_at,
@@ -467,7 +691,11 @@ export const ServiceInvoices = () => {
     setTransactions(loadedTransactions);
     setInvoices(loadedInvoices);
 
-    if (!transactionId) {
+    const selectedInvoice = transactionId
+      ? loadedInvoices.find((invoice) => invoice.transaction_id === transactionId)
+      : undefined;
+
+    if (!transactionId || selectedInvoice?.status === "issued") {
       const nextTransaction = findNextUnissuedTransaction(
         loadedTransactions,
         loadedInvoices,
@@ -514,22 +742,25 @@ export const ServiceInvoices = () => {
     setError(null);
 
     const existing = invoiceByTransaction.get(selectedTransaction.id);
+    const preparedTaxRate = taxRate || DEFAULT_ISS_TAX_RATE;
+    const preparedServiceCode = DEFAULT_SERVICE_CODE;
     const payload = {
       clinic_id: profile.clinic_id,
       patient_id: selectedTransaction.patient_id,
       transaction_id: selectedTransaction.id,
       amount,
       service_description: serviceDescription.trim(),
-      service_code: serviceCode.trim() || null,
-      tax_rate: taxRate || 0,
+      service_code: preparedServiceCode,
+      tax_rate: preparedTaxRate,
       status,
       provider: "nfeio",
       requested_payload: {
         issueDate,
         transaction: selectedTransaction,
         serviceDescription: serviceDescription.trim(),
-        serviceCode: serviceCode.trim() || null,
-        taxRate,
+        serviceCode: preparedServiceCode,
+        taxRate: preparedTaxRate,
+        taxBreakdown,
         borrower: buildBorrowerPayload(),
       },
     };
@@ -592,7 +823,7 @@ export const ServiceInvoices = () => {
 
     const borrower = invoice.requested_payload?.borrower;
     const missingData = incompleteBorrowerMessage(
-      invoice.service_code,
+      invoice.service_code || DEFAULT_SERVICE_CODE,
       borrower,
     );
 
@@ -625,8 +856,11 @@ export const ServiceInvoices = () => {
         invoiceId: invoice.id,
         amount: money(invoice.amount),
         serviceDescription: invoice.service_description,
-        serviceCode: invoice.service_code ?? "",
-        taxRate: money(invoice.tax_rate),
+        serviceCode: invoice.service_code?.trim() || DEFAULT_SERVICE_CODE,
+        taxRate: money(invoice.tax_rate) || DEFAULT_ISS_TAX_RATE,
+        taxBreakdown:
+          invoice.requested_payload?.taxBreakdown ??
+          buildInvoiceTaxBreakdown(money(invoice.amount)),
         issueDate: invoice.requested_payload?.issueDate,
         customer: {
           type:
@@ -777,6 +1011,9 @@ export const ServiceInvoices = () => {
     const preview = window.open("", "_blank");
     if (!preview) return;
     preview.opener = null;
+    const previewTaxBreakdown =
+      invoice.requested_payload?.taxBreakdown ??
+      buildInvoiceTaxBreakdown(money(invoice.amount));
 
     preview.document.write(`
       <!doctype html>
@@ -801,7 +1038,10 @@ export const ServiceInvoices = () => {
             <div class="row"><strong>Tomador</strong><span>${escapeHtml(invoice.patients?.full_name ?? "-")}</span></div>
             <div class="row"><strong>CPF</strong><span>${escapeHtml(invoice.patients?.cpf ?? "-")}</span></div>
             <div class="row"><strong>Serviço</strong><span>${escapeHtml(invoice.service_description)}</span></div>
-            <div class="row"><strong>Código do serviço</strong><span>${escapeHtml(invoice.service_code ?? "-")}</span></div>
+            <div class="row"><strong>Código do serviço</strong><span>${escapeHtml(invoice.service_code?.trim() || DEFAULT_SERVICE_CODE)}</span></div>
+            <div class="row"><strong>ISS</strong><span>${escapeHtml(percent(money(invoice.tax_rate) || DEFAULT_ISS_TAX_RATE))}</span></div>
+            <div class="row"><strong>CBS</strong><span>${escapeHtml(percent(previewTaxBreakdown.cbs.effectiveRate))} · ${escapeHtml(currencyFormatter.format(previewTaxBreakdown.cbs.amount))}</span></div>
+            <div class="row"><strong>IBS Est.</strong><span>${escapeHtml(percent(previewTaxBreakdown.ibsState.effectiveRate))} · ${escapeHtml(currencyFormatter.format(previewTaxBreakdown.ibsState.amount))}</span></div>
             <div class="row"><strong>Status</strong><span>${escapeHtml(statusLabel[invoice.status])}</span></div>
             <div class="warning">Prévia operacional gerada pelo sistema. A emissão fiscal real será feita pela integração NFe.io quando configurada.</div>
           </div>
@@ -882,24 +1122,79 @@ export const ServiceInvoices = () => {
                   <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
                     Recebimento
                   </label>
-                  <select
-                    required
-                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none"
-                    value={transactionId}
-                    onChange={(event) => setTransactionId(event.target.value)}
-                  >
-                    <option value="">Selecione</option>
-                    {transactions.map((transaction) => {
-                      const invoice = invoiceByTransaction.get(transaction.id);
-                      return (
-                        <option key={transaction.id} value={transaction.id}>
-                          {transaction.patients?.full_name ?? "Paciente"} -{" "}
-                          {currencyFormatter.format(money(transaction.amount))}
-                          {invoice ? ` (${statusLabel[invoice.status]})` : ""}
-                        </option>
-                      );
-                    })}
-                  </select>
+                  <div className="relative">
+                    <input
+                      required
+                      className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none"
+                      placeholder="Digite o nome do paciente"
+                      value={transactionSearch}
+                      onFocus={() => setTransactionPickerOpen(true)}
+                      onBlur={() =>
+                        window.setTimeout(
+                          () => setTransactionPickerOpen(false),
+                          120,
+                        )
+                      }
+                      onChange={(event) =>
+                        handleTransactionSearchChange(event.target.value)
+                      }
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          setTransactionPickerOpen(false);
+                        }
+                      }}
+                      autoComplete="off"
+                    />
+
+                    {transactionPickerOpen && (
+                      <div className="absolute left-0 right-0 top-full z-30 mt-2 max-h-80 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-950">
+                        {visibleTransactionOptions.length === 0 ? (
+                          <div className="px-4 py-3 text-sm text-slate-500">
+                            Nenhum recebimento pendente encontrado.
+                          </div>
+                        ) : (
+                          visibleTransactionOptions.map((transaction) => {
+                            const invoice = invoiceByTransaction.get(
+                              transaction.id,
+                            );
+
+                            return (
+                              <button
+                                key={transaction.id}
+                                type="button"
+                                className="block w-full border-b border-slate-100 px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900"
+                                onMouseDown={(event) => {
+                                  event.preventDefault();
+                                  selectTransaction(transaction);
+                                }}
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <span className="min-w-0 break-words text-sm font-semibold text-slate-900 dark:text-white">
+                                    {transaction.patients?.full_name ??
+                                      "Paciente"}
+                                  </span>
+                                  <span className="shrink-0 text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                    {currencyFormatter.format(
+                                      money(transaction.amount),
+                                    )}
+                                  </span>
+                                </div>
+                                <p className="mt-1 break-words text-xs leading-5 text-slate-500">
+                                  {transaction.description ?? "Recebimento"}
+                                </p>
+                                <p className="mt-1 text-xs font-medium text-slate-400">
+                                  Pago em {formatDate(transaction.due_date)}
+                                  {invoice
+                                    ? ` · ${statusLabel[invoice.status]}`
+                                    : ""}
+                                </p>
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {selectedTransaction && (
@@ -933,10 +1228,9 @@ export const ServiceInvoices = () => {
                       Código do serviço
                     </label>
                     <input
+                      readOnly
                       className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none"
-                      placeholder="Ex: fisioterapia"
                       value={serviceCode}
-                      onChange={(event) => setServiceCode(event.target.value)}
                     />
                   </div>
                   <div className="space-y-2">
@@ -982,6 +1276,8 @@ export const ServiceInvoices = () => {
                     />
                   </div>
                 </div>
+
+                <TaxBreakdownPanel breakdown={taxBreakdown} />
 
                 <div className="space-y-3 rounded-xl border border-slate-100 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-950/60">
                   <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
@@ -1130,7 +1426,16 @@ export const ServiceInvoices = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={saving}
+                    onClick={clearInvoiceForm}
+                    className="gap-2"
+                  >
+                    <RotateCcw size={16} /> Limpar dados
+                  </Button>
                   <Button
                     type="submit"
                     variant="outline"
@@ -1365,6 +1670,57 @@ function SummaryCard({
       <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">
         {value}
       </p>
+    </div>
+  );
+}
+
+function TaxBreakdownPanel({ breakdown }: { breakdown: InvoiceTaxBreakdown }) {
+  return (
+    <div className="space-y-3 rounded-xl border border-slate-100 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-950/60">
+      <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+        Tributos
+      </h3>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <TaxLine label="Alíq. CBS" value={percent(breakdown.cbs.rate)} />
+        <TaxLine
+          label="Perc. Red. Alíq. CBS"
+          value={percent(breakdown.cbs.reductionRate)}
+        />
+        <TaxLine
+          label="Alíq. Efet. CBS"
+          value={percent(breakdown.cbs.effectiveRate)}
+        />
+        <TaxLine
+          label="Valor CBS"
+          value={currencyFormatter.format(breakdown.cbs.amount)}
+        />
+        <TaxLine label="Alíq. IBS Est." value={percent(breakdown.ibsState.rate)} />
+        <TaxLine
+          label="Perc. Red. Alíq. IBS Est."
+          value={percent(breakdown.ibsState.reductionRate)}
+        />
+        <TaxLine
+          label="Alíq. Efet. IBS Est."
+          value={percent(breakdown.ibsState.effectiveRate)}
+        />
+        <TaxLine
+          label="Valor IBS Est."
+          value={currencyFormatter.format(breakdown.ibsState.amount)}
+        />
+      </div>
+    </div>
+  );
+}
+
+function TaxLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex min-w-0 items-center justify-between gap-3 rounded-lg bg-white px-3 py-2 text-sm dark:bg-slate-900">
+      <span className="min-w-0 text-xs font-medium text-slate-500">
+        {label}
+      </span>
+      <span className="shrink-0 font-semibold text-slate-900 dark:text-white">
+        {value}
+      </span>
     </div>
   );
 }

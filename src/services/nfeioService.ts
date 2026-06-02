@@ -16,12 +16,25 @@ export type NfeioBorrowerAddress = {
   state: string;
 };
 
+export type NfeioTaxItem = {
+  rate: number;
+  reductionRate: number;
+  effectiveRate: number;
+  amount: number;
+};
+
+export type NfeioTaxBreakdown = {
+  cbs: NfeioTaxItem;
+  ibsState: NfeioTaxItem;
+};
+
 export type NfeioInvoicePayload = {
   invoiceId: string;
   amount: number;
   serviceDescription: string;
   serviceCode: string;
   taxRate?: number;
+  taxBreakdown?: NfeioTaxBreakdown;
   issueDate?: string;
   customer: {
     type?: NfeioBorrowerType;

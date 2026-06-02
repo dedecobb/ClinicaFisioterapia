@@ -270,6 +270,10 @@ function todayDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+function cleanProcedurePaymentDescription(value: string): string {
+  return value.replace(/\s+-\s+saldo em aberto$/i, "");
+}
+
 function buildCommissionReport(
   appointments: CommissionAppointment[],
   ownerId: string | null,
@@ -587,6 +591,7 @@ export const Financial = () => {
       const remainingAmount = Math.max(openAmount - amount, 0);
       const baseDescription =
         paymentTarget.transaction.description ?? "Recebimento de procedimentos";
+      const paidDescription = cleanProcedurePaymentDescription(baseDescription);
 
       if (remainingAmount <= 0) {
         const { error: updateError } = await supabase
@@ -594,7 +599,7 @@ export const Financial = () => {
           .update({
             status: "paid",
             due_date: paymentDate,
-            description: `${baseDescription} (${paymentMethod})`,
+            description: `${paidDescription} (${paymentMethod})`,
           })
           .eq("id", paymentTarget.transaction.id);
 
@@ -626,7 +631,7 @@ export const Financial = () => {
           type: "income",
           category: "Recebimento de procedimentos",
           status: "paid",
-          description: `${baseDescription} - recebido (${paymentMethod})`,
+          description: `${paidDescription} - recebido (${paymentMethod})`,
           due_date: paymentDate,
         });
 

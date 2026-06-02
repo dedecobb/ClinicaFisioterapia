@@ -82,6 +82,24 @@ type AppointmentDB = {
   } | null;
 };
 
+type AppointmentFinanceDB = {
+  clinic_id: string;
+  patient_id: string;
+  professional_id: string;
+  start_time: string;
+  end_time: string;
+  type: string;
+  status: AppointmentStatusDB;
+  package_id: string | null;
+  class_price: number | string | null;
+  patients: { full_name: string } | null;
+};
+
+type ProcedureReceivableRow = {
+  id: string;
+  status: string;
+};
+
 const PROFESSIONAL_COLORS = [
   "#0F6E56",
   "#185FA5",
@@ -117,6 +135,7 @@ const statusToDb: Record<StatusAgendamento, AppointmentStatusDB> = {
 
 const CLINIC_TIME_ZONE = "America/Sao_Paulo";
 const CLINIC_UTC_OFFSET = "-03:00";
+const TRANSACTIONS_TABLE = "transactions";
 
 function getDateParts(value: string) {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -180,6 +199,150 @@ function toTipoSessao(value: string): TipoSessao {
   return tipos.includes(value as TipoSessao)
     ? (value as TipoSessao)
     : "Fisioterapia";
+}
+
+function appointmentFinanceDescription(appointment: AppointmentFinanceDB): string {
+  const patientName = appointment.patients?.full_name ?? "paciente";
+
+  return `Procedimento avulso de ${patientName} - ${appointment.type} em ${formatDateBr(
+    toDate(appointment.start_time),
+  )} ${toTime(appointment.start_time)}`;
+}
+
+async function syncStandaloneProcedureReceivable(
+  appointmentId: string,
+  appointment: AppointmentFinanceDB,
+): Promise<void> {
+  const { data: existingRows, error: fetchError } = await supabase
+    .from(TRANSACTIONS_TABLE)
+    .select("id, status")
+    .eq("appointment_id", appointmentId)
+    .eq("category", "Recebimento de procedimentos")
+    .limit(1);
+
+  if (fetchError) {
+    throw new Error(`Erro ao buscar financeiro do atendimento: ${fetchError.message}`);
+  }
+
+  const existing = ((existingRows ?? []) as { id: string; status: string }[])[0];
+
+  if (
+    appointment.package_id ||
+    appointment.status === "cancelada" ||
+    appointment.status === "cancelled"
+  ) {
+    if (existing?.status !== "paid") {
+      await deletePendingProcedureReceivable(appointmentId);
+    }
+    return;
+  }
+
+  const amount = Number(appointment.class_price) || 0;
+  if (amount <= 0) {
+    if (existing?.status !== "paid") {
+      await deletePendingProcedureReceivable(appointmentId);
+    }
+    return;
+  }
+
+  if (existing?.status === "paid") return;
+
+  const payload = {
+    clinic_id: appointment.clinic_id,
+    patient_id: appointment.patient_id,
+    appointment_id: appointmentId,
+    amount,
+    type: "income",
+    category: "Recebimento de procedimentos",
+    status: "pending",
+    description: appointmentFinanceDescription(appointment),
+    due_date: toDate(appointment.start_time),
+  };
+
+  if (!existing) {
+    const reusableReceivable = await findReusableProcedureReceivable(
+      appointment,
+      amount,
+    );
+
+    if (reusableReceivable?.status === "paid") {
+      const { error } = await supabase
+        .from(TRANSACTIONS_TABLE)
+        .update({ appointment_id: appointmentId })
+        .eq("id", reusableReceivable.id);
+
+      if (error) {
+        throw new Error(
+          `Erro ao vincular recebimento pago ao atendimento: ${error.message}`,
+        );
+      }
+      return;
+    }
+
+    if (reusableReceivable) {
+      const { error } = await supabase
+        .from(TRANSACTIONS_TABLE)
+        .update(payload)
+        .eq("id", reusableReceivable.id);
+
+      if (error) {
+        throw new Error(
+          `Erro ao atualizar recebimento do atendimento: ${error.message}`,
+        );
+      }
+      return;
+    }
+  }
+
+  const { error } = existing
+    ? await supabase
+        .from(TRANSACTIONS_TABLE)
+        .update(payload)
+        .eq("id", existing.id)
+    : await supabase.from(TRANSACTIONS_TABLE).insert(payload);
+
+  if (error) {
+    throw new Error(`Erro ao vincular atendimento ao financeiro: ${error.message}`);
+  }
+}
+
+async function findReusableProcedureReceivable(
+  appointment: AppointmentFinanceDB,
+  amount: number,
+): Promise<ProcedureReceivableRow | undefined> {
+  const { data, error } = await supabase
+    .from(TRANSACTIONS_TABLE)
+    .select("id, status")
+    .eq("clinic_id", appointment.clinic_id)
+    .eq("patient_id", appointment.patient_id)
+    .eq("type", "income")
+    .eq("category", "Recebimento de procedimentos")
+    .eq("amount", amount)
+    .in("status", ["pending", "paid"])
+    .is("appointment_id", null)
+    .order("created_at", { ascending: true })
+    .limit(1);
+
+  if (error) {
+    throw new Error(
+      `Erro ao buscar recebimento existente do procedimento: ${error.message}`,
+    );
+  }
+
+  return ((data ?? []) as ProcedureReceivableRow[])[0];
+}
+
+async function deletePendingProcedureReceivable(appointmentId: string): Promise<void> {
+  const { error } = await supabase
+    .from(TRANSACTIONS_TABLE)
+    .delete()
+    .eq("appointment_id", appointmentId)
+    .eq("category", "Recebimento de procedimentos")
+    .neq("status", "paid");
+
+  if (error) {
+    throw new Error(`Erro ao remover financeiro do atendimento: ${error.message}`);
+  }
 }
 
 function mergeProcedures(
@@ -257,6 +420,15 @@ function toAgendamento(db: AppointmentDB): Agendamento {
     !db.package_id
       ? allProcedures.find((procedure) => procedure.name === db.type)
       : undefined;
+  const syntheticStandaloneProcedure =
+    !db.package_id && !standaloneProcedure
+      ? {
+          type: db.type,
+          name: db.type,
+          agreed_value: Number(db.class_price) || 0,
+          quantity: 1,
+        }
+      : undefined;
 
   return {
     id: db.id,
@@ -274,7 +446,10 @@ function toAgendamento(db: AppointmentDB): Agendamento {
     sessaoNumero: db.package_lesson_number ?? undefined,
     totalSessoes: db.lesson_packages?.total_lessons,
     valorAula: Number(db.class_price) || undefined,
-    procedimentos: standaloneProcedure ? [standaloneProcedure] : allProcedures,
+    procedimentos:
+      standaloneProcedure || syntheticStandaloneProcedure
+        ? [standaloneProcedure ?? syntheticStandaloneProcedure]
+        : allProcedures,
   };
 }
 
@@ -470,11 +645,28 @@ export async function criarAgendamento(
     throw new Error(`Erro ao criar agendamento: ${error.message}`);
   }
 
+  const createdAppointment = data as unknown as AppointmentDB;
+
   if (form.pacoteId) {
     await atualizarResumoPacote(form.pacoteId);
+  } else {
+    await syncStandaloneProcedureReceivable(createdAppointment.id, {
+      clinic_id: clinicId,
+      patient_id: form.pacienteId,
+      professional_id: form.fisioterapeutaId,
+      start_time: toDateTime(form.data, form.horaInicio),
+      end_time: toDateTime(form.data, form.horaFim),
+      type: form.tipoSessao,
+      status: statusToDb[form.status],
+      package_id: null,
+      class_price: form.valorAula || 0,
+      patients: createdAppointment.patients
+        ? { full_name: createdAppointment.patients.full_name }
+        : null,
+    });
   }
 
-  return toAgendamento(data as unknown as AppointmentDB);
+  return toAgendamento(createdAppointment);
 }
 
 export async function atualizarAgendamento(
@@ -483,7 +675,7 @@ export async function atualizarAgendamento(
 ): Promise<Agendamento> {
   const { data: currentAppointment, error: currentError } = await supabase
     .from("appointments")
-    .select("start_time, end_time, notes")
+    .select("clinic_id, package_id, start_time, end_time, notes")
     .eq("id", id)
     .single();
 
@@ -494,6 +686,9 @@ export async function atualizarAgendamento(
   const oldStart = (currentAppointment as { start_time: string }).start_time;
   const oldEnd = (currentAppointment as { end_time: string }).end_time;
   const oldNotes = (currentAppointment as { notes: string | null }).notes;
+  const clinicId = (currentAppointment as { clinic_id: string }).clinic_id;
+  const oldPackageId = (currentAppointment as { package_id: string | null })
+    .package_id;
   const newStart = toDateTime(form.data, form.horaInicio);
   const newEnd = toDateTime(form.data, form.horaFim);
   const changedSchedule = oldStart !== newStart || oldEnd !== newEnd;
@@ -545,6 +740,26 @@ export async function atualizarAgendamento(
 
   if (form.pacoteId) {
     await atualizarResumoPacote(form.pacoteId);
+    await deletePendingProcedureReceivable(id);
+  } else {
+    await syncStandaloneProcedureReceivable(id, {
+      clinic_id: clinicId,
+      patient_id: form.pacienteId,
+      professional_id: form.fisioterapeutaId,
+      start_time: newStart,
+      end_time: newEnd,
+      type: form.tipoSessao,
+      status: statusToDb[form.status],
+      package_id: null,
+      class_price: form.valorAula || 0,
+      patients: (data as unknown as AppointmentDB).patients
+        ? { full_name: (data as unknown as AppointmentDB).patients!.full_name }
+        : null,
+    });
+  }
+
+  if (oldPackageId && oldPackageId !== form.pacoteId) {
+    await atualizarResumoPacote(oldPackageId);
   }
 
   return toAgendamento(data as unknown as AppointmentDB);
@@ -556,7 +771,19 @@ export async function atualizarStatusAgendamento(
 ): Promise<StatusAgendamento> {
   const { data: appointment, error: appointmentError } = await supabase
     .from("appointments")
-    .select("package_id")
+    .select(
+      `
+      clinic_id,
+      patient_id,
+      professional_id,
+      start_time,
+      end_time,
+      type,
+      package_id,
+      class_price,
+      patients (full_name)
+    `,
+    )
     .eq("id", id)
     .single();
 
@@ -611,6 +838,11 @@ export async function atualizarStatusAgendamento(
 
   if (packageId) {
     await atualizarResumoPacote(packageId);
+  } else {
+    await syncStandaloneProcedureReceivable(id, {
+      ...(appointment as unknown as Omit<AppointmentFinanceDB, "status">),
+      status: statusToDb[finalStatus],
+    });
   }
 
   return finalStatus;
@@ -653,6 +885,8 @@ async function atualizarResumoPacote(packageId: string): Promise<void> {
 }
 
 export async function excluirAgendamento(id: string): Promise<void> {
+  await deletePendingProcedureReceivable(id);
+
   const { error } = await supabase.from("appointments").delete().eq("id", id);
 
   if (error) {

@@ -562,7 +562,7 @@ export const NovoPacienteModal = ({
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
             transition={{ type: "spring", damping: 25, stiffness: 200 }}
-            className="w-full max-w-xl h-full bg-white dark:bg-slate-950 shadow-2xl flex flex-col"
+            className="w-full max-w-3xl h-full bg-white dark:bg-slate-950 shadow-2xl flex flex-col"
           >
             <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/50">
               <div>

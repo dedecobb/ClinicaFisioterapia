@@ -67,6 +67,18 @@ function cpfText(cpf: string | null): string {
   return cpf ? `, CPF ${cpf}` : "";
 }
 
+function normalizeSearch(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function patientOptionLabel(patient: PatientOption): string {
+  return patient.cpf ? `${patient.full_name} - ${patient.cpf}` : patient.full_name;
+}
+
 export const Certificates = () => {
   const { profile } = useAuth();
   const [searchParams] = useSearchParams();
@@ -74,6 +86,7 @@ export const Certificates = () => {
   const [professionals, setProfessionals] = useState<ProfessionalOption[]>([]);
   const [clinic, setClinic] = useState<ClinicInfo | null>(null);
   const [patientId, setPatientId] = useState(searchParams.get("patientId") ?? "");
+  const [patientSearch, setPatientSearch] = useState("");
   const [professionalId, setProfessionalId] = useState(profile?.id ?? "");
   const [professionalRegistry, setProfessionalRegistry] = useState("");
   const [kind, setKind] = useState<CertificateKind>("comparecimento");
@@ -169,6 +182,31 @@ export const Certificates = () => {
   const selectedProfessional = professionals.find(
     (professional) => professional.id === professionalId,
   );
+
+  useEffect(() => {
+    if (!selectedPatient) return;
+    setPatientSearch(patientOptionLabel(selectedPatient));
+  }, [selectedPatient]);
+
+  const findPatientBySearch = (value: string): PatientOption | undefined => {
+    const normalizedValue = normalizeSearch(value);
+    if (!normalizedValue) return undefined;
+
+    const exactByLabel = patients.find(
+      (patient) => normalizeSearch(patientOptionLabel(patient)) === normalizedValue,
+    );
+    if (exactByLabel) return exactByLabel;
+
+    const exactByName = patients.filter(
+      (patient) => normalizeSearch(patient.full_name) === normalizedValue,
+    );
+    return exactByName.length === 1 ? exactByName[0] : undefined;
+  };
+
+  const handlePatientSearchChange = (value: string) => {
+    setPatientSearch(value);
+    setPatientId(findPatientBySearch(value)?.id ?? "");
+  };
 
   const certificateText = useMemo(() => {
     if (!selectedPatient || !selectedProfessional) return "";
@@ -313,19 +351,22 @@ export const Certificates = () => {
                     className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
                     size={18}
                   />
-                  <select
+                  <input
                     required
+                    list="certificate-patient-options"
                     className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none"
-                    value={patientId}
-                    onChange={(event) => setPatientId(event.target.value)}
-                  >
-                    <option value="">Selecione</option>
+                    placeholder="Digite o nome do paciente"
+                    value={patientSearch}
+                    onChange={(event) =>
+                      handlePatientSearchChange(event.target.value)
+                    }
+                    autoComplete="off"
+                  />
+                  <datalist id="certificate-patient-options">
                     {patients.map((patient) => (
-                      <option key={patient.id} value={patient.id}>
-                        {patient.full_name}
-                      </option>
+                      <option key={patient.id} value={patientOptionLabel(patient)} />
                     ))}
-                  </select>
+                  </datalist>
                 </div>
               </div>
 

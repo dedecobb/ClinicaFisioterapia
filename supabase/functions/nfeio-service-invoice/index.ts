@@ -14,11 +14,25 @@ type BorrowerAddress = {
   state: string;
 };
 
+type TaxItem = {
+  rate: number;
+  reductionRate: number;
+  effectiveRate: number;
+  amount: number;
+};
+
+type TaxBreakdown = {
+  cbs: TaxItem;
+  ibsState: TaxItem;
+};
+
 type InvoiceRequest = {
   invoiceId: string;
   amount: number;
   serviceDescription: string;
   serviceCode: string;
+  taxRate?: number;
+  taxBreakdown?: TaxBreakdown;
   customer: {
     type?: BorrowerType;
     name: string;
