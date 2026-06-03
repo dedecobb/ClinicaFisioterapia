@@ -183,6 +183,16 @@ Deno.serve(async (request) => {
 
   const customer = payload.customer;
   const document = onlyDigits(customer.document);
+  const amount = roundMoney(Number(payload.amount));
+  const fiscalDetails = normalizeFiscalDetails(
+    payload.fiscalDetails,
+    payload.serviceCode,
+  );
+  const taxBreakdown = normalizeTaxBreakdown(
+    payload.taxBreakdown,
+    amount,
+    payload.taxRate,
+  );
   const nfeioPayload = {
     externalId: payload.invoiceId,
     borrower: {
@@ -190,11 +200,49 @@ Deno.serve(async (request) => {
       name: customer.name.trim(),
       federalTaxNumber: document,
       email: customer.email?.trim() || undefined,
+      phoneNumber: onlyDigits(customer.phone) || undefined,
       address: normalizeAddress(customer.address),
     },
-    cityServiceCode: payload.serviceCode.trim(),
+    cityServiceCode: fiscalDetails.municipalActivityCode,
+    federalServiceCode: fiscalDetails.federalServiceCode,
+    cnaeCode: fiscalDetails.cnaeCode,
     description: payload.serviceDescription.trim(),
-    servicesAmount: Number(payload.amount),
+    servicesAmount: amount,
+    paidAmount: amount,
+    accrualOn: payload.issueDate || undefined,
+    location: normalizeServiceLocation(fiscalDetails.serviceLocation),
+    taxationType: "WithinCity",
+    retentionType: "NotWithheld",
+    issRate: roundRate(taxBreakdown.iss.rate / 100),
+    issTaxAmount: taxBreakdown.iss.amount,
+    deductionsAmount: 0,
+    discountUnconditionedAmount: 0,
+    discountConditionedAmount: 0,
+    ibsCbs: {
+      purpose: "regular",
+      operationIndicator: taxBreakdown.ibsCbs.operationIndicator,
+      operationType: taxBreakdown.ibsCbs.operationType,
+      classCode: taxBreakdown.ibsCbs.classCode,
+      basis: taxBreakdown.ibsCbs.basis,
+      ibs: {
+        totalAmount: taxBreakdown.ibsCbs.ibsTotalAmount,
+        state: {
+          rate: taxBreakdown.ibsCbs.ibsState.rate,
+          effectiveRate: taxBreakdown.ibsCbs.ibsState.effectiveRate,
+          amount: taxBreakdown.ibsCbs.ibsState.amount,
+        },
+        municipal: {
+          rate: taxBreakdown.ibsCbs.ibsMunicipal.rate,
+          effectiveRate: taxBreakdown.ibsCbs.ibsMunicipal.effectiveRate,
+          amount: taxBreakdown.ibsCbs.ibsMunicipal.amount,
+        },
+      },
+      cbs: {
+        rate: taxBreakdown.ibsCbs.cbs.rate,
+        effectiveRate: taxBreakdown.ibsCbs.cbs.effectiveRate,
+        amount: taxBreakdown.ibsCbs.cbs.amount,
+      },
+    },
   };
 
   const response = await fetch(
@@ -349,6 +397,161 @@ function isInvoiceAction(payload: unknown): payload is InvoiceActionRequest {
     (record.action === "downloadPdf" || record.action === "sendEmail") &&
     typeof record.providerInvoiceId === "string"
   );
+}
+
+function normalizeFiscalDetails(
+  fiscalDetails: FiscalDetails | undefined,
+  serviceCode: string,
+): FiscalDetails {
+  const federalServiceCode =
+    fiscalDetails?.federalServiceCode?.trim() ||
+    serviceCode?.trim() ||
+    DEFAULT_FEDERAL_SERVICE_CODE;
+  const municipalActivityCode =
+    fiscalDetails?.municipalActivityCode?.trim() || DEFAULT_MUNICIPAL_ACTIVITY_CODE;
+
+  return {
+    federalServiceCode,
+    municipalActivityCode,
+    municipalActivityDescription:
+      fiscalDetails?.municipalActivityDescription?.trim() ||
+      DEFAULT_MUNICIPAL_ACTIVITY_DESCRIPTION,
+    cnaeCode:
+      fiscalDetails?.cnaeCode?.trim() ||
+      onlyDigits(municipalActivityCode) ||
+      DEFAULT_CNAE_CODE,
+    serviceLocation: fiscalDetails?.serviceLocation ?? DEFAULT_SERVICE_LOCATION,
+  };
+}
+
+function normalizeTaxBreakdown(
+  taxBreakdown: TaxBreakdown | undefined,
+  serviceAmount: number,
+  issRate: number | undefined,
+): TaxBreakdown {
+  const fallback = buildTaxBreakdown(serviceAmount, Number(issRate) || DEFAULT_ISS_TAX_RATE);
+  if (!taxBreakdown?.ibsCbs) return fallback;
+
+  return {
+    iss: {
+      ...fallback.iss,
+      ...taxBreakdown.iss,
+    },
+    federalRetentions: {
+      ...fallback.federalRetentions,
+      ...taxBreakdown.federalRetentions,
+    },
+    ibsCbs: {
+      ...fallback.ibsCbs,
+      ...taxBreakdown.ibsCbs,
+      operationType: toNfeioOperationType(taxBreakdown.ibsCbs.operationType),
+      cbs: {
+        ...fallback.ibsCbs.cbs,
+        ...taxBreakdown.ibsCbs.cbs,
+      },
+      ibsState: {
+        ...fallback.ibsCbs.ibsState,
+        ...taxBreakdown.ibsCbs.ibsState,
+      },
+      ibsMunicipal: {
+        ...fallback.ibsCbs.ibsMunicipal,
+        ...taxBreakdown.ibsCbs.ibsMunicipal,
+      },
+    },
+  };
+}
+
+function buildTaxBreakdown(serviceAmount: number, issRate: number): TaxBreakdown {
+  const issBasis = roundMoney(serviceAmount);
+  const normalizedIssRate = roundMoney(issRate);
+  const issAmount = taxAmount(issBasis, normalizedIssRate);
+  const ibsCbsBasis = Math.max(0, roundMoney(issBasis - issAmount));
+  const cbsEffectiveRate = effectiveRate(
+    DEFAULT_TAX_CONFIG.cbs.rate,
+    DEFAULT_TAX_CONFIG.cbs.reductionRate,
+  );
+  const ibsStateEffectiveRate = effectiveRate(
+    DEFAULT_TAX_CONFIG.ibsState.rate,
+    DEFAULT_TAX_CONFIG.ibsState.reductionRate,
+  );
+  const ibsMunicipalEffectiveRate = effectiveRate(
+    DEFAULT_TAX_CONFIG.ibsMunicipal.rate,
+    DEFAULT_TAX_CONFIG.ibsMunicipal.reductionRate,
+  );
+  const ibsStateAmount = taxAmount(ibsCbsBasis, ibsStateEffectiveRate);
+  const ibsMunicipalAmount = taxAmount(ibsCbsBasis, ibsMunicipalEffectiveRate);
+
+  return {
+    iss: {
+      basis: issBasis,
+      rate: normalizedIssRate,
+      amount: issAmount,
+    },
+    federalRetentions: {
+      retentionType: "PIS/COFINS/CSLL Não Retidos",
+      pis: null,
+      cofins: null,
+      csll: null,
+      irrf: null,
+      socialSecurity: null,
+      totalAmount: 0,
+    },
+    ibsCbs: {
+      ...DEFAULT_IBS_CBS_CONFIG,
+      basis: ibsCbsBasis,
+      cbs: {
+        ...DEFAULT_TAX_CONFIG.cbs,
+        effectiveRate: cbsEffectiveRate,
+        amount: taxAmount(ibsCbsBasis, cbsEffectiveRate),
+      },
+      ibsState: {
+        ...DEFAULT_TAX_CONFIG.ibsState,
+        effectiveRate: ibsStateEffectiveRate,
+        amount: ibsStateAmount,
+      },
+      ibsMunicipal: {
+        ...DEFAULT_TAX_CONFIG.ibsMunicipal,
+        effectiveRate: ibsMunicipalEffectiveRate,
+        amount: ibsMunicipalAmount,
+      },
+      ibsTotalAmount: roundMoney(ibsStateAmount + ibsMunicipalAmount),
+    },
+  };
+}
+
+function normalizeServiceLocation(location: ServiceLocation): ServiceLocation {
+  return {
+    country: location.country?.trim() || "BRA",
+    city: {
+      code: onlyDigits(location.city.code),
+      name: location.city.name.trim(),
+    },
+    state: location.state.trim().toUpperCase(),
+  };
+}
+
+function toNfeioOperationType(value: string | undefined): string {
+  if (!value) return DEFAULT_IBS_CBS_CONFIG.operationType;
+  if (value === "Fornecimento com pagamento posterior") {
+    return "SupplyFirstPayLater";
+  }
+  return value;
+}
+
+function effectiveRate(rate: number, reductionRate: number): number {
+  return roundMoney(rate * (1 - reductionRate / 100));
+}
+
+function taxAmount(baseAmount: number, effectiveRatePercent: number): number {
+  return roundMoney((baseAmount * effectiveRatePercent) / 100);
+}
+
+function roundMoney(value: number): number {
+  return Number(value.toFixed(2));
+}
+
+function roundRate(value: number): number {
+  return Number(value.toFixed(6));
 }
 
 function normalizeAddress(address: BorrowerAddress | null): BorrowerAddress {
