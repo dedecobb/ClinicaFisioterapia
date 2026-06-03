@@ -1,4 +1,11 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  FormEvent,
+  ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   AlertCircle,
   CheckCircle2,
@@ -21,6 +28,7 @@ import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import {
   NfeioBorrowerAddress,
+  NfeioFiscalDetails,
   NfeioBorrowerType,
   isNfeioConfigured,
   downloadServiceInvoicePdf,
@@ -49,6 +57,7 @@ type InvoiceRequestedPayload = {
   issueDate?: string;
   serviceDescription?: string;
   serviceCode?: string | null;
+  fiscalDetails?: NfeioFiscalDetails;
   taxRate?: number;
   taxBreakdown?: InvoiceTaxBreakdown;
   borrower?: {
@@ -101,8 +110,33 @@ type InvoiceTaxItem = {
 };
 
 type InvoiceTaxBreakdown = {
-  cbs: InvoiceTaxItem;
-  ibsState: InvoiceTaxItem;
+  iss: {
+    basis: number;
+    rate: number;
+    amount: number;
+  };
+  federalRetentions: {
+    retentionType: string;
+    pis: number | null;
+    cofins: number | null;
+    csll: number | null;
+    irrf: number | null;
+    socialSecurity: number | null;
+    totalAmount: number;
+  };
+  ibsCbs: {
+    operationIndicator: string;
+    classCode: string;
+    taxationSituation: string;
+    operationType: string;
+    governmentEntityType: string;
+    governmentPurchaseReductionRate: number;
+    basis: number;
+    cbs: InvoiceTaxItem;
+    ibsState: InvoiceTaxItem;
+    ibsMunicipal: InvoiceTaxItem;
+    ibsTotalAmount: number;
+  };
 };
 
 const statusLabel: Record<InvoiceStatus, string> = {
@@ -134,6 +168,44 @@ const percentageFormatter = new Intl.NumberFormat("pt-BR", {
 
 const DEFAULT_ISS_TAX_RATE = 2.01;
 const DEFAULT_SERVICE_CODE = "04.08.02";
+const DEFAULT_MUNICIPAL_ACTIVITY_CODE = "8650-0/04";
+const DEFAULT_MUNICIPAL_ACTIVITY_DESCRIPTION = "Atividades de fisioterapia";
+const DEFAULT_CNAE_CODE = "8650004";
+const DEFAULT_SERVICE_LOCATION = {
+  country: "BRA",
+  city: {
+    code: "5103403",
+    name: "Cuiabá",
+  },
+  state: "MT",
+} as const;
+
+const DEFAULT_SERVICE_FISCAL_DETAILS: NfeioFiscalDetails = {
+  federalServiceCode: DEFAULT_SERVICE_CODE,
+  municipalActivityCode: DEFAULT_MUNICIPAL_ACTIVITY_CODE,
+  municipalActivityDescription: DEFAULT_MUNICIPAL_ACTIVITY_DESCRIPTION,
+  cnaeCode: DEFAULT_CNAE_CODE,
+  serviceLocation: DEFAULT_SERVICE_LOCATION,
+};
+
+const DEFAULT_IBS_CBS_CONFIG = {
+  operationIndicator: "03010",
+  classCode: "200029",
+  taxationSituation: "Alíquota reduzida",
+  operationType: "Fornecimento com pagamento posterior",
+  governmentEntityType: "Município",
+  governmentPurchaseReductionRate: 0,
+} as const;
+
+const DEFAULT_FEDERAL_RETENTIONS = {
+  retentionType: "PIS/COFINS/CSLL Não Retidos",
+  pis: null,
+  cofins: null,
+  csll: null,
+  irrf: null,
+  socialSecurity: null,
+  totalAmount: 0,
+} as const;
 
 const DEFAULT_TAX_CONFIG = {
   cbs: {
@@ -142,6 +214,10 @@ const DEFAULT_TAX_CONFIG = {
   },
   ibsState: {
     rate: 0.1,
+    reductionRate: 60,
+  },
+  ibsMunicipal: {
+    rate: 0,
     reductionRate: 60,
   },
 } as const;
@@ -158,15 +234,30 @@ function percent(value: number): string {
   return `${percentageFormatter.format(value)}%`;
 }
 
+function roundMoney(value: number): number {
+  return Number(value.toFixed(2));
+}
+
+function roundPercent(value: number): number {
+  return Number(value.toFixed(2));
+}
+
 function effectiveRate(rate: number, reductionRate: number): number {
-  return Number((rate * (1 - reductionRate / 100)).toFixed(2));
+  return roundPercent(rate * (1 - reductionRate / 100));
 }
 
 function taxAmount(baseAmount: number, effectiveRatePercent: number): number {
-  return Number(((baseAmount * effectiveRatePercent) / 100).toFixed(2));
+  return roundMoney((baseAmount * effectiveRatePercent) / 100);
 }
 
-function buildInvoiceTaxBreakdown(baseAmount: number): InvoiceTaxBreakdown {
+function buildInvoiceTaxBreakdown(
+  serviceAmount: number,
+  issRate = DEFAULT_ISS_TAX_RATE,
+): InvoiceTaxBreakdown {
+  const issBasis = roundMoney(serviceAmount);
+  const issEffectiveRate = roundPercent(issRate || DEFAULT_ISS_TAX_RATE);
+  const issAmount = taxAmount(issBasis, issEffectiveRate);
+  const ibsCbsBasis = Math.max(0, roundMoney(issBasis - issAmount));
   const cbsEffectiveRate = effectiveRate(
     DEFAULT_TAX_CONFIG.cbs.rate,
     DEFAULT_TAX_CONFIG.cbs.reductionRate,
@@ -175,19 +266,88 @@ function buildInvoiceTaxBreakdown(baseAmount: number): InvoiceTaxBreakdown {
     DEFAULT_TAX_CONFIG.ibsState.rate,
     DEFAULT_TAX_CONFIG.ibsState.reductionRate,
   );
+  const ibsMunicipalEffectiveRate = effectiveRate(
+    DEFAULT_TAX_CONFIG.ibsMunicipal.rate,
+    DEFAULT_TAX_CONFIG.ibsMunicipal.reductionRate,
+  );
+  const ibsStateAmount = taxAmount(ibsCbsBasis, ibsStateEffectiveRate);
+  const ibsMunicipalAmount = taxAmount(
+    ibsCbsBasis,
+    ibsMunicipalEffectiveRate,
+  );
 
   return {
-    cbs: {
-      ...DEFAULT_TAX_CONFIG.cbs,
-      effectiveRate: cbsEffectiveRate,
-      amount: taxAmount(baseAmount, cbsEffectiveRate),
+    iss: {
+      basis: issBasis,
+      rate: issEffectiveRate,
+      amount: issAmount,
     },
-    ibsState: {
-      ...DEFAULT_TAX_CONFIG.ibsState,
-      effectiveRate: ibsStateEffectiveRate,
-      amount: taxAmount(baseAmount, ibsStateEffectiveRate),
+    federalRetentions: { ...DEFAULT_FEDERAL_RETENTIONS },
+    ibsCbs: {
+      ...DEFAULT_IBS_CBS_CONFIG,
+      basis: ibsCbsBasis,
+      cbs: {
+        ...DEFAULT_TAX_CONFIG.cbs,
+        effectiveRate: cbsEffectiveRate,
+        amount: taxAmount(ibsCbsBasis, cbsEffectiveRate),
+      },
+      ibsState: {
+        ...DEFAULT_TAX_CONFIG.ibsState,
+        effectiveRate: ibsStateEffectiveRate,
+        amount: ibsStateAmount,
+      },
+      ibsMunicipal: {
+        ...DEFAULT_TAX_CONFIG.ibsMunicipal,
+        effectiveRate: ibsMunicipalEffectiveRate,
+        amount: ibsMunicipalAmount,
+      },
+      ibsTotalAmount: roundMoney(ibsStateAmount + ibsMunicipalAmount),
     },
   };
+}
+
+function normalizeInvoiceTaxBreakdown(
+  value: unknown,
+  serviceAmount: number,
+  issRate: number,
+): InvoiceTaxBreakdown {
+  if (!value || typeof value !== "object" || !("ibsCbs" in value)) {
+    return buildInvoiceTaxBreakdown(serviceAmount, issRate);
+  }
+
+  const fallback = buildInvoiceTaxBreakdown(serviceAmount, issRate);
+  const record = value as Partial<InvoiceTaxBreakdown>;
+
+  return {
+    iss: {
+      ...fallback.iss,
+      ...record.iss,
+    },
+    federalRetentions: {
+      ...fallback.federalRetentions,
+      ...record.federalRetentions,
+    },
+    ibsCbs: {
+      ...fallback.ibsCbs,
+      ...record.ibsCbs,
+      cbs: {
+        ...fallback.ibsCbs.cbs,
+        ...record.ibsCbs?.cbs,
+      },
+      ibsState: {
+        ...fallback.ibsCbs.ibsState,
+        ...record.ibsCbs?.ibsState,
+      },
+      ibsMunicipal: {
+        ...fallback.ibsCbs.ibsMunicipal,
+        ...record.ibsCbs?.ibsMunicipal,
+      },
+    },
+  };
+}
+
+function formatOptionalTaxAmount(value: number | null): string {
+  return value === null ? "-" : currencyFormatter.format(value);
 }
 
 function today(): string {
@@ -441,8 +601,8 @@ export const ServiceInvoices = () => {
   const hasIssuedDateFilter = Boolean(issuedFrom || issuedTo);
 
   const taxBreakdown = useMemo(
-    () => buildInvoiceTaxBreakdown(amount),
-    [amount],
+    () => buildInvoiceTaxBreakdown(amount, taxRate || DEFAULT_ISS_TAX_RATE),
+    [amount, taxRate],
   );
 
   const filteredInvoices = useMemo(
@@ -744,6 +904,10 @@ export const ServiceInvoices = () => {
     const existing = invoiceByTransaction.get(selectedTransaction.id);
     const preparedTaxRate = taxRate || DEFAULT_ISS_TAX_RATE;
     const preparedServiceCode = DEFAULT_SERVICE_CODE;
+    const preparedTaxBreakdown = buildInvoiceTaxBreakdown(
+      amount,
+      preparedTaxRate,
+    );
     const payload = {
       clinic_id: profile.clinic_id,
       patient_id: selectedTransaction.patient_id,
@@ -759,8 +923,9 @@ export const ServiceInvoices = () => {
         transaction: selectedTransaction,
         serviceDescription: serviceDescription.trim(),
         serviceCode: preparedServiceCode,
+        fiscalDetails: DEFAULT_SERVICE_FISCAL_DETAILS,
         taxRate: preparedTaxRate,
-        taxBreakdown,
+        taxBreakdown: preparedTaxBreakdown,
         borrower: buildBorrowerPayload(),
       },
     };
@@ -857,10 +1022,16 @@ export const ServiceInvoices = () => {
         amount: money(invoice.amount),
         serviceDescription: invoice.service_description,
         serviceCode: invoice.service_code?.trim() || DEFAULT_SERVICE_CODE,
+        fiscalDetails:
+          invoice.requested_payload?.fiscalDetails ??
+          DEFAULT_SERVICE_FISCAL_DETAILS,
         taxRate: money(invoice.tax_rate) || DEFAULT_ISS_TAX_RATE,
-        taxBreakdown:
+        taxBreakdown: normalizeInvoiceTaxBreakdown(
           invoice.requested_payload?.taxBreakdown ??
-          buildInvoiceTaxBreakdown(money(invoice.amount)),
+            null,
+          money(invoice.amount),
+          money(invoice.tax_rate) || DEFAULT_ISS_TAX_RATE,
+        ),
         issueDate: invoice.requested_payload?.issueDate,
         customer: {
           type:
@@ -1011,9 +1182,13 @@ export const ServiceInvoices = () => {
     const preview = window.open("", "_blank");
     if (!preview) return;
     preview.opener = null;
-    const previewTaxBreakdown =
-      invoice.requested_payload?.taxBreakdown ??
-      buildInvoiceTaxBreakdown(money(invoice.amount));
+    const previewTaxBreakdown = normalizeInvoiceTaxBreakdown(
+      invoice.requested_payload?.taxBreakdown ?? null,
+      money(invoice.amount),
+      money(invoice.tax_rate) || DEFAULT_ISS_TAX_RATE,
+    );
+    const previewFiscalDetails =
+      invoice.requested_payload?.fiscalDetails ?? DEFAULT_SERVICE_FISCAL_DETAILS;
 
     preview.document.write(`
       <!doctype html>
@@ -1038,10 +1213,15 @@ export const ServiceInvoices = () => {
             <div class="row"><strong>Tomador</strong><span>${escapeHtml(invoice.patients?.full_name ?? "-")}</span></div>
             <div class="row"><strong>CPF</strong><span>${escapeHtml(invoice.patients?.cpf ?? "-")}</span></div>
             <div class="row"><strong>Serviço</strong><span>${escapeHtml(invoice.service_description)}</span></div>
-            <div class="row"><strong>Código do serviço</strong><span>${escapeHtml(invoice.service_code?.trim() || DEFAULT_SERVICE_CODE)}</span></div>
-            <div class="row"><strong>ISS</strong><span>${escapeHtml(percent(money(invoice.tax_rate) || DEFAULT_ISS_TAX_RATE))}</span></div>
-            <div class="row"><strong>CBS</strong><span>${escapeHtml(percent(previewTaxBreakdown.cbs.effectiveRate))} · ${escapeHtml(currencyFormatter.format(previewTaxBreakdown.cbs.amount))}</span></div>
-            <div class="row"><strong>IBS Est.</strong><span>${escapeHtml(percent(previewTaxBreakdown.ibsState.effectiveRate))} · ${escapeHtml(currencyFormatter.format(previewTaxBreakdown.ibsState.amount))}</span></div>
+            <div class="row"><strong>Cód. Trib. Nacional</strong><span>${escapeHtml(previewFiscalDetails.federalServiceCode)}</span></div>
+            <div class="row"><strong>Atividade Municipal</strong><span>${escapeHtml(`[${previewFiscalDetails.municipalActivityCode}] ${previewFiscalDetails.municipalActivityDescription}`)}</span></div>
+            <div class="row"><strong>Local da prestação</strong><span>${escapeHtml(`${previewFiscalDetails.serviceLocation.city.name} - ${previewFiscalDetails.serviceLocation.state}`)}</span></div>
+            <div class="row"><strong>ISSQN</strong><span>${escapeHtml(currencyFormatter.format(previewTaxBreakdown.iss.basis))} · ${escapeHtml(percent(previewTaxBreakdown.iss.rate))} · ${escapeHtml(currencyFormatter.format(previewTaxBreakdown.iss.amount))}</span></div>
+            <div class="row"><strong>Retenções federais</strong><span>${escapeHtml(previewTaxBreakdown.federalRetentions.retentionType)}</span></div>
+            <div class="row"><strong>Base IBS/CBS</strong><span>${escapeHtml(currencyFormatter.format(previewTaxBreakdown.ibsCbs.basis))}</span></div>
+            <div class="row"><strong>CBS</strong><span>${escapeHtml(percent(previewTaxBreakdown.ibsCbs.cbs.effectiveRate))} · ${escapeHtml(currencyFormatter.format(previewTaxBreakdown.ibsCbs.cbs.amount))}</span></div>
+            <div class="row"><strong>IBS Est.</strong><span>${escapeHtml(percent(previewTaxBreakdown.ibsCbs.ibsState.effectiveRate))} · ${escapeHtml(currencyFormatter.format(previewTaxBreakdown.ibsCbs.ibsState.amount))}</span></div>
+            <div class="row"><strong>IBS Mun.</strong><span>${escapeHtml(percent(previewTaxBreakdown.ibsCbs.ibsMunicipal.effectiveRate))} · ${escapeHtml(currencyFormatter.format(previewTaxBreakdown.ibsCbs.ibsMunicipal.amount))}</span></div>
             <div class="row"><strong>Status</strong><span>${escapeHtml(statusLabel[invoice.status])}</span></div>
             <div class="warning">Prévia operacional gerada pelo sistema. A emissão fiscal real será feita pela integração NFe.io quando configurada.</div>
           </div>
@@ -1225,12 +1405,32 @@ export const ServiceInvoices = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                      Código do serviço
+                      Cód. Trib. Nacional
                     </label>
                     <input
                       readOnly
                       className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none"
                       value={serviceCode}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                      Atividade Municipal
+                    </label>
+                    <input
+                      readOnly
+                      className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none"
+                      value={`[${DEFAULT_MUNICIPAL_ACTIVITY_CODE}] ${DEFAULT_MUNICIPAL_ACTIVITY_DESCRIPTION}`}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                      Local da prestação
+                    </label>
+                    <input
+                      readOnly
+                      className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none"
+                      value={`${DEFAULT_SERVICE_LOCATION.city.name} - ${DEFAULT_SERVICE_LOCATION.state}`}
                     />
                   </div>
                   <div className="space-y-2">
@@ -1680,35 +1880,165 @@ function TaxBreakdownPanel({ breakdown }: { breakdown: InvoiceTaxBreakdown }) {
       <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
         Tributos
       </h3>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <TaxLine label="Alíq. CBS" value={percent(breakdown.cbs.rate)} />
+      <TaxSection title="ISSQN">
+        <TaxLine
+          label="Base de Cálculo"
+          value={currencyFormatter.format(breakdown.iss.basis)}
+        />
+        <TaxLine label="Alíquota" value={percent(breakdown.iss.rate)} />
+        <TaxLine
+          label="Vl. ISSQN"
+          value={currencyFormatter.format(breakdown.iss.amount)}
+        />
+      </TaxSection>
+
+      <TaxSection title="Tributação Nacional">
+        <TaxLine label="CST" value="Nenhum" />
+        <TaxLine
+          label="Tipo de Retenção"
+          value={breakdown.federalRetentions.retentionType}
+        />
+        <TaxLine
+          label="Vl. PIS"
+          value={formatOptionalTaxAmount(breakdown.federalRetentions.pis)}
+        />
+        <TaxLine
+          label="Vl. COFINS"
+          value={formatOptionalTaxAmount(breakdown.federalRetentions.cofins)}
+        />
+        <TaxLine
+          label="Vl. CSLL"
+          value={formatOptionalTaxAmount(breakdown.federalRetentions.csll)}
+        />
+        <TaxLine
+          label="Vl. IRRF"
+          value={formatOptionalTaxAmount(breakdown.federalRetentions.irrf)}
+        />
+        <TaxLine
+          label="Vl. CP Retido"
+          value={formatOptionalTaxAmount(
+            breakdown.federalRetentions.socialSecurity,
+          )}
+        />
+      </TaxSection>
+
+      <TaxSection title="IBS/CBS">
+        <TaxLine
+          label="Cód. Ind. Op."
+          value={breakdown.ibsCbs.operationIndicator}
+        />
+        <TaxLine
+          label="Classif. Tributária"
+          value={breakdown.ibsCbs.classCode}
+        />
+        <TaxLine
+          label="Situação Tributária"
+          value={breakdown.ibsCbs.taxationSituation}
+        />
+        <TaxLine label="Tipo de Operação" value={breakdown.ibsCbs.operationType} />
+        <TaxLine
+          label="Tipo de Ente Governamental"
+          value={breakdown.ibsCbs.governmentEntityType}
+        />
+        <TaxLine
+          label="Perc. Red. Compra Gov."
+          value={percent(breakdown.ibsCbs.governmentPurchaseReductionRate)}
+        />
+        <TaxLine
+          label="Base de Cálculo"
+          value={currencyFormatter.format(breakdown.ibsCbs.basis)}
+        />
+        <TaxLine label="Alíq. CBS" value={percent(breakdown.ibsCbs.cbs.rate)} />
         <TaxLine
           label="Perc. Red. Alíq. CBS"
-          value={percent(breakdown.cbs.reductionRate)}
+          value={percent(breakdown.ibsCbs.cbs.reductionRate)}
         />
         <TaxLine
           label="Alíq. Efet. CBS"
-          value={percent(breakdown.cbs.effectiveRate)}
+          value={percent(breakdown.ibsCbs.cbs.effectiveRate)}
         />
         <TaxLine
           label="Valor CBS"
-          value={currencyFormatter.format(breakdown.cbs.amount)}
+          value={currencyFormatter.format(breakdown.ibsCbs.cbs.amount)}
         />
-        <TaxLine label="Alíq. IBS Est." value={percent(breakdown.ibsState.rate)} />
+        <TaxLine
+          label="Alíq. IBS Est."
+          value={percent(breakdown.ibsCbs.ibsState.rate)}
+        />
         <TaxLine
           label="Perc. Red. Alíq. IBS Est."
-          value={percent(breakdown.ibsState.reductionRate)}
+          value={percent(breakdown.ibsCbs.ibsState.reductionRate)}
         />
         <TaxLine
           label="Alíq. Efet. IBS Est."
-          value={percent(breakdown.ibsState.effectiveRate)}
+          value={percent(breakdown.ibsCbs.ibsState.effectiveRate)}
         />
         <TaxLine
           label="Valor IBS Est."
-          value={currencyFormatter.format(breakdown.ibsState.amount)}
+          value={currencyFormatter.format(breakdown.ibsCbs.ibsState.amount)}
         />
-      </div>
+        <TaxLine
+          label="Alíq. IBS Mun."
+          value={percent(breakdown.ibsCbs.ibsMunicipal.rate)}
+        />
+        <TaxLine
+          label="Perc. Red. Alíq. IBS Mun."
+          value={percent(breakdown.ibsCbs.ibsMunicipal.reductionRate)}
+        />
+        <TaxLine
+          label="Alíq. Efet. IBS Mun."
+          value={percent(breakdown.ibsCbs.ibsMunicipal.effectiveRate)}
+        />
+        <TaxLine
+          label="Valor IBS Mun."
+          value={currencyFormatter.format(breakdown.ibsCbs.ibsMunicipal.amount)}
+        />
+      </TaxSection>
+
+      <TaxSection title="Totais">
+        <TaxLine
+          label="Total de Retenção"
+          value={
+            breakdown.federalRetentions.totalAmount > 0
+              ? currencyFormatter.format(breakdown.federalRetentions.totalAmount)
+              : "-"
+          }
+        />
+        <TaxLine
+          label="Valor Total do CBS"
+          value={currencyFormatter.format(breakdown.ibsCbs.cbs.amount)}
+        />
+        <TaxLine
+          label="Valor Total do IBS"
+          value={currencyFormatter.format(breakdown.ibsCbs.ibsTotalAmount)}
+        />
+        <TaxLine
+          label="Valor Total Líquido"
+          value={currencyFormatter.format(breakdown.iss.basis)}
+        />
+        <TaxLine
+          label="Valor Total da Nota Fiscal - IBS/CBS"
+          value={currencyFormatter.format(breakdown.iss.basis)}
+        />
+      </TaxSection>
     </div>
+  );
+}
+
+function TaxSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="space-y-2 border-t border-slate-200 pt-3 first:border-t-0 first:pt-0 dark:border-slate-800">
+      <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
+        {title}
+      </p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">{children}</div>
+    </section>
   );
 }
 
@@ -1718,7 +2048,7 @@ function TaxLine({ label, value }: { label: string; value: string }) {
       <span className="min-w-0 text-xs font-medium text-slate-500">
         {label}
       </span>
-      <span className="shrink-0 font-semibold text-slate-900 dark:text-white">
+      <span className="min-w-0 break-words text-right font-semibold text-slate-900 dark:text-white">
         {value}
       </span>
     </div>

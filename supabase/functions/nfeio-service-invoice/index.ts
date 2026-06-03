@@ -21,9 +21,57 @@ type TaxItem = {
   amount: number;
 };
 
-type TaxBreakdown = {
+type ServiceLocation = {
+  country?: string;
+  city: {
+    code: string;
+    name: string;
+  };
+  state: string;
+};
+
+type FiscalDetails = {
+  federalServiceCode: string;
+  municipalActivityCode: string;
+  municipalActivityDescription: string;
+  cnaeCode?: string;
+  serviceLocation: ServiceLocation;
+};
+
+type IssBreakdown = {
+  basis: number;
+  rate: number;
+  amount: number;
+};
+
+type FederalRetentions = {
+  retentionType: string;
+  pis: number | null;
+  cofins: number | null;
+  csll: number | null;
+  irrf: number | null;
+  socialSecurity: number | null;
+  totalAmount: number;
+};
+
+type IbsCbsBreakdown = {
+  operationIndicator: string;
+  classCode: string;
+  taxationSituation: string;
+  operationType: string;
+  governmentEntityType: string;
+  governmentPurchaseReductionRate: number;
+  basis: number;
   cbs: TaxItem;
   ibsState: TaxItem;
+  ibsMunicipal: TaxItem;
+  ibsTotalAmount: number;
+};
+
+type TaxBreakdown = {
+  iss: IssBreakdown;
+  federalRetentions: FederalRetentions;
+  ibsCbs: IbsCbsBreakdown;
 };
 
 type InvoiceRequest = {
@@ -31,8 +79,10 @@ type InvoiceRequest = {
   amount: number;
   serviceDescription: string;
   serviceCode: string;
+  fiscalDetails?: FiscalDetails;
   taxRate?: number;
   taxBreakdown?: TaxBreakdown;
+  issueDate?: string;
   customer: {
     type?: BorrowerType;
     name: string;
@@ -53,6 +103,42 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
+
+const DEFAULT_ISS_TAX_RATE = 2.01;
+const DEFAULT_FEDERAL_SERVICE_CODE = "04.08.02";
+const DEFAULT_MUNICIPAL_ACTIVITY_CODE = "8650-0/04";
+const DEFAULT_MUNICIPAL_ACTIVITY_DESCRIPTION = "Atividades de fisioterapia";
+const DEFAULT_CNAE_CODE = "8650004";
+const DEFAULT_SERVICE_LOCATION: ServiceLocation = {
+  country: "BRA",
+  city: {
+    code: "5103403",
+    name: "Cuiabá",
+  },
+  state: "MT",
+};
+const DEFAULT_IBS_CBS_CONFIG = {
+  operationIndicator: "03010",
+  operationType: "SupplyFirstPayLater",
+  classCode: "200029",
+  taxationSituation: "Alíquota reduzida",
+  governmentEntityType: "Municipality",
+  governmentPurchaseReductionRate: 0,
+} as const;
+const DEFAULT_TAX_CONFIG = {
+  cbs: {
+    rate: 0.9,
+    reductionRate: 60,
+  },
+  ibsState: {
+    rate: 0.1,
+    reductionRate: 60,
+  },
+  ibsMunicipal: {
+    rate: 0,
+    reductionRate: 60,
+  },
+} as const;
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") {

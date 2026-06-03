@@ -23,9 +23,57 @@ export type NfeioTaxItem = {
   amount: number;
 };
 
-export type NfeioTaxBreakdown = {
+export type NfeioServiceLocation = {
+  country?: string;
+  city: {
+    code: string;
+    name: string;
+  };
+  state: string;
+};
+
+export type NfeioFiscalDetails = {
+  federalServiceCode: string;
+  municipalActivityCode: string;
+  municipalActivityDescription: string;
+  cnaeCode?: string;
+  serviceLocation: NfeioServiceLocation;
+};
+
+export type NfeioIssBreakdown = {
+  basis: number;
+  rate: number;
+  amount: number;
+};
+
+export type NfeioFederalRetentions = {
+  retentionType: string;
+  pis: number | null;
+  cofins: number | null;
+  csll: number | null;
+  irrf: number | null;
+  socialSecurity: number | null;
+  totalAmount: number;
+};
+
+export type NfeioIbsCbsBreakdown = {
+  operationIndicator: string;
+  classCode: string;
+  taxationSituation: string;
+  operationType: string;
+  governmentEntityType: string;
+  governmentPurchaseReductionRate: number;
+  basis: number;
   cbs: NfeioTaxItem;
   ibsState: NfeioTaxItem;
+  ibsMunicipal: NfeioTaxItem;
+  ibsTotalAmount: number;
+};
+
+export type NfeioTaxBreakdown = {
+  iss: NfeioIssBreakdown;
+  federalRetentions: NfeioFederalRetentions;
+  ibsCbs: NfeioIbsCbsBreakdown;
 };
 
 export type NfeioInvoicePayload = {
@@ -33,6 +81,7 @@ export type NfeioInvoicePayload = {
   amount: number;
   serviceDescription: string;
   serviceCode: string;
+  fiscalDetails?: NfeioFiscalDetails;
   taxRate?: number;
   taxBreakdown?: NfeioTaxBreakdown;
   issueDate?: string;
