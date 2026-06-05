@@ -629,7 +629,7 @@ export const NovoPacienteModal = ({
                     ? "Adicione novos créditos e gere as próximas sessões, se houver."
                     : isEditing
                     ? "Atualize dados cadastrais, procedimentos, pacote e financeiro."
-                    : "Cadastre cliente, procedimentos e aulas fixas quando contratadas."}
+                    : "Cadastre cliente, procedimentos e sessões fixas quando contratadas."}
                 </p>
               </div>
               <button
@@ -1122,7 +1122,7 @@ export const NovoPacienteModal = ({
                     Agenda e sessões contratadas
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Aulas usam dias e horário fixos. Procedimentos avulsos usam a data e o horário definidos em cada procedimento.
+                    Sessões usam dias e horário fixos. Procedimentos avulsos usam a data e o horário definidos em cada procedimento.
                   </p>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

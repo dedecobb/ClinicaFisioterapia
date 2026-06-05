@@ -155,6 +155,30 @@ export const PacientesPage = () => {
     };
   }, [profile]);
 
+  useEffect(() => {
+    let active = true;
+
+    // Recarrega a lista de pacientes quando o modal fecha
+    if (!isModalOpen && profile?.clinic_id && !loading) {
+      async function refreshPatients() {
+        try {
+          const data = await listarPacientes(profile.clinic_id, searchTerm, profile);
+          if (active) setPatients(data);
+        } catch (err) {
+          // Erro silencioso para não interromper a navegação
+          console.error("Erro ao recarregar pacientes:", err);
+        }
+      }
+
+      const timer = window.setTimeout(refreshPatients, 300);
+      return () => window.clearTimeout(timer);
+    }
+
+    return () => {
+      active = false;
+    };
+  }, [isModalOpen, profile?.clinic_id, searchTerm]);
+
   const validatePatientForm = (form: NewPatientForm): string | null => {
     const hasLessons = Number(form.contracted_lessons) > 0;
     const hasProcedures = form.procedures.length > 0;
