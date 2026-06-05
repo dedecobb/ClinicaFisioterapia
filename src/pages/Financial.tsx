@@ -1314,10 +1314,9 @@ export const Financial = () => {
                             </Badge>
                           </div>
                           <p className="text-sm text-slate-500 mt-1">
-                            {packageItem.completed_lessons +
-                              packageItem.missed_lessons}
-                            /{packageItem.total_lessons} aulas consumidas ·
-                            início em {formatDate(packageItem.start_date)}
+                            {packageItem.completed_lessons + packageItem.missed_lessons}/
+                            {packageItem.total_lessons} aulas consumidas · início em{" "}
+                            {formatDate(packageItem.start_date)}
                           </p>
                           {money(packageItem.procedure_amount) > 0 && (
                             <p className="text-xs text-slate-500 mt-1">

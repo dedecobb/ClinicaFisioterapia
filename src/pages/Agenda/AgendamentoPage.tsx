@@ -62,7 +62,7 @@ const MESES = [
   "Dezembro",
 ];
 
-const DIAS_SEMANA = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+const DIAS_SEMANA = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
 
 const STATUS_LABEL: Record<StatusAgendamento, string> = {
   agendada: "Agendada",

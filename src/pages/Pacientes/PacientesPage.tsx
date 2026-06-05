@@ -36,7 +36,7 @@ const STATUS_LABEL = {
   encerrado: "Encerrado",
 } as const;
 
-const WEEKDAY_LABEL = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+const WEEKDAY_LABEL = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
 
 const currencyFormatter = new Intl.NumberFormat("pt-BR", {
   style: "currency",
@@ -176,7 +176,7 @@ export const PacientesPage = () => {
     }
 
     if (Number(form.contracted_lessons) < 0) {
-      return "A quantidade de aulas não pode ser negativa.";
+      return "A quantidade de sessões não pode ser negativa.";
     }
 
     if (!hasLessons && !hasProcedures) {
@@ -184,11 +184,11 @@ export const PacientesPage = () => {
     }
 
     if (hasLessons && form.fixed_weekdays.length === 0) {
-      return "Selecione pelo menos um dia fixo para as aulas.";
+      return "Selecione pelo menos um dia fixo para as sessões.";
     }
 
     if (hasLessons && !form.fixed_time) {
-      return "Informe o horário fixo das aulas.";
+      return "Informe o horário fixo das sessões.";
     }
 
     return null;
@@ -321,7 +321,7 @@ export const PacientesPage = () => {
             Pacientes
           </h1>
           <p className="text-slate-500 dark:text-slate-400 mt-1">
-            Gerencie clientes, pacotes contratados e aulas fixas.
+            Gerencie clientes, pacotes contratados e sessões fixas.
           </p>
         </div>
         {isAdmin && (
@@ -463,7 +463,7 @@ export const PacientesPage = () => {
                     </span>
                     <span className="font-bold text-slate-900 dark:text-white">
                       {patient.lesson_packages[0].completed_lessons}/
-                      {patient.lesson_packages[0].total_lessons} aulas
+                      {patient.lesson_packages[0].total_lessons} sessões
                     </span>
                   </div>
                   <div className="text-xs text-slate-500">
@@ -474,7 +474,7 @@ export const PacientesPage = () => {
                         patient.lesson_packages[0].missed_lessons,
                       0,
                     )}{" "}
-                    aulas · termina em{" "}
+                    sessões · termina em{" "}
                     {formatDateBr(patient.lesson_packages[0].expected_end_date)}
                   </div>
                   <div className="text-xs text-slate-500">

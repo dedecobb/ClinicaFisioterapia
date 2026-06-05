@@ -506,7 +506,7 @@ export const Certificates = () => {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                      Início
+                      Horário de Comparecimento
                     </label>
                     <input
                       type="time"

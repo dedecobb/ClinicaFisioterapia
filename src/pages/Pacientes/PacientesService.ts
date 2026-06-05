@@ -249,7 +249,7 @@ function generateLessonDates(
 ): string[] {
   if (totalLessons <= 0) return [];
   if (!startDate || weekdays.length === 0) {
-    throw new Error("Informe data inicial e dias fixos para gerar as aulas.");
+    throw new Error("Informe data inicial e dias fixos para gerar as sessões.");
   }
 
   const selected = new Set(weekdays);
@@ -317,7 +317,7 @@ function validateLessonPackageFields(form: NewPatientForm) {
   if (!hasLessonPackage(form)) return;
 
   if (!form.plan_start_date || !form.fixed_time || form.fixed_weekdays.length === 0) {
-    throw new Error("Informe data inicial, dias fixos e horário para gerar as aulas.");
+    throw new Error("Informe data inicial, dias fixos e horário para gerar as sessões.");
   }
 }
 
@@ -514,7 +514,7 @@ async function registrarRecebimentoInicial({
   const paymentDate = todayDate();
   const hasLessons = Number(totalLessons) > 0;
   const serviceLabel = hasLessons
-    ? `pacote ${totalLessons} aulas${procedureAmount > 0 ? " e procedimentos" : ""}`
+    ? `pacote ${totalLessons} sessões${procedureAmount > 0 ? " e procedimentos" : ""}`
     : "procedimentos";
   const description = [
     `${isRenewal ? "Recebimento inicial da renovação" : "Recebimento inicial"} de ${
@@ -832,7 +832,7 @@ export async function criarPaciente(
 
   if (appointmentsError) {
     throw formatSupabaseError(
-      "Erro ao gerar aulas do pacote",
+      "Erro ao gerar sessões do pacote",
       appointmentsError,
       "appointments",
     );
@@ -991,7 +991,7 @@ export async function renovarPacotePaciente(
 
   if (appointmentsError) {
     throw formatSupabaseError(
-      "Erro ao gerar aulas da renovação",
+      "Erro ao gerar sessões da renovação",
       appointmentsError,
       "appointments",
     );

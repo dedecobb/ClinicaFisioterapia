@@ -69,12 +69,12 @@ const emptyForm: NewPatientForm = {
 };
 
 const WEEKDAYS = [
-  { value: 1, label: "Seg" },
-  { value: 2, label: "Ter" },
-  { value: 3, label: "Qua" },
-  { value: 4, label: "Qui" },
-  { value: 5, label: "Sex" },
-  { value: 6, label: "Sáb" },
+  { value: 1, label: "Segunda" },
+  { value: 2, label: "Terça" },
+  { value: 3, label: "Quarta" },
+  { value: 4, label: "Quinta" },
+  { value: 5, label: "Sexta" },
+  { value: 6, label: "Sábado" },
 ];
 
 const currencyFormatter = new Intl.NumberFormat("pt-BR", {
@@ -626,10 +626,10 @@ export const NovoPacienteModal = ({
                 </h2>
                 <p className="text-sm text-slate-500">
                   {isRenewing
-                    ? "Adicione novos créditos e gere as próximas aulas, se houver."
+                    ? "Adicione novos créditos e gere as próximas sessões, se houver."
                     : isEditing
-                      ? "Atualize dados cadastrais, procedimentos, pacote e financeiro."
-                      : "Cadastre cliente, procedimentos e aulas fixas quando contratadas."}
+                    ? "Atualize dados cadastrais, procedimentos, pacote e financeiro."
+                    : "Cadastre cliente, procedimentos e aulas fixas quando contratadas."}
                 </p>
               </div>
               <button
@@ -1119,17 +1119,16 @@ export const NovoPacienteModal = ({
 
                 <div className="space-y-4">
                   <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">
-                    Agenda e aulas contratadas
+                    Agenda e sessões contratadas
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Aulas usam dias e horário fixos. Procedimentos avulsos usam
-                    a data e o horário definidos em cada procedimento.
+                    Aulas usam dias e horário fixos. Procedimentos avulsos usam a data e o horário definidos em cada procedimento.
                   </p>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                        Início do plano
+                        Data de Início
                       </label>
                       <div className="relative">
                         <Calendar
@@ -1151,7 +1150,7 @@ export const NovoPacienteModal = ({
 
                     <div className="space-y-2">
                       <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                        Aulas contratadas
+                        Sessões contratadas
                       </label>
                       <input
                         type="number"
@@ -1211,7 +1210,7 @@ export const NovoPacienteModal = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                        Horário fixo das aulas
+                        Horário fixo das sessões
                       </label>
                       <div className="relative">
                         <Clock
@@ -1266,7 +1265,7 @@ export const NovoPacienteModal = ({
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div className="space-y-2">
                       <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                        Valor por aula
+                        Valor por sessão
                       </label>
                       <input
                         type="number"
@@ -1290,7 +1289,7 @@ export const NovoPacienteModal = ({
 
                     <div className="space-y-2">
                       <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                        Valor das aulas
+                        Valor das sessões
                       </label>
                       <input
                         type="number"
@@ -1329,7 +1328,7 @@ export const NovoPacienteModal = ({
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 rounded-xl border border-slate-100 bg-white p-4 text-sm dark:border-slate-800 dark:bg-slate-950">
                     <div>
                       <span className="block text-xs font-semibold uppercase text-slate-400">
-                        Aulas
+                        Sessões
                       </span>
                       <strong className="text-slate-900 dark:text-white">
                         {currencyFormatter.format(lessonsTotal)}
@@ -1433,12 +1432,12 @@ export const NovoPacienteModal = ({
                 <Button type="submit" className="flex-[2]" isLoading={loading}>
                   {isRenewing
                     ? hasLessons
-                      ? "Renovar e gerar aulas"
+                      ? "Renovar e gerar sessões"
                       : "Adicionar e agendar procedimentos"
                     : isEditing
                       ? "Salvar alterações"
                       : hasLessons
-                        ? "Cadastrar e gerar aulas"
+                        ? "Cadastrar e gerar sessões"
                         : "Cadastrar e agendar procedimentos"}
                 </Button>
               </div>
