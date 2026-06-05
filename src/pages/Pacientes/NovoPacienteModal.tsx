@@ -107,8 +107,27 @@ function formatCep(value: string): string {
   return `${digits.slice(0, 5)}-${digits.slice(5)}`;
 }
 
+function formatCpf(value: string): string {
+  const digits = onlyDigits(value).slice(0, 11);
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 6) return `${digits.slice(0, 3)}.${digits.slice(3)}`;
+  if (digits.length <= 9)
+    return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6)}`;
+  return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
+}
+
+function formatPhone(value: string): string {
+  const digits = onlyDigits(value).slice(0, 11);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 7) return `(${digits.slice(0, 2)})${digits.slice(2)}`;
+  return `(${digits.slice(0, 2)})${digits.slice(2, 7)}-${digits.slice(7)}`;
+}
+
 function uppercaseState(value: string): string {
-  return value.replace(/[^a-zA-Z]/g, "").slice(0, 2).toUpperCase();
+  return value
+    .replace(/[^a-zA-Z]/g, "")
+    .slice(0, 2)
+    .toUpperCase();
 }
 
 function emptyAddressForm(): PatientAddressForm {
@@ -153,7 +172,12 @@ function addressFormFromPatientAddress(
   const cityValue = value.city;
 
   return {
-    postalCode: addressField(value, ["postalCode", "postal_code", "zip", "cep"]),
+    postalCode: addressField(value, [
+      "postalCode",
+      "postal_code",
+      "zip",
+      "cep",
+    ]),
     street: addressField(value, ["street", "logradouro", "rua", "address"]),
     number: addressField(value, ["number", "numero"]),
     additionalInformation: addressField(value, [
@@ -192,7 +216,9 @@ function clinicNowParts() {
     minute: "2-digit",
     hour12: false,
   }).formatToParts(new Date());
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const values = Object.fromEntries(
+    parts.map((part) => [part.type, part.value]),
+  );
 
   return {
     date: `${values.year}-${values.month}-${values.day}`,
@@ -277,7 +303,8 @@ function formFromPatient(
     activePackage?.procedure_credits,
   );
   const patientProcedures = normalizeProceduresForForm(patient.procedures);
-  const procedures = packageProcedures.length > 0 ? packageProcedures : patientProcedures;
+  const procedures =
+    packageProcedures.length > 0 ? packageProcedures : patientProcedures;
   const storedTotalAmount = Number(activePackage?.total_amount) || 0;
   const storedProcedureAmount = Number(activePackage?.procedure_amount) || 0;
   const storedLessons =
@@ -329,10 +356,9 @@ function formFromPatient(
     responsible_professional_id: patient.responsible_professional_id ?? "",
     procedures,
     lesson_value: Number(activePackage?.lesson_value) || 0,
-    total_amount:
-      !hasStoredLessons
-        ? 0
-        : storedProcedureAmount > 0
+    total_amount: !hasStoredLessons
+      ? 0
+      : storedProcedureAmount > 0
         ? Math.max(storedTotalAmount - storedProcedureAmount, 0)
         : storedTotalAmount,
     amount_paid: Number(activePackage?.amount_paid) || 0,
@@ -369,7 +395,11 @@ export const NovoPacienteModal = ({
   }, [isOpen, mode, patient]);
 
   useEffect(() => {
-    if (!isOpen || cepDigits.length !== 8 || lastFetchedCep.current === cepDigits) {
+    if (
+      !isOpen ||
+      cepDigits.length !== 8 ||
+      lastFetchedCep.current === cepDigits
+    ) {
       return;
     }
 
@@ -393,6 +423,17 @@ export const NovoPacienteModal = ({
           throw new Error("CEP não encontrado.");
         }
 
+        // Auto-preenchimento do IBGE para Cuiabá
+        const cityName = data.localidade?.trim() || current.address.cityName;
+        const isCuiaba =
+          cityName
+            .toLowerCase()
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "") === "cuiaba";
+        const ibgeCode = isCuiaba
+          ? "5103403"
+          : onlyDigits(data.ibge ?? current.address.cityCode);
+
         lastFetchedCep.current = cepDigits;
         setFormData((current) => ({
           ...current,
@@ -405,15 +446,17 @@ export const NovoPacienteModal = ({
               data.complemento?.trim() ||
               "",
             district: data.bairro?.trim() || current.address.district,
-            cityName: data.localidade?.trim() || current.address.cityName,
-            cityCode: onlyDigits(data.ibge ?? current.address.cityCode),
+            cityName: cityName,
+            cityCode: ibgeCode,
             state: uppercaseState(data.uf ?? current.address.state),
           },
         }));
       } catch (err) {
         if (controller.signal.aborted) return;
         setCepError(
-          err instanceof Error ? err.message : "Não foi possível consultar o CEP.",
+          err instanceof Error
+            ? err.message
+            : "Não foi possível consultar o CEP.",
         );
       } finally {
         if (!controller.signal.aborted) setCepLoading(false);
@@ -430,7 +473,15 @@ export const NovoPacienteModal = ({
     field: K,
     value: NewPatientForm[K],
   ) => {
-    setFormData((current) => ({ ...current, [field]: value }));
+    let formattedValue = value;
+
+    if (field === "cpf" && typeof value === "string") {
+      formattedValue = formatCpf(value) as NewPatientForm[K];
+    } else if (field === "phone" && typeof value === "string") {
+      formattedValue = formatPhone(value) as NewPatientForm[K];
+    }
+
+    setFormData((current) => ({ ...current, [field]: formattedValue }));
   };
 
   const updateAddressField = <K extends keyof PatientAddressForm>(
@@ -577,8 +628,8 @@ export const NovoPacienteModal = ({
                   {isRenewing
                     ? "Adicione novos créditos e gere as próximas aulas, se houver."
                     : isEditing
-                    ? "Atualize dados cadastrais, procedimentos, pacote e financeiro."
-                    : "Cadastre cliente, procedimentos e aulas fixas quando contratadas."}
+                      ? "Atualize dados cadastrais, procedimentos, pacote e financeiro."
+                      : "Cadastre cliente, procedimentos e aulas fixas quando contratadas."}
                 </p>
               </div>
               <button
@@ -997,7 +1048,8 @@ export const NovoPacienteModal = ({
                                     disabled={loading}
                                     className="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
                                     value={
-                                      selectedProcedure.scheduled_date ?? today()
+                                      selectedProcedure.scheduled_date ??
+                                      today()
                                     }
                                     onChange={(event) =>
                                       updateProcedureSchedule(
@@ -1070,7 +1122,8 @@ export const NovoPacienteModal = ({
                     Agenda e aulas contratadas
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Aulas usam dias e horário fixos. Procedimentos avulsos usam a data e o horário definidos em cada procedimento.
+                    Aulas usam dias e horário fixos. Procedimentos avulsos usam
+                    a data e o horário definidos em cada procedimento.
                   </p>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1109,7 +1162,9 @@ export const NovoPacienteModal = ({
                         value={formData.contracted_lessons}
                         onChange={(event) =>
                           setFormData((current) => {
-                            const contractedLessons = Number(event.target.value);
+                            const contractedLessons = Number(
+                              event.target.value,
+                            );
                             const withLessons = contractedLessons > 0;
 
                             return {
@@ -1245,7 +1300,10 @@ export const NovoPacienteModal = ({
                         className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
                         value={lessonsTotal}
                         onChange={(event) =>
-                          updateField("total_amount", Number(event.target.value))
+                          updateField(
+                            "total_amount",
+                            Number(event.target.value),
+                          )
                         }
                       />
                     </div>
@@ -1328,7 +1386,8 @@ export const NovoPacienteModal = ({
                         onChange={(event) =>
                           updateField(
                             "payment_status",
-                            event.target.value as NewPatientForm["payment_status"],
+                            event.target
+                              .value as NewPatientForm["payment_status"],
                           )
                         }
                       >
@@ -1350,7 +1409,10 @@ export const NovoPacienteModal = ({
                         className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
                         value={formData.installments}
                         onChange={(event) =>
-                          updateField("installments", Number(event.target.value))
+                          updateField(
+                            "installments",
+                            Number(event.target.value),
+                          )
                         }
                       />
                     </div>

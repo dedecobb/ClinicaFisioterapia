@@ -76,7 +76,9 @@ function normalizeSearch(value: string): string {
 }
 
 function patientOptionLabel(patient: PatientOption): string {
-  return patient.cpf ? `${patient.full_name} - ${patient.cpf}` : patient.full_name;
+  return patient.cpf
+    ? `${patient.full_name} - ${patient.cpf}`
+    : patient.full_name;
 }
 
 export const Certificates = () => {
@@ -85,7 +87,9 @@ export const Certificates = () => {
   const [patients, setPatients] = useState<PatientOption[]>([]);
   const [professionals, setProfessionals] = useState<ProfessionalOption[]>([]);
   const [clinic, setClinic] = useState<ClinicInfo | null>(null);
-  const [patientId, setPatientId] = useState(searchParams.get("patientId") ?? "");
+  const [patientId, setPatientId] = useState(
+    searchParams.get("patientId") ?? "",
+  );
   const [patientSearch, setPatientSearch] = useState("");
   const [professionalId, setProfessionalId] = useState(profile?.id ?? "");
   const [professionalRegistry, setProfessionalRegistry] = useState("");
@@ -153,8 +157,8 @@ export const Certificates = () => {
         return;
       }
 
-      const loadedProfessionals =
-        (professionalsResult.data ?? []) as ProfessionalOption[];
+      const loadedProfessionals = (professionalsResult.data ??
+        []) as ProfessionalOption[];
 
       setClinic((clinicResult.data ?? null) as ClinicInfo | null);
       setPatients((patientsResult.data ?? []) as PatientOption[]);
@@ -188,12 +192,21 @@ export const Certificates = () => {
     setPatientSearch(patientOptionLabel(selectedPatient));
   }, [selectedPatient]);
 
+  // Auto-preencher CREFITO de Cristiane Carrasco
+  useEffect(() => {
+    if (!selectedProfessional) return;
+    if (selectedProfessional.full_name.toLowerCase().includes("cristiane")) {
+      setProfessionalRegistry("26235/MT");
+    }
+  }, [selectedProfessional]);
+
   const findPatientBySearch = (value: string): PatientOption | undefined => {
     const normalizedValue = normalizeSearch(value);
     if (!normalizedValue) return undefined;
 
     const exactByLabel = patients.find(
-      (patient) => normalizeSearch(patientOptionLabel(patient)) === normalizedValue,
+      (patient) =>
+        normalizeSearch(patientOptionLabel(patient)) === normalizedValue,
     );
     if (exactByLabel) return exactByLabel;
 
@@ -364,7 +377,10 @@ export const Certificates = () => {
                   />
                   <datalist id="certificate-patient-options">
                     {patients.map((patient) => (
-                      <option key={patient.id} value={patientOptionLabel(patient)} />
+                      <option
+                        key={patient.id}
+                        value={patientOptionLabel(patient)}
+                      />
                     ))}
                   </datalist>
                 </div>
@@ -403,7 +419,9 @@ export const Certificates = () => {
                   className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none"
                   placeholder="CREFITO..."
                   value={professionalRegistry}
-                  onChange={(event) => setProfessionalRegistry(event.target.value)}
+                  onChange={(event) =>
+                    setProfessionalRegistry(event.target.value)
+                  }
                 />
               </div>
 
@@ -476,7 +494,9 @@ export const Certificates = () => {
                       required
                       className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none"
                       value={attendanceDate}
-                      onChange={(event) => setAttendanceDate(event.target.value)}
+                      onChange={(event) =>
+                        setAttendanceDate(event.target.value)
+                      }
                     />
                   </div>
                 </div>
@@ -520,7 +540,9 @@ export const Certificates = () => {
                     required
                     className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none"
                     value={restDays}
-                    onChange={(event) => setRestDays(Number(event.target.value))}
+                    onChange={(event) =>
+                      setRestDays(Number(event.target.value))
+                    }
                   />
                 </div>
               )}

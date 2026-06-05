@@ -14,6 +14,7 @@ import {
   UserCheck,
   X,
 } from "lucide-react";
+import * as XLSX from "xlsx";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
@@ -188,16 +189,22 @@ function getInstallments(packageItem: PackageRow): InstallmentRow[] {
 
 function getCurrentInstallment(packageItem: PackageRow): InstallmentRow | null {
   return (
-    getInstallments(packageItem).find((item) => getRemainingInstallment(item) > 0) ??
-    null
+    getInstallments(packageItem).find(
+      (item) => getRemainingInstallment(item) > 0,
+    ) ?? null
   );
 }
 
 function getRemainingInstallment(installment: InstallmentRow): number {
-  return Math.max(cents(installment.amount) - cents(installment.amount_paid), 0) / 100;
+  return (
+    Math.max(cents(installment.amount) - cents(installment.amount_paid), 0) /
+    100
+  );
 }
 
-function getInstallmentPaymentStatus(installment: InstallmentRow): PaymentStatus {
+function getInstallmentPaymentStatus(
+  installment: InstallmentRow,
+): PaymentStatus {
   const status = statusFromPayment(
     money(installment.amount),
     money(installment.amount_paid),
@@ -207,7 +214,9 @@ function getInstallmentPaymentStatus(installment: InstallmentRow): PaymentStatus
   return installment.status === "inadimplente" ? "inadimplente" : status;
 }
 
-function paymentStatusFromTransaction(status: TransactionStatus): PaymentStatus {
+function paymentStatusFromTransaction(
+  status: TransactionStatus,
+): PaymentStatus {
   if (status === "paid") return "pago";
   if (status === "overdue") return "inadimplente";
   return "pendente";
@@ -220,7 +229,9 @@ function getPackagePaymentStatus(packageItem: PackageRow): PaymentStatus {
   );
 
   if (status === "pago") return "pago";
-  return packageItem.payment_status === "inadimplente" ? "inadimplente" : status;
+  return packageItem.payment_status === "inadimplente"
+    ? "inadimplente"
+    : status;
 }
 
 function badgeVariantForPayment(status: PaymentStatus) {
@@ -270,6 +281,123 @@ function todayDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+function generateCommissionReportExcel(
+  report: ProfessionalReport[],
+  startDate: string,
+  endDate: string,
+): Blob {
+  // Preparar dados para a planilha
+  const wsData: unknown[][] = [];
+
+  // Título e período
+  wsData.push(["Relatório de Comissão"]);
+  wsData.push([`Período: ${startDate} a ${endDate}`]);
+  wsData.push([]); // Linha vazia para separação
+
+  // Cabeçalho
+  wsData.push([
+    "Fisioterapeuta",
+    "Aulas Realizadas",
+    "Faltas Pagas",
+    "Valor Bruto",
+    "Já Pagou",
+    "A Receber (40%)",
+  ]);
+
+  // Dados dos profissionais
+  report.forEach((item) => {
+    wsData.push([
+      item.professionalName,
+      item.heldClasses,
+      item.paidMisses,
+      item.gross,
+      item.commissionPaid,
+      item.professionalShare,
+    ]);
+  });
+
+  // Calcular totais
+  const total = report.reduce(
+    (acc, item) => {
+      acc.heldClasses += item.heldClasses;
+      acc.paidMisses += item.paidMisses;
+      acc.gross += item.gross;
+      acc.commissionPaid += item.commissionPaid;
+      acc.professionalShare += item.professionalShare;
+      return acc;
+    },
+    {
+      heldClasses: 0,
+      paidMisses: 0,
+      gross: 0,
+      commissionPaid: 0,
+      professionalShare: 0,
+    },
+  );
+
+  // Linha vazia e linha de totais
+  wsData.push([]);
+  wsData.push([
+    "TOTAL",
+    total.heldClasses,
+    total.paidMisses,
+    total.gross,
+    total.commissionPaid,
+    total.professionalShare,
+  ]);
+
+  // Criar workbook
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+  // Ajustar largura das colunas
+  const colWidths = [25, 18, 15, 15, 15, 20];
+  ws["!cols"] = colWidths.map((width) => ({ wch: width }));
+
+  // Formatar células monetárias (colunas D, E, F)
+  const lastRow = wsData.length;
+  for (let row = 4; row <= lastRow; row++) {
+    for (let col = 3; col <= 5; col++) {
+      const cellAddress = XLSX.utils.encode_col(col) + row;
+      if (ws[cellAddress]) {
+        ws[cellAddress].z = '"R$ "#,##0.00';
+      }
+    }
+  }
+
+  // Estilizar cabeçalho (linha 4)
+  for (let col = 0; col < 6; col++) {
+    const cellAddress = XLSX.utils.encode_col(col) + "4";
+    if (ws[cellAddress]) {
+      ws[cellAddress].s = {
+        font: { bold: true, color: { rgb: "FFFFFF" } },
+        fill: { fgColor: { rgb: "366092" } },
+        alignment: { horizontal: "center", vertical: "center" },
+      };
+    }
+  }
+
+  // Estilizar linha de TOTAL
+  for (let col = 0; col < 6; col++) {
+    const cellAddress = XLSX.utils.encode_col(col) + lastRow;
+    if (ws[cellAddress]) {
+      ws[cellAddress].s = {
+        font: { bold: true },
+        fill: { fgColor: { rgb: "E8E8E8" } },
+        alignment: { horizontal: "right" },
+      };
+    }
+  }
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Comissões");
+
+  // Gerar arquivo em buffer
+  const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+  return new Blob([wbout], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+}
+
 function cleanProcedurePaymentDescription(value: string): string {
   return value.replace(/\s+-\s+saldo em aberto$/i, "");
 }
@@ -277,39 +405,60 @@ function cleanProcedurePaymentDescription(value: string): string {
 function buildCommissionReport(
   appointments: CommissionAppointment[],
   ownerId: string | null,
+  startDate?: string,
+  endDate?: string,
 ): ProfessionalReport[] {
   const report = new Map<string, ProfessionalReport>();
 
-  appointments
-    .filter(
-      (appointment) =>
-        appointment.status === "presenca_registrada" ||
-        appointment.status === "falta",
-    )
-    .forEach((appointment) => {
-      const professionalId = appointment.profiles?.id ?? "sem-profissional";
-      if (ownerId && professionalId === ownerId) return;
+  let filtered = appointments.filter(
+    (appointment) =>
+      appointment.status === "presenca_registrada" ||
+      appointment.status === "falta",
+  );
 
-      const current =
-        report.get(professionalId) ??
-        ({
-          professionalId,
-          professionalName:
-            appointment.profiles?.full_name ?? "Sem profissional definido",
-          heldClasses: 0,
-          paidMisses: 0,
-          gross: 0,
-          professionalShare: 0,
-          commissionPaid: 0,
-        } satisfies ProfessionalReport);
-
-      const classValue = money(appointment.class_price);
-      current.gross += classValue;
-      current.professionalShare += classValue * 0.4;
-      if (appointment.status === "falta") current.paidMisses += 1;
-      if (appointment.status === "presenca_registrada") current.heldClasses += 1;
-      report.set(professionalId, current);
+  // Filter by date range if provided
+  if (startDate) {
+    const start = new Date(startDate);
+    start.setHours(0, 0, 0, 0);
+    filtered = filtered.filter((appointment) => {
+      const appointmentDate = new Date(appointment.start_time);
+      return appointmentDate >= start;
     });
+  }
+
+  if (endDate) {
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+    filtered = filtered.filter((appointment) => {
+      const appointmentDate = new Date(appointment.start_time);
+      return appointmentDate <= end;
+    });
+  }
+
+  filtered.forEach((appointment) => {
+    const professionalId = appointment.profiles?.id ?? "sem-profissional";
+    if (ownerId && professionalId === ownerId) return;
+
+    const current =
+      report.get(professionalId) ??
+      ({
+        professionalId,
+        professionalName:
+          appointment.profiles?.full_name ?? "Sem profissional definido",
+        heldClasses: 0,
+        paidMisses: 0,
+        gross: 0,
+        professionalShare: 0,
+        commissionPaid: 0,
+      } satisfies ProfessionalReport);
+
+    const classValue = money(appointment.class_price);
+    current.gross += classValue;
+    current.professionalShare += classValue * 0.4;
+    if (appointment.status === "falta") current.paidMisses += 1;
+    if (appointment.status === "presenca_registrada") current.heldClasses += 1;
+    report.set(professionalId, current);
+  });
 
   return [...report.values()].sort((a, b) =>
     a.professionalName.localeCompare(b.professionalName),
@@ -322,7 +471,9 @@ export const Financial = () => {
   const [appointments, setAppointments] = useState<CommissionAppointment[]>([]);
   const [transactions, setTransactions] = useState<TransactionRow[]>([]);
   const [ownerId, setOwnerId] = useState<string | null>(null);
-  const [paymentTarget, setPaymentTarget] = useState<PaymentTarget | null>(null);
+  const [paymentTarget, setPaymentTarget] = useState<PaymentTarget | null>(
+    null,
+  );
   const [commissionTarget, setCommissionTarget] =
     useState<ProfessionalReport | null>(null);
   const [paymentAmount, setPaymentAmount] = useState("");
@@ -333,7 +484,38 @@ export const Financial = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reportStartDate, setReportStartDate] = useState("");
+  const [reportEndDate, setReportEndDate] = useState("");
   const isPhysio = profile?.role === "physio";
+
+  const downloadCommissionReportExcel = () => {
+    if (!commissionReport.length) {
+      alert("Nenhum relatório para exportar");
+      return;
+    }
+
+    const startDate = reportStartDate || "início";
+    const endDate = reportEndDate || "final";
+    const blob = generateCommissionReportExcel(
+      commissionReport,
+      startDate,
+      endDate,
+    );
+
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+
+    link.setAttribute("href", url);
+    link.setAttribute(
+      "download",
+      `relatorio_comissoes_${new Date().toISOString().slice(0, 10)}.xlsx`,
+    );
+    link.style.visibility = "hidden";
+
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const loadFinancialData = async () => {
     if (!profile?.clinic_id) {
@@ -358,17 +540,21 @@ export const Financial = () => {
       appointmentsQuery = appointmentsQuery.eq("professional_id", profile.id);
     }
 
-    const [clinicResult, packagesResult, appointmentsResult, transactionsResult] =
-      await Promise.all([
-        supabase
-          .from("clinics")
-          .select("owner_id")
-          .eq("id", profile.clinic_id)
-          .single(),
-        supabase
-          .from("lesson_packages")
-          .select(
-            `
+    const [
+      clinicResult,
+      packagesResult,
+      appointmentsResult,
+      transactionsResult,
+    ] = await Promise.all([
+      supabase
+        .from("clinics")
+        .select("owner_id")
+        .eq("id", profile.clinic_id)
+        .single(),
+      supabase
+        .from("lesson_packages")
+        .select(
+          `
             id,
             patient_id,
             total_lessons,
@@ -395,18 +581,18 @@ export const Financial = () => {
               status
             )
           `,
-          )
-          .eq("clinic_id", profile.clinic_id)
-          .order("created_at", { ascending: false }),
-        appointmentsQuery,
-        supabase
-          .from("transactions")
-          .select(
-            "id, patient_id, amount, type, category, status, description, due_date, created_at, patients (full_name)",
-          )
-          .eq("clinic_id", profile.clinic_id)
-          .order("created_at", { ascending: false }),
-      ]);
+        )
+        .eq("clinic_id", profile.clinic_id)
+        .order("created_at", { ascending: false }),
+      appointmentsQuery,
+      supabase
+        .from("transactions")
+        .select(
+          "id, patient_id, amount, type, category, status, description, due_date, created_at, patients (full_name)",
+        )
+        .eq("clinic_id", profile.clinic_id)
+        .order("created_at", { ascending: false }),
+    ]);
 
     const failed = [
       clinicResult,
@@ -436,8 +622,14 @@ export const Financial = () => {
   }, [profile?.clinic_id]);
 
   const rawCommissionReport = useMemo(
-    () => buildCommissionReport(appointments, ownerId),
-    [appointments, ownerId],
+    () =>
+      buildCommissionReport(
+        appointments,
+        ownerId,
+        reportStartDate,
+        reportEndDate,
+      ),
+    [appointments, ownerId, reportStartDate, reportEndDate],
   );
 
   const visibleTransactions = useMemo(
@@ -462,7 +654,10 @@ export const Financial = () => {
         return {
           ...item,
           commissionPaid,
-          professionalShare: Math.max(item.professionalShare - commissionPaid, 0),
+          professionalShare: Math.max(
+            item.professionalShare - commissionPaid,
+            0,
+          ),
         };
       }),
     [rawCommissionReport, transactions],
@@ -541,9 +736,13 @@ export const Financial = () => {
       .sort((a, b) => {
         const direction = dueSort === "asc" ? 1 : -1;
         const aDate =
-          a.kind === "package" ? a.installment.due_date : a.transaction.due_date;
+          a.kind === "package"
+            ? a.installment.due_date
+            : a.transaction.due_date;
         const bDate =
-          b.kind === "package" ? b.installment.due_date : b.transaction.due_date;
+          b.kind === "package"
+            ? b.installment.due_date
+            : b.transaction.due_date;
         return aDate.localeCompare(bDate) * direction;
       });
   }, [dueSort, packages, receivableFilter, visibleTransactions]);
@@ -554,7 +753,9 @@ export const Financial = () => {
   ) => {
     setPaymentTarget({ kind: "package", packageItem, installment });
     setPaymentAmount(String(getRemainingInstallment(installment) || ""));
-    setPaymentMethod(installment.payment_method ?? packageItem.payment_method ?? "Pix");
+    setPaymentMethod(
+      installment.payment_method ?? packageItem.payment_method ?? "Pix",
+    );
   };
 
   const openProcedurePaymentModal = (transaction: TransactionRow) => {
@@ -624,16 +825,18 @@ export const Financial = () => {
           return;
         }
 
-        const { error: insertError } = await supabase.from("transactions").insert({
-          clinic_id: profile?.clinic_id,
-          patient_id: paymentTarget.transaction.patient_id,
-          amount,
-          type: "income",
-          category: "Recebimento de procedimentos",
-          status: "paid",
-          description: `${paidDescription} - recebido (${paymentMethod})`,
-          due_date: paymentDate,
-        });
+        const { error: insertError } = await supabase
+          .from("transactions")
+          .insert({
+            clinic_id: profile?.clinic_id,
+            patient_id: paymentTarget.transaction.patient_id,
+            amount,
+            type: "income",
+            category: "Recebimento de procedimentos",
+            status: "paid",
+            description: `${paidDescription} - recebido (${paymentMethod})`,
+            due_date: paymentDate,
+          });
 
         if (insertError) {
           setError(insertError.message);
@@ -688,7 +891,10 @@ export const Financial = () => {
       if (appliedAmount <= 0) continue;
 
       const installmentPaid = currentPaid + appliedAmount;
-      const installmentStatus = statusFromPayment(installmentTotal, installmentPaid);
+      const installmentStatus = statusFromPayment(
+        installmentTotal,
+        installmentPaid,
+      );
       remainingAmount -= appliedAmount;
 
       updates.push(
@@ -700,12 +906,16 @@ export const Financial = () => {
             status: installmentStatus,
             paid_at: installmentStatus === "pago" ? paymentDate : null,
           })
-          .eq("id", installment.id) as unknown as Promise<{ error: Error | null }>,
+          .eq("id", installment.id) as unknown as Promise<{
+          error: Error | null;
+        }>,
       );
     }
 
     const installmentResults = await Promise.all(updates);
-    const installmentError = installmentResults.find((result) => result.error)?.error;
+    const installmentError = installmentResults.find(
+      (result) => result.error,
+    )?.error;
 
     if (installmentError) {
       setError(installmentError.message);
@@ -713,7 +923,8 @@ export const Financial = () => {
       return;
     }
 
-    const newPackagePaid = money(paymentTarget.packageItem.amount_paid) + amount;
+    const newPackagePaid =
+      money(paymentTarget.packageItem.amount_paid) + amount;
     const packageStatus = statusFromPayment(
       money(paymentTarget.packageItem.total_amount),
       newPackagePaid,
@@ -734,16 +945,18 @@ export const Financial = () => {
       return;
     }
 
-    const { error: transactionError } = await supabase.from("transactions").insert({
-      clinic_id: profile?.clinic_id,
-      patient_id: paymentTarget.packageItem.patient_id,
-      amount,
-      type: "income",
-      category: "Recebimento de pacote",
-      status: "paid",
-      description: `Recebimento de ${paymentTarget.packageItem.patients?.full_name ?? "paciente"} - pacote ${paymentTarget.packageItem.total_lessons} aulas e procedimentos (${paymentMethod})`,
-      due_date: todayDate(),
-    });
+    const { error: transactionError } = await supabase
+      .from("transactions")
+      .insert({
+        clinic_id: profile?.clinic_id,
+        patient_id: paymentTarget.packageItem.patient_id,
+        amount,
+        type: "income",
+        category: "Recebimento de pacote",
+        status: "paid",
+        description: `Recebimento de ${paymentTarget.packageItem.patients?.full_name ?? "paciente"} - pacote ${paymentTarget.packageItem.total_lessons} aulas e procedimentos (${paymentMethod})`,
+        due_date: todayDate(),
+      });
 
     if (transactionError) {
       setError(transactionError.message);
@@ -762,15 +975,17 @@ export const Financial = () => {
     setSaving(true);
     setError(null);
 
-    const { error: transactionError } = await supabase.from("transactions").insert({
-      clinic_id: profile.clinic_id,
-      amount: commissionTarget.professionalShare,
-      type: "expense",
-      category: "Comissão fisioterapeuta",
-      status: "paid",
-      description: `Pagamento de comissão para ${commissionTarget.professionalName} (${commissionTarget.professionalId})`,
-      due_date: todayDate(),
-    });
+    const { error: transactionError } = await supabase
+      .from("transactions")
+      .insert({
+        clinic_id: profile.clinic_id,
+        amount: commissionTarget.professionalShare,
+        type: "expense",
+        category: "Comissão fisioterapeuta",
+        status: "paid",
+        description: `Pagamento de comissão para ${commissionTarget.professionalName} (${commissionTarget.professionalId})`,
+        due_date: todayDate(),
+      });
 
     if (transactionError) {
       setError(transactionError.message);
@@ -851,10 +1066,28 @@ export const Financial = () => {
           <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
             {!isPhysio && (
               <>
-                <FinancialCard label="Receita vendida" value={totals.sold} icon={TrendingUp} />
-                <FinancialCard label="Valor recebido" value={totals.paid} icon={DollarSign} />
-                <FinancialCard label="Parcela atual" value={totals.currentDue} icon={AlertTriangle} danger />
-                <FinancialCard label="Total em aberto" value={totals.open} icon={AlertTriangle} danger />
+                <FinancialCard
+                  label="Receita vendida"
+                  value={totals.sold}
+                  icon={TrendingUp}
+                />
+                <FinancialCard
+                  label="Valor recebido"
+                  value={totals.paid}
+                  icon={DollarSign}
+                />
+                <FinancialCard
+                  label="Parcela atual"
+                  value={totals.currentDue}
+                  icon={AlertTriangle}
+                  danger
+                />
+                <FinancialCard
+                  label="Total em aberto"
+                  value={totals.open}
+                  icon={AlertTriangle}
+                  danger
+                />
               </>
             )}
             <FinancialCard
@@ -872,7 +1105,8 @@ export const Financial = () => {
                     Recebíveis
                   </h3>
                   <p className="text-sm text-slate-500">
-                    Veja parcelas e procedimentos em aberto, pagos ou tudo junto.
+                    Veja parcelas e procedimentos em aberto, pagos ou tudo
+                    junto.
                   </p>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-2">
@@ -882,7 +1116,9 @@ export const Financial = () => {
                       className="px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg outline-none"
                       value={receivableFilter}
                       onChange={(event) =>
-                        setReceivableFilter(event.target.value as ReceivableFilter)
+                        setReceivableFilter(
+                          event.target.value as ReceivableFilter,
+                        )
                       }
                     >
                       <option value="open">Em aberto</option>
@@ -892,7 +1128,11 @@ export const Financial = () => {
                   </label>
                   <Button
                     variant="outline"
-                    onClick={() => setDueSort((current) => (current === "asc" ? "desc" : "asc"))}
+                    onClick={() =>
+                      setDueSort((current) =>
+                        current === "asc" ? "desc" : "asc",
+                      )
+                    }
                   >
                     <ArrowUpDown size={16} />
                     Vencimento {dueSort === "asc" ? "mais antigo" : "mais novo"}
@@ -917,7 +1157,10 @@ export const Financial = () => {
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {receivables.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="px-6 py-10 text-center text-sm text-slate-500">
+                        <td
+                          colSpan={8}
+                          className="px-6 py-10 text-center text-sm text-slate-500"
+                        >
                           Nenhum recebível encontrado para este filtro.
                         </td>
                       </tr>
@@ -988,7 +1231,9 @@ export const Financial = () => {
                                           row.packageItem,
                                           row.installment,
                                         )
-                                      : openProcedurePaymentModal(row.transaction)
+                                      : openProcedurePaymentModal(
+                                          row.transaction,
+                                        )
                                   }
                                 >
                                   Registrar
@@ -999,7 +1244,10 @@ export const Financial = () => {
                                   size="sm"
                                   variant="outline"
                                   onClick={() =>
-                                    printReceipt(row.packageItem, row.installment)
+                                    printReceipt(
+                                      row.packageItem,
+                                      row.installment,
+                                    )
                                   }
                                 >
                                   <Receipt size={14} />
@@ -1033,7 +1281,8 @@ export const Financial = () => {
                       100,
                     0,
                   );
-                  const packagePaymentStatus = getPackagePaymentStatus(packageItem);
+                  const packagePaymentStatus =
+                    getPackagePaymentStatus(packageItem);
 
                   return (
                     <div key={packageItem.id} className="p-6 space-y-4">
@@ -1043,7 +1292,13 @@ export const Financial = () => {
                             <h4 className="font-bold text-slate-900 dark:text-white">
                               {packageItem.patients?.full_name ?? "Paciente"}
                             </h4>
-                            <Badge variant={packageItem.status === "ativo" ? "success" : "neutral"}>
+                            <Badge
+                              variant={
+                                packageItem.status === "ativo"
+                                  ? "success"
+                                  : "neutral"
+                              }
+                            >
                               {packageItem.status}
                             </Badge>
                             <Badge
@@ -1059,9 +1314,10 @@ export const Financial = () => {
                             </Badge>
                           </div>
                           <p className="text-sm text-slate-500 mt-1">
-                            {packageItem.completed_lessons + packageItem.missed_lessons}/
-                            {packageItem.total_lessons} aulas consumidas · início em{" "}
-                            {formatDate(packageItem.start_date)}
+                            {packageItem.completed_lessons +
+                              packageItem.missed_lessons}
+                            /{packageItem.total_lessons} aulas consumidas ·
+                            início em {formatDate(packageItem.start_date)}
                           </p>
                           {money(packageItem.procedure_amount) > 0 && (
                             <p className="text-xs text-slate-500 mt-1">
@@ -1075,7 +1331,10 @@ export const Financial = () => {
                         </div>
                         <div className="text-sm lg:text-right">
                           <p className="font-semibold text-slate-900 dark:text-white">
-                            {currencyFormatter.format(money(packageItem.amount_paid))} pago
+                            {currencyFormatter.format(
+                              money(packageItem.amount_paid),
+                            )}{" "}
+                            pago
                           </p>
                           <p className="text-slate-500">
                             {currencyFormatter.format(packageOpen)} em aberto
@@ -1087,17 +1346,26 @@ export const Financial = () => {
                         <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
                           <div>
                             <p className="text-sm font-bold text-amber-900">
-                              Parcela atual: #{currentInstallment.installment_number}
+                              Parcela atual: #
+                              {currentInstallment.installment_number}
                             </p>
                             <p className="text-sm text-amber-800">
-                              Vence em {formatDate(currentInstallment.due_date)} ·{" "}
-                              {currencyFormatter.format(getRemainingInstallment(currentInstallment))}
+                              Vence em {formatDate(currentInstallment.due_date)}{" "}
+                              ·{" "}
+                              {currencyFormatter.format(
+                                getRemainingInstallment(currentInstallment),
+                              )}
                             </p>
                           </div>
                           <div className="flex gap-2">
                             <Button
                               size="sm"
-                              onClick={() => openPaymentModal(packageItem, currentInstallment)}
+                              onClick={() =>
+                                openPaymentModal(
+                                  packageItem,
+                                  currentInstallment,
+                                )
+                              }
                             >
                               <Check size={14} /> Registrar pagamento
                             </Button>
@@ -1110,7 +1378,9 @@ export const Financial = () => {
                                   `Olá, ${packageItem.patients?.full_name ?? "tudo bem"}! A parcela ${currentInstallment.installment_number} do seu pacote vence em ${formatDate(currentInstallment.due_date)} no valor de ${currencyFormatter.format(getRemainingInstallment(currentInstallment))}. Posso te enviar os dados para pagamento?`,
                                 )
                               }
-                              disabled={!onlyDigits(packageItem.patients?.phone)}
+                              disabled={
+                                !onlyDigits(packageItem.patients?.phone)
+                              }
                             >
                               <MessageCircle size={14} />
                             </Button>
@@ -1149,10 +1419,14 @@ export const Financial = () => {
                                     {formatDate(installment.due_date)}
                                   </td>
                                   <td className="py-3 pr-4 text-sm">
-                                    {currencyFormatter.format(money(installment.amount))}
+                                    {currencyFormatter.format(
+                                      money(installment.amount),
+                                    )}
                                   </td>
                                   <td className="py-3 pr-4 text-sm text-emerald-600 font-semibold">
-                                    {currencyFormatter.format(money(installment.amount_paid))}
+                                    {currencyFormatter.format(
+                                      money(installment.amount_paid),
+                                    )}
                                   </td>
                                   <td className="py-3 pr-4">
                                     <Badge
@@ -1174,7 +1448,10 @@ export const Financial = () => {
                                           size="sm"
                                           variant="outline"
                                           onClick={() =>
-                                            openPaymentModal(packageItem, installment)
+                                            openPaymentModal(
+                                              packageItem,
+                                              installment,
+                                            )
                                           }
                                         >
                                           Registrar
@@ -1183,7 +1460,9 @@ export const Financial = () => {
                                       <Button
                                         size="sm"
                                         variant="outline"
-                                        onClick={() => printReceipt(packageItem, installment)}
+                                        onClick={() =>
+                                          printReceipt(packageItem, installment)
+                                        }
                                       >
                                         <Receipt size={14} />
                                       </Button>
@@ -1204,9 +1483,45 @@ export const Financial = () => {
 
           <Card className="p-0 overflow-hidden">
             <div className="p-6 border-b border-slate-100 dark:border-slate-800">
-              <h3 className="text-lg font-bold text-slate-900 dark:text-white">
-                Comissão por fisioterapeuta
-              </h3>
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+                    Comissão por fisioterapeuta
+                  </h3>
+                </div>
+                <div className="flex flex-col md:flex-row gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                      Data Inicial
+                    </label>
+                    <input
+                      type="date"
+                      value={reportStartDate}
+                      onChange={(e) => setReportStartDate(e.target.value)}
+                      className="px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-800 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                      Data Final
+                    </label>
+                    <input
+                      type="date"
+                      value={reportEndDate}
+                      onChange={(e) => setReportEndDate(e.target.value)}
+                      className="px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-lg dark:bg-slate-800 dark:text-white"
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <button
+                      onClick={downloadCommissionReportExcel}
+                      className="px-4 py-2 bg-emerald-600 text-white text-sm font-semibold rounded-lg hover:bg-emerald-700 transition-colors"
+                    >
+                      Exportar CSV
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left">
@@ -1224,7 +1539,10 @@ export const Financial = () => {
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {commissionReport.length === 0 ? (
                     <tr>
-                      <td colSpan={isPhysio ? 6 : 7} className="px-6 py-10 text-center text-sm text-slate-500">
+                      <td
+                        colSpan={isPhysio ? 6 : 7}
+                        className="px-6 py-10 text-center text-sm text-slate-500"
+                      >
                         Nenhuma presença ou falta registrada neste mês.
                       </td>
                     </tr>
@@ -1305,7 +1623,10 @@ export const Financial = () => {
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {visibleTransactions.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-6 py-10 text-center text-sm text-slate-500">
+                        <td
+                          colSpan={6}
+                          className="px-6 py-10 text-center text-sm text-slate-500"
+                        >
                           Nenhum pagamento registrado ainda.
                         </td>
                       </tr>
@@ -1316,8 +1637,16 @@ export const Financial = () => {
                             {formatDate(transaction.due_date)}
                           </td>
                           <td className="px-6 py-4">
-                            <Badge variant={transaction.type === "income" ? "success" : "warning"}>
-                              {transaction.type === "income" ? "Entrada" : "Saída"}
+                            <Badge
+                              variant={
+                                transaction.type === "income"
+                                  ? "success"
+                                  : "warning"
+                              }
+                            >
+                              {transaction.type === "income"
+                                ? "Entrada"
+                                : "Saída"}
                             </Badge>
                           </td>
                           <td className="px-6 py-4 text-sm font-semibold">
@@ -1333,7 +1662,9 @@ export const Financial = () => {
                             </Badge>
                           </td>
                           <td className="px-6 py-4 text-sm text-slate-500">
-                            {transaction.description ?? transaction.patients?.full_name ?? "-"}
+                            {transaction.description ??
+                              transaction.patients?.full_name ??
+                              "-"}
                           </td>
                           <td
                             className={clsx(
@@ -1344,7 +1675,9 @@ export const Financial = () => {
                             )}
                           >
                             {transaction.type === "income" ? "+" : "-"}
-                            {currencyFormatter.format(money(transaction.amount))}
+                            {currencyFormatter.format(
+                              money(transaction.amount),
+                            )}
                           </td>
                         </tr>
                       ))
@@ -1500,14 +1833,22 @@ function FinancialCard({
     <Card className={danger ? "bg-rose-50/50 border-rose-100" : ""}>
       <div className="flex items-center justify-between">
         <div>
-          <p className={clsx("text-sm font-medium", danger ? "text-rose-600" : "text-slate-500")}>
+          <p
+            className={clsx(
+              "text-sm font-medium",
+              danger ? "text-rose-600" : "text-slate-500",
+            )}
+          >
             {label}
           </p>
           <h3 className="text-2xl font-bold text-slate-900 dark:text-white mt-1">
             {currencyFormatter.format(value)}
           </h3>
         </div>
-        <Icon className={danger ? "text-rose-600" : "text-brand-600"} size={28} />
+        <Icon
+          className={danger ? "text-rose-600" : "text-brand-600"}
+          size={28}
+        />
       </div>
     </Card>
   );
