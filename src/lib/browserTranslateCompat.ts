@@ -15,6 +15,51 @@ const findDirectChildContaining = (parent: Node, node: Node) => {
   return current?.parentNode === parent ? current : null;
 };
 
+const interactiveSelector = [
+  "button",
+  "input",
+  "textarea",
+  "select",
+  "option",
+  "[role='button']",
+  "[role='tab']",
+  "[role='menuitem']",
+  "[data-notranslate]",
+].join(",");
+
+const markAsNotranslate = (element: Element) => {
+  element.setAttribute("translate", "no");
+  element.classList.add("notranslate");
+};
+
+const protectInteractiveElements = (root: ParentNode) => {
+  if (root instanceof Element && root.matches(interactiveSelector)) {
+    markAsNotranslate(root);
+  }
+
+  root
+    .querySelectorAll(interactiveSelector)
+    .forEach((element) => markAsNotranslate(element));
+};
+
+const installInteractiveElementObserver = () => {
+  if (!document.body || typeof MutationObserver === "undefined") return;
+
+  protectInteractiveElements(document.body);
+
+  const observer = new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+      mutation.addedNodes.forEach((node) => {
+        if (node instanceof Element || node instanceof DocumentFragment) {
+          protectInteractiveElements(node);
+        }
+      });
+    });
+  });
+
+  observer.observe(document.body, { childList: true, subtree: true });
+};
+
 export function installBrowserTranslateCompat() {
   if (typeof window === "undefined" || typeof Node === "undefined") return;
 
@@ -63,4 +108,12 @@ export function installBrowserTranslateCompat() {
   } as typeof Node.prototype.insertBefore;
 
   nodePrototype.__biofisioBrowserTranslateCompatPatched = true;
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", installInteractiveElementObserver, {
+      once: true,
+    });
+  } else {
+    installInteractiveElementObserver();
+  }
 }

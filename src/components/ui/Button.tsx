@@ -1,5 +1,4 @@
 import React from 'react';
-import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -34,12 +33,13 @@ export const Button = ({
     <button
       {...props}
       className={twMerge(
-        'inline-flex items-center justify-center rounded-xl font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]',
+        'notranslate inline-flex items-center justify-center rounded-xl font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]',
         variants[variant],
         sizes[size],
         className
       )}
       disabled={isLoading || props.disabled}
+      translate="no"
     >
       {isLoading ? (
         <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" />

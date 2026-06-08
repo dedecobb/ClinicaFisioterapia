@@ -35,6 +35,7 @@ import {
 import { clsx } from "clsx";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "../context/AuthContext";
+import { messages } from "../i18n";
 import { UploadExameModal } from "../components/modals/UploadExameModal";
 import { ProtocolosModal } from "../components/modals/ProtocolosModal";
 import {
@@ -192,6 +193,7 @@ export const ClinicalHub = () => {
   // ── Edição inline ────────────────────────────────────────────────────────────
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState("");
+  const evolutionTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   // ── Voz ─────────────────────────────────────────────────────────────────────
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
@@ -526,8 +528,10 @@ export const ClinicalHub = () => {
                 {/* Textarea + microfone */}
                 <div className="relative">
                   <textarea
+                    ref={evolutionTextareaRef}
+                    translate="no"
                     className="w-full h-48 p-4 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-2xl focus:ring-2 focus:ring-brand-500 outline-none transition-all resize-none text-slate-700 dark:text-slate-300 text-sm"
-                    placeholder="Descreva o atendimento, condutas realizadas e observações clínicas..."
+                    placeholder={messages.clinicalHub.evolutionPlaceholder}
                     value={evolutionText}
                     onChange={(e) => setEvolutionText(e.target.value)}
                   />
@@ -1145,7 +1149,7 @@ export const ClinicalHub = () => {
                   className="w-full gap-2 justify-start text-sm"
                   onClick={() => setUploadAberto(true)}
                 >
-                  <Paperclip size={16} /> Adicionar Exame
+                  <Paperclip size={16} /> {messages.clinicalHub.quickActions.addExam}
                 </Button>
 
                 {/* ✅ Vai direto para aba de documentos */}
@@ -1154,7 +1158,7 @@ export const ClinicalHub = () => {
                   className="w-full gap-2 justify-start text-sm"
                   onClick={() => setActiveTab("files")}
                 >
-                  <FileText size={16} /> Ver Documentos
+                  <FileText size={16} /> {messages.clinicalHub.quickActions.viewDocuments}
                   {documentos.length > 0 && (
                     <span className="ml-auto bg-brand-100 text-brand-700 text-xs font-bold px-2 py-0.5 rounded-full">
                       {documentos.length}
@@ -1169,15 +1173,12 @@ export const ClinicalHub = () => {
                   onClick={() => {
                     window.scrollTo({ top: 0, behavior: "smooth" });
                     setTimeout(
-                      () =>
-                        document
-                          .querySelector<HTMLTextAreaElement>("textarea")
-                          ?.focus(),
+                      () => evolutionTextareaRef.current?.focus(),
                       400,
                     );
                   }}
                 >
-                  <Plus size={16} /> Nova Evolução
+                  <Plus size={16} /> {messages.clinicalHub.quickActions.newEvolution}
                 </Button>
               </div>
             </Card>

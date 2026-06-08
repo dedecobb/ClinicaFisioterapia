@@ -4,6 +4,7 @@ import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { useAuth } from "../context/AuthContext";
+import { messages } from "../i18n";
 import { supabase } from "../lib/supabase";
 
 type TeamProfile = {
@@ -184,7 +185,7 @@ export const Team = () => {
                     <p className="text-xs text-slate-500">{item.role}</p>
                   </div>
                   <Badge variant={item.role === "admin" ? "info" : "success"}>
-                    {item.role === "admin" ? "Admin" : "Fisioterapeuta"}
+                    {item.role === "admin" ? messages.team.roles.admin : messages.team.roles.physio}
                   </Badge>
                 </div>
               ))}
@@ -211,7 +212,9 @@ export const Team = () => {
                   <Badge
                     variant={item.status === "accepted" ? "success" : "warning"}
                   >
-                    {item.status === "accepted" ? "Aceito" : "Pendente"}
+                    {item.status === "accepted"
+                      ? messages.team.invitationStatus.accepted
+                      : messages.team.invitationStatus.pending}
                   </Badge>
                 </div>
               ))

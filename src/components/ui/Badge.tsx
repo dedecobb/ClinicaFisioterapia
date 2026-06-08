@@ -18,10 +18,10 @@ export const Badge = ({ children, variant = 'neutral', className }: BadgeProps) 
 
   return (
     <span className={clsx(
-      "px-2.5 py-0.5 rounded-full text-xs font-semibold border transition-colors",
+      "notranslate px-2.5 py-0.5 rounded-full text-xs font-semibold border transition-colors",
       variants[variant],
       className
-    )}>
+    )} translate="no">
       {children}
     </span>
   );

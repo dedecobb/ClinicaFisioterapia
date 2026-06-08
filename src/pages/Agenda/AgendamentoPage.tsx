@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
+import { messages } from "../../i18n";
 import { NovoAgendamentoModal } from "./NovoAgendamentoModal";
 import {
   atualizarAgendamento,
@@ -47,32 +48,9 @@ function diaSemana(year: number, month: number, day: number): number {
   return new Date(year, month, day).getDay(); // 0 = dom
 }
 
-const MESES = [
-  "Janeiro",
-  "Fevereiro",
-  "Março",
-  "Abril",
-  "Maio",
-  "Junho",
-  "Julho",
-  "Agosto",
-  "Setembro",
-  "Outubro",
-  "Novembro",
-  "Dezembro",
-];
-
-const DIAS_SEMANA = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
-
-const STATUS_LABEL: Record<StatusAgendamento, string> = {
-  agendada: "Agendada",
-  confirmada: "Confirmada",
-  presenca_registrada: "Presença",
-  ausencia_justificada: "Ausência justificada",
-  falta: "Falta",
-  reposicao: "Reposição",
-  cancelada: "Cancelada",
-};
+const MESES = messages.agenda.months;
+const DIAS_SEMANA = messages.agenda.weekdays;
+const STATUS_LABEL: Record<StatusAgendamento, string> = messages.agenda.status;
 
 const STATUS_AGENDA: StatusAgendamento[] = [
   "agendada",
@@ -311,7 +289,7 @@ export const AgendamentoPage: React.FC = () => {
   };
 
   const excluirAgendamento = async (id: string) => {
-    if (!window.confirm("Deseja excluir este agendamento?")) return;
+    if (!window.confirm(messages.agenda.actions.confirmDelete)) return;
 
     setErro(null);
 
@@ -404,7 +382,7 @@ export const AgendamentoPage: React.FC = () => {
               setModalAberto(true);
             }}
           >
-            Novo atendimento
+            {messages.agenda.actions.newAppointment}
           </button>
         )}
       </div>
@@ -438,7 +416,8 @@ export const AgendamentoPage: React.FC = () => {
             <button
               className="cal-nav-btn"
               onClick={mesAnterior}
-              aria-label="Mês anterior"
+              aria-label={messages.agenda.actions.previousMonth}
+              translate="no"
             >
               ‹
             </button>
@@ -448,7 +427,8 @@ export const AgendamentoPage: React.FC = () => {
             <button
               className="cal-nav-btn"
               onClick={proximoMes}
-              aria-label="Próximo mês"
+              aria-label={messages.agenda.actions.nextMonth}
+              translate="no"
             >
               ›
             </button>
@@ -510,7 +490,8 @@ export const AgendamentoPage: React.FC = () => {
             <input
               type="text"
               className="filtro-busca"
-              placeholder="Buscar paciente ou tipo de sessão..."
+              placeholder={messages.agenda.filters.searchPlaceholder}
+              translate="no"
               value={filtros.busca}
               onChange={(e) =>
                 setFiltros((f) => ({ ...f, busca: e.target.value }))
@@ -527,7 +508,7 @@ export const AgendamentoPage: React.FC = () => {
                   }))
                 }
               >
-                <option value="todos">Todos os fisioterapeutas</option>
+                <option value="todos">{messages.agenda.filters.allPhysios}</option>
                 {fisioterapeutas.map((f) => (
                   <option key={f.id} value={f.id}>
                     {f.nome}
@@ -544,7 +525,7 @@ export const AgendamentoPage: React.FC = () => {
                   }))
                 }
               >
-                <option value="todos">Todos os status</option>
+                <option value="todos">{messages.agenda.filters.allStatuses}</option>
                 {STATUS_AGENDA.map((status) => (
                   <option key={status} value={status}>
                     {STATUS_LABEL[status]}
@@ -646,7 +627,7 @@ const AgendamentoCard: React.FC<CardProps> = ({
           <span className="ag-hora">
             {ag.horaInicio} – {ag.horaFim}
           </span>
-          <span className={`badge badge-${ag.status}`}>
+          <span className={`notranslate badge badge-${ag.status}`} translate="no">
             {STATUS_LABEL[ag.status]}
           </span>
         </div>
@@ -696,9 +677,10 @@ const AgendamentoCard: React.FC<CardProps> = ({
               <button
                 className="btn-status btn-status-presenca_registrada"
                 onClick={() => onAlterarStatus("presenca_registrada")}
-                title="Confirmar procedimento realizado"
+                title={messages.agenda.actions.confirmDone}
+                translate="no"
               >
-                Confirmar realizado
+                {messages.agenda.actions.confirmDone}
               </button>
             )}
             <div className="ag-status-group">
@@ -708,19 +690,21 @@ const AgendamentoCard: React.FC<CardProps> = ({
                   className={`btn-status btn-status-${s} ${ag.status === s ? "ativo" : ""}`}
                   onClick={() => onAlterarStatus(s)}
                   title={STATUS_LABEL[s]}
+                  translate="no"
                 >
                   {STATUS_LABEL[s]}
                 </button>
               ))}
             </div>
             <div className="ag-btn-group">
-              <button className="btn-icone" onClick={onEditar} title="Editar">
+              <button className="btn-icone" onClick={onEditar} title={messages.agenda.actions.edit} translate="no">
                 ✏️
               </button>
               <button
                 className="btn-icone btn-excluir"
                 onClick={onExcluir}
-                title="Excluir"
+                title={messages.agenda.actions.delete}
+                translate="no"
               >
                 🗑️
               </button>

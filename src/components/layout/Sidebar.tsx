@@ -13,20 +13,21 @@ import {
 import { Link, useLocation } from 'react-router-dom';
 import { clsx } from 'clsx';
 import { useAuth } from '../../context/AuthContext';
+import { messages } from '../../i18n';
 
 export const Sidebar = () => {
   const location = useLocation();
   const { profile, signOut } = useAuth();
   const isAdmin = profile?.role === "admin";
   const menuItems = [
-    { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
-    { icon: Calendar, label: 'Agenda', path: '/agenda' },
-    { icon: Users, label: 'Pacientes', path: '/pacientes' },
-    { icon: FileText, label: 'Atestados', path: '/atestados' },
-    { icon: CreditCard, label: 'Financeiro', path: '/financeiro' },
-    ...(isAdmin ? [{ icon: ReceiptText, label: 'Notas Fiscais', path: '/notas-fiscais' }] : []),
-    ...(isAdmin ? [{ icon: MessageSquare, label: 'WhatsApp', path: '/whatsapp' }] : []),
-    ...(isAdmin ? [{ icon: UserCog, label: 'Equipe', path: '/equipe' }] : []),
+    { icon: LayoutDashboard, label: messages.nav.dashboard, path: '/' },
+    { icon: Calendar, label: messages.nav.agenda, path: '/agenda' },
+    { icon: Users, label: messages.nav.patients, path: '/pacientes' },
+    { icon: FileText, label: messages.nav.certificates, path: '/atestados' },
+    { icon: CreditCard, label: messages.nav.financial, path: '/financeiro' },
+    ...(isAdmin ? [{ icon: ReceiptText, label: messages.nav.invoices, path: '/notas-fiscais' }] : []),
+    ...(isAdmin ? [{ icon: MessageSquare, label: messages.nav.whatsapp, path: '/whatsapp' }] : []),
+    ...(isAdmin ? [{ icon: UserCog, label: messages.nav.team, path: '/equipe' }] : []),
   ];
 
   return (
@@ -35,8 +36,8 @@ export const Sidebar = () => {
         <div className="w-10 h-10 bg-brand-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-brand-200 dark:shadow-none">
           <Activity size={24} />
         </div>
-        <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-slate-900 to-slate-600 dark:from-white dark:to-slate-400">
-          Biofisio
+        <span className="notranslate text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-slate-900 to-slate-600 dark:from-white dark:to-slate-400" translate="no">
+          {messages.app.brandName}
         </span>
       </div>
 
@@ -70,7 +71,7 @@ export const Sidebar = () => {
           onClick={signOut}
         >
           <LogOut size={20} />
-          <span className="font-medium">Sair</span>
+          <span className="font-medium">{messages.nav.logout}</span>
         </button>
       </div>
     </aside>
