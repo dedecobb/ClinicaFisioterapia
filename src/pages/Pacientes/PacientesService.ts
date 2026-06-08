@@ -121,6 +121,12 @@ function getLessonsAmount(form: NewPatientForm): number {
   );
 }
 
+function getLessonUnitValue(form: NewPatientForm): number {
+  if (!hasLessonPackage(form)) return 0;
+
+  return getLessonsAmount(form) / Number(form.contracted_lessons);
+}
+
 function getFinancialTotalAmount(form: NewPatientForm): number {
   return getLessonsAmount(form) + getProcedureAmount(form);
 }
@@ -323,6 +329,7 @@ async function sincronizarAgendamentosPacote({
     form.fixed_time,
     form.lesson_duration_minutes,
   );
+  const lessonUnitValue = getLessonUnitValue(form);
 
   const appointments = lessonDates.flatMap((lessonDate, index) => {
     const lessonNumber = index + 1;
@@ -336,7 +343,7 @@ async function sincronizarAgendamentosPacote({
         professional_id: professionalId,
         package_id: packageId,
         package_lesson_number: lessonNumber,
-        class_price: Number(form.lesson_value) || 0,
+        class_price: lessonUnitValue,
         start_time: toDateTime(lessonDate, form.fixed_time),
         end_time: toDateTime(lessonDate, endTime),
         type: "Fisioterapia",
@@ -871,7 +878,7 @@ export async function criarPaciente(
       patient_id: patient.id,
       professional_id: form.responsible_professional_id,
       total_lessons: form.contracted_lessons,
-      lesson_value: Number(form.lesson_value) || 0,
+      lesson_value: getLessonUnitValue(form),
       procedure_amount: procedureAmount,
       procedure_credits: procedures,
       total_amount: totalAmount,
@@ -1010,7 +1017,7 @@ export async function renovarPacotePaciente(
       patient_id: patientId,
       professional_id: form.responsible_professional_id,
       total_lessons: form.contracted_lessons,
-      lesson_value: Number(form.lesson_value) || 0,
+      lesson_value: getLessonUnitValue(form),
       procedure_amount: procedureAmount,
       procedure_credits: procedures,
       total_amount: totalAmount,
@@ -1190,7 +1197,7 @@ async function atualizarPacotePrincipal(
     .update({
       professional_id: form.responsible_professional_id,
       total_lessons: form.contracted_lessons,
-      lesson_value: Number(form.lesson_value) || 0,
+      lesson_value: getLessonUnitValue(form),
       procedure_amount: procedureAmount,
       procedure_credits: procedures,
       total_amount: totalAmount,

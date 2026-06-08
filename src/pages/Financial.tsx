@@ -55,9 +55,16 @@ type PackageRow = {
 
 type CommissionAppointment = {
   id: string;
+  start_time: string;
   status: string;
   class_price: number | string | null;
   profiles: { id: string; full_name: string } | null;
+  lesson_packages: {
+    total_lessons: number;
+    lesson_value: number | string;
+    procedure_amount: number | string;
+    total_amount: number | string;
+  } | null;
 };
 
 type ProfessionalReport = {
@@ -402,6 +409,24 @@ function cleanProcedurePaymentDescription(value: string): string {
   return value.replace(/\s+-\s+saldo em aberto$/i, "");
 }
 
+function getCommissionClassValue(appointment: CommissionAppointment): number {
+  const packageItem = appointment.lesson_packages;
+
+  if (!packageItem) return money(appointment.class_price);
+
+  const totalLessons = Number(packageItem.total_lessons) || 0;
+  const lessonsAmount = Math.max(
+    money(packageItem.total_amount) - money(packageItem.procedure_amount),
+    0,
+  );
+
+  if (totalLessons > 0 && lessonsAmount > 0) {
+    return lessonsAmount / totalLessons;
+  }
+
+  return money(packageItem.lesson_value) || money(appointment.class_price);
+}
+
 function buildCommissionReport(
   appointments: CommissionAppointment[],
   ownerId: string | null,
@@ -452,7 +477,7 @@ function buildCommissionReport(
         commissionPaid: 0,
       } satisfies ProfessionalReport);
 
-    const classValue = money(appointment.class_price);
+    const classValue = getCommissionClassValue(appointment);
     current.gross += classValue;
     current.professionalShare += classValue * 0.4;
     if (appointment.status === "falta") current.paidMisses += 1;
@@ -531,7 +556,21 @@ export const Financial = () => {
 
     let appointmentsQuery = supabase
       .from("appointments")
-      .select("id, status, class_price, profiles (id, full_name)")
+      .select(
+        `
+          id,
+          start_time,
+          status,
+          class_price,
+          profiles (id, full_name),
+          lesson_packages (
+            total_lessons,
+            lesson_value,
+            procedure_amount,
+            total_amount
+          )
+        `,
+      )
       .eq("clinic_id", profile.clinic_id)
       .gte("start_time", monthStart.toISOString())
       .lt("start_time", monthEnd.toISOString());
