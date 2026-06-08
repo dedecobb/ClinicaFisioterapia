@@ -182,6 +182,18 @@ export const PacientesPage = () => {
   const validatePatientForm = (form: NewPatientForm): string | null => {
     const hasLessons = Number(form.contracted_lessons) > 0;
     const hasProcedures = form.procedures.length > 0;
+    const lessonsTotal = hasLessons
+      ? Number(form.total_amount) ||
+        Number(form.lesson_value) * Number(form.contracted_lessons)
+      : 0;
+    const proceduresTotal = form.procedures.reduce(
+      (total, procedure) =>
+        total +
+        (Number(procedure.agreed_value) || 0) *
+          (Number(procedure.quantity) || 0),
+      0,
+    );
+    const financialTotal = lessonsTotal + proceduresTotal;
 
     if (form.procedures.some((procedure) => Number(procedure.agreed_value) <= 0)) {
       return "Informe o valor unitário de todos os procedimentos selecionados.";
@@ -205,6 +217,10 @@ export const PacientesPage = () => {
 
     if (!hasLessons && !hasProcedures) {
       return "Informe pelo menos uma aula ou um procedimento.";
+    }
+
+    if (Number(form.amount_paid) > financialTotal) {
+      return "O valor pago não pode ser maior que o total financeiro.";
     }
 
     if (hasLessons && form.fixed_weekdays.length === 0) {

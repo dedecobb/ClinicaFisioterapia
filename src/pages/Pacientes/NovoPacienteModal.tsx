@@ -206,6 +206,10 @@ function getProceduresTotal(procedures: NewPatientForm["procedures"]): number {
   );
 }
 
+function roundMoney(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
 function clinicNowParts() {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Sao_Paulo",
@@ -603,6 +607,18 @@ export const NovoPacienteModal = ({
   const hasLessons = Number(formData.contracted_lessons) > 0;
   const lessonsTotal = hasLessons ? Number(formData.total_amount) || 0 : 0;
   const financialTotal = lessonsTotal + proceduresTotal;
+
+  useEffect(() => {
+    setFormData((current) => {
+      const amountPaid = Number(current.amount_paid) || 0;
+      if (amountPaid <= financialTotal) return current;
+
+      return {
+        ...current,
+        amount_paid: roundMoney(financialTotal),
+      };
+    });
+  }, [financialTotal]);
 
   return (
     <AnimatePresence>
@@ -1276,13 +1292,26 @@ export const NovoPacienteModal = ({
                         value={formData.lesson_value}
                         onChange={(event) => {
                           const lessonValue = Number(event.target.value);
-                          updateField("lesson_value", lessonValue);
-                          updateField(
-                            "total_amount",
-                            hasLessons
-                              ? lessonValue * formData.contracted_lessons
-                              : 0,
-                          );
+                          setFormData((current) => {
+                            const contractedLessons =
+                              Number(current.contracted_lessons) || 0;
+                            const totalAmount =
+                              contractedLessons > 0
+                                ? roundMoney(lessonValue * contractedLessons)
+                                : 0;
+                            const nextFinancialTotal =
+                              totalAmount + getProceduresTotal(current.procedures);
+
+                            return {
+                              ...current,
+                              lesson_value: lessonValue,
+                              total_amount: totalAmount,
+                              amount_paid: Math.min(
+                                Number(current.amount_paid) || 0,
+                                nextFinancialTotal,
+                              ),
+                            };
+                          });
                         }}
                       />
                     </div>
@@ -1298,12 +1327,29 @@ export const NovoPacienteModal = ({
                         disabled={loading || !hasLessons}
                         className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
                         value={lessonsTotal}
-                        onChange={(event) =>
-                          updateField(
-                            "total_amount",
-                            Number(event.target.value),
-                          )
-                        }
+                        onChange={(event) => {
+                          const totalAmount = Number(event.target.value);
+                          setFormData((current) => {
+                            const contractedLessons =
+                              Number(current.contracted_lessons) || 0;
+                            const lessonValue =
+                              contractedLessons > 0
+                                ? roundMoney(totalAmount / contractedLessons)
+                                : 0;
+                            const nextFinancialTotal =
+                              totalAmount + getProceduresTotal(current.procedures);
+
+                            return {
+                              ...current,
+                              lesson_value: lessonValue,
+                              total_amount: totalAmount,
+                              amount_paid: Math.min(
+                                Number(current.amount_paid) || 0,
+                                nextFinancialTotal,
+                              ),
+                            };
+                          });
+                        }}
                       />
                     </div>
 
@@ -1315,11 +1361,15 @@ export const NovoPacienteModal = ({
                         type="number"
                         min={0}
                         step="0.01"
+                        max={financialTotal}
                         disabled={loading}
                         className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
                         value={formData.amount_paid}
                         onChange={(event) =>
-                          updateField("amount_paid", Number(event.target.value))
+                          updateField(
+                            "amount_paid",
+                            Math.min(Number(event.target.value), financialTotal),
+                          )
                         }
                       />
                     </div>

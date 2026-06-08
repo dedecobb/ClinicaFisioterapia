@@ -131,6 +131,12 @@ function getFinancialTotalAmount(form: NewPatientForm): number {
   return getLessonsAmount(form) + getProcedureAmount(form);
 }
 
+function validatePaymentAmount(form: NewPatientForm, totalAmount: number) {
+  if ((Number(form.amount_paid) || 0) > totalAmount) {
+    throw new Error("O valor pago não pode ser maior que o total financeiro.");
+  }
+}
+
 function paymentStatusFromAmounts(
   totalAmount: number,
   amountPaid: number,
@@ -809,6 +815,7 @@ export async function criarPaciente(
   const procedures = normalizeProcedures(form);
   const patientPlanFields = getPatientPlanFields(form);
   const address = normalizeAddress(form);
+  validatePaymentAmount(form, totalAmount);
 
   if (!withLessons) {
     validateStandaloneProcedureFields(form);
@@ -953,6 +960,7 @@ export async function renovarPacotePaciente(
   const procedures = normalizeProcedures(form);
   const patientPlanFields = getPatientPlanFields(form);
   const address = normalizeAddress(form);
+  validatePaymentAmount(form, totalAmount);
 
   if (!withLessons) {
     validateStandaloneProcedureFields(form);
@@ -1087,6 +1095,7 @@ export async function atualizarPaciente(
   const amountPaid = Number(form.amount_paid) || 0;
   const patientPlanFields = getPatientPlanFields(form);
   const address = normalizeAddress(form);
+  validatePaymentAmount(form, totalAmount);
 
   if (!withLessons && procedures.length > 0) {
     validateStandaloneProcedureFields(form);
