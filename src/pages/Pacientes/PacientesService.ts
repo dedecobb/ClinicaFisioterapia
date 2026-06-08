@@ -266,6 +266,101 @@ function generateLessonDates(
   return dates;
 }
 
+async function sincronizarAgendamentosPacote({
+  clinicId,
+  patientId,
+  professionalId,
+  packageId,
+  lessonDates,
+  form,
+  totalLessons,
+  isRenewal = false,
+}: {
+  clinicId: string;
+  patientId: string;
+  professionalId: string;
+  packageId: string;
+  lessonDates: string[];
+  form: NewPatientForm;
+  totalLessons: number;
+  isRenewal?: boolean;
+}) {
+  const { data: lockedAppointments, error: lockedError } = await supabase
+    .from("appointments")
+    .select("package_lesson_number")
+    .eq("package_id", packageId)
+    .in("status", ["presenca_registrada", "falta", "ausencia_justificada"]);
+
+  if (lockedError) {
+    throw formatSupabaseError(
+      "Erro ao verificar sessões já realizadas do pacote",
+      lockedError,
+      "appointments",
+    );
+  }
+
+  const lockedLessonNumbers = new Set(
+    ((lockedAppointments ?? []) as { package_lesson_number: number | null }[])
+      .map((appointment) => appointment.package_lesson_number)
+      .filter((value): value is number => Number.isFinite(value)),
+  );
+
+  const { error: deleteError } = await supabase
+    .from("appointments")
+    .delete()
+    .eq("package_id", packageId)
+    .in("status", ["agendada", "confirmada", "cancelada"]);
+
+  if (deleteError) {
+    throw formatSupabaseError(
+      "Erro ao sincronizar sessões antigas do pacote",
+      deleteError,
+      "appointments",
+    );
+  }
+
+  const endTime = addMinutesToTime(
+    form.fixed_time,
+    form.lesson_duration_minutes,
+  );
+
+  const appointments = lessonDates.flatMap((lessonDate, index) => {
+    const lessonNumber = index + 1;
+
+    if (lockedLessonNumbers.has(lessonNumber)) return [];
+
+    return [
+      {
+        clinic_id: clinicId,
+        patient_id: patientId,
+        professional_id: professionalId,
+        package_id: packageId,
+        package_lesson_number: lessonNumber,
+        class_price: Number(form.lesson_value) || 0,
+        start_time: toDateTime(lessonDate, form.fixed_time),
+        end_time: toDateTime(lessonDate, endTime),
+        type: "Fisioterapia",
+        status: "agendada",
+        notes: `${isRenewal ? "Renovação: aula" : "Aula"} ${lessonNumber}/${totalLessons} ${isRenewal ? "do novo pacote" : "do pacote"}.`,
+      },
+    ];
+  });
+
+  if (appointments.length === 0) return;
+
+  const { error: appointmentsError } = await supabase
+    .from("appointments")
+    .insert(appointments);
+
+  if (appointmentsError) {
+    throw formatSupabaseError(
+      "Erro ao gerar sessões do pacote",
+      appointmentsError,
+      "appointments",
+    );
+  }
+}
+
 function addMonths(date: string, months: number): string {
   const value = new Date(`${date}T12:00:00`);
   value.setMonth(value.getMonth() + months);
@@ -768,10 +863,6 @@ export async function criarPaciente(
     form.fixed_weekdays,
     form.contracted_lessons,
   );
-  const endTime = addMinutesToTime(
-    form.fixed_time,
-    form.lesson_duration_minutes,
-  );
 
   const { data: packageData, error: packageError } = await supabase
     .from(PACKAGES_TABLE)
@@ -812,31 +903,15 @@ export async function criarPaciente(
     totalAmount,
   );
 
-  const appointments = lessonDates.map((lessonDate, index) => ({
-    clinic_id: clinicId,
-    patient_id: patient.id,
-    professional_id: form.responsible_professional_id,
-    package_id: activePackage.id,
-    package_lesson_number: index + 1,
-    class_price: Number(form.lesson_value) || 0,
-    start_time: toDateTime(lessonDate, form.fixed_time),
-    end_time: toDateTime(lessonDate, endTime),
-    type: "Fisioterapia",
-    status: "agendada",
-    notes: `Aula ${index + 1}/${form.contracted_lessons} do pacote.`,
-  }));
-
-  const { error: appointmentsError } = await supabase
-    .from("appointments")
-    .insert(appointments);
-
-  if (appointmentsError) {
-    throw formatSupabaseError(
-      "Erro ao gerar sessões do pacote",
-      appointmentsError,
-      "appointments",
-    );
-  }
+  await sincronizarAgendamentosPacote({
+    clinicId,
+    patientId: patient.id,
+    professionalId: form.responsible_professional_id,
+    packageId: activePackage.id,
+    lessonDates,
+    form,
+    totalLessons: activePackage.total_lessons,
+  });
 
   await registrarRecebimentoInicial({
     clinicId,
@@ -927,10 +1002,6 @@ export async function renovarPacotePaciente(
     form.fixed_weekdays,
     form.contracted_lessons,
   );
-  const endTime = addMinutesToTime(
-    form.fixed_time,
-    form.lesson_duration_minutes,
-  );
 
   const { data: packageData, error: packageError } = await supabase
     .from(PACKAGES_TABLE)
@@ -971,31 +1042,16 @@ export async function renovarPacotePaciente(
     totalAmount,
   );
 
-  const appointments = lessonDates.map((lessonDate, index) => ({
-    clinic_id: clinicId,
-    patient_id: patientId,
-    professional_id: form.responsible_professional_id,
-    package_id: renewedPackage.id,
-    package_lesson_number: index + 1,
-    class_price: Number(form.lesson_value) || 0,
-    start_time: toDateTime(lessonDate, form.fixed_time),
-    end_time: toDateTime(lessonDate, endTime),
-    type: "Fisioterapia",
-    status: "agendada",
-    notes: `Renovação: aula ${index + 1}/${form.contracted_lessons} do novo pacote.`,
-  }));
-
-  const { error: appointmentsError } = await supabase
-    .from("appointments")
-    .insert(appointments);
-
-  if (appointmentsError) {
-    throw formatSupabaseError(
-      "Erro ao gerar sessões da renovação",
-      appointmentsError,
-      "appointments",
-    );
-  }
+  await sincronizarAgendamentosPacote({
+    clinicId,
+    patientId,
+    professionalId: form.responsible_professional_id,
+    packageId: renewedPackage.id,
+    lessonDates,
+    form,
+    totalLessons: renewedPackage.total_lessons,
+    isRenewal: true,
+  });
 
   await registrarRecebimentoInicial({
     clinicId,
@@ -1166,6 +1222,16 @@ async function atualizarPacotePrincipal(
     form,
     totalAmount,
   );
+
+  await sincronizarAgendamentosPacote({
+    clinicId,
+    patientId,
+    professionalId: form.responsible_professional_id,
+    packageId,
+    lessonDates,
+    form,
+    totalLessons: (data as PackageSummary).total_lessons,
+  });
 
   return data as PackageSummary;
 }

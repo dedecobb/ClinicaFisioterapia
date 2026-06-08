@@ -186,6 +186,27 @@ function toMonthBoundary(year: number, month: number): string {
   return toDateTime(date, "00:00");
 }
 
+function normalizePackageNotes(db: AppointmentDB): string | null {
+  if (
+    !db.package_id ||
+    !db.package_lesson_number ||
+    !db.lesson_packages?.total_lessons ||
+    !db.notes
+  ) {
+    return db.notes;
+  }
+
+  if (/^Aula \d+\/\d+ do pacote\.$/.test(db.notes)) {
+    return `Aula ${db.package_lesson_number}/${db.lesson_packages.total_lessons} do pacote.`;
+  }
+
+  if (/^Renovação: aula \d+\/\d+ do novo pacote\.$/.test(db.notes)) {
+    return `Renovação: aula ${db.package_lesson_number}/${db.lesson_packages.total_lessons} do novo pacote.`;
+  }
+
+  return db.notes;
+}
+
 function toTipoSessao(value: string): TipoSessao {
   const tipos: TipoSessao[] = [
     "RPG",
@@ -441,7 +462,7 @@ function toAgendamento(db: AppointmentDB): Agendamento {
     horaFim: toTime(db.end_time),
     tipoSessao: toTipoSessao(db.type),
     status: statusFromDb[db.status],
-    observacoes: db.notes ?? undefined,
+    observacoes: normalizePackageNotes(db) ?? undefined,
     pacoteId: db.package_id ?? undefined,
     sessaoNumero: db.package_lesson_number ?? undefined,
     totalSessoes: db.lesson_packages?.total_lessons,

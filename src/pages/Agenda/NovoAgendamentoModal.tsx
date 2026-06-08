@@ -160,6 +160,13 @@ export const NovoAgendamentoModal: React.FC<Props> = ({
 
   useEffect(() => {
     if (agendamento) {
+      const totalSessoes =
+        agendamento.totalSessoes ??
+        pacientes.find((patient) => patient.id === agendamento.pacienteId)
+          ?.pacoteAtivo?.totalAulas ??
+        agendamento.sessaoNumero ??
+        1;
+
       setForm({
         pacienteId: agendamento.pacienteId,
         fisioterapeutaId: agendamento.fisioterapeutaId,
@@ -170,7 +177,7 @@ export const NovoAgendamentoModal: React.FC<Props> = ({
         status: agendamento.status,
         observacoes: agendamento.observacoes ?? "",
         sessaoNumero: agendamento.sessaoNumero ?? 1,
-        totalSessoes: agendamento.totalSessoes ?? 10,
+        totalSessoes,
         pacoteId: agendamento.pacoteId,
         valorAula: agendamento.valorAula,
       });
