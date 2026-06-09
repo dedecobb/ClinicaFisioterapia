@@ -734,15 +734,71 @@ export const Financial = () => {
   const [reportEndDate, setReportEndDate] = useState("");
   const isPhysio = profile?.role === "physio";
 
+  const getSelectedCommissionPeriod = () => {
+    const defaultPeriod = getDefaultCommissionPeriod();
+    return {
+      startDate: reportStartDate || defaultPeriod.startDate,
+      endDate: reportEndDate || defaultPeriod.endDate,
+    };
+  };
+
+  const loadCommissionAppointments = async () => {
+    if (!profile?.clinic_id) return null;
+
+    const { startDate, endDate } = getSelectedCommissionPeriod();
+    const start = parseDateInput(startDate);
+    start.setHours(0, 0, 0, 0);
+    const endExclusive = addDays(parseDateInput(endDate), 1);
+    endExclusive.setHours(0, 0, 0, 0);
+
+    let appointmentsQuery = supabase
+      .from("appointments")
+      .select(
+        `
+          id,
+          patient_id,
+          package_id,
+          start_time,
+          status,
+          class_price,
+          patients (full_name),
+          profiles (id, full_name),
+          lesson_packages (
+            total_lessons,
+            lesson_value,
+            procedure_amount,
+            total_amount
+          )
+        `,
+      )
+      .eq("clinic_id", profile.clinic_id)
+      .gte("start_time", start.toISOString())
+      .lt("start_time", endExclusive.toISOString());
+
+    if (profile.role === "physio") {
+      appointmentsQuery = appointmentsQuery.eq("professional_id", profile.id);
+    }
+
+    const appointmentsResult = await appointmentsQuery;
+
+    if (appointmentsResult.error) {
+      setError(appointmentsResult.error.message);
+      return appointmentsResult;
+    }
+
+    setAppointments(
+      (appointmentsResult.data ?? []) as unknown as CommissionAppointment[],
+    );
+    return appointmentsResult;
+  };
+
   const downloadCommissionReportExcel = () => {
     if (!commissionReport.length) {
       alert("Nenhum relatório para exportar");
       return;
     }
 
-    const defaultPeriod = getDefaultCommissionPeriod();
-    const startDate = reportStartDate || defaultPeriod.startDate;
-    const endDate = reportEndDate || defaultPeriod.endDate;
+    const { startDate, endDate } = getSelectedCommissionPeriod();
 
     if (daysBetweenInclusive(startDate, endDate) > 31) {
       alert("O relatório detalhado em Excel aceita no máximo 31 dias.");
@@ -779,42 +835,6 @@ export const Financial = () => {
 
     setLoading(true);
     setError(null);
-
-    const defaultPeriod = getDefaultCommissionPeriod();
-    const startDate = reportStartDate || defaultPeriod.startDate;
-    const endDate = reportEndDate || defaultPeriod.endDate;
-    const start = parseDateInput(startDate);
-    start.setHours(0, 0, 0, 0);
-    const endExclusive = addDays(parseDateInput(endDate), 1);
-    endExclusive.setHours(0, 0, 0, 0);
-
-    let appointmentsQuery = supabase
-      .from("appointments")
-      .select(
-        `
-          id,
-          patient_id,
-          package_id,
-          start_time,
-          status,
-          class_price,
-          patients (full_name),
-          profiles (id, full_name),
-          lesson_packages (
-            total_lessons,
-            lesson_value,
-            procedure_amount,
-            total_amount
-          )
-        `,
-      )
-      .eq("clinic_id", profile.clinic_id)
-      .gte("start_time", start.toISOString())
-      .lt("start_time", endExclusive.toISOString());
-
-    if (profile.role === "physio") {
-      appointmentsQuery = appointmentsQuery.eq("professional_id", profile.id);
-    }
 
     const [
       clinicResult,
@@ -860,7 +880,7 @@ export const Financial = () => {
         )
         .eq("clinic_id", profile.clinic_id)
         .order("created_at", { ascending: false }),
-      appointmentsQuery,
+      loadCommissionAppointments(),
       supabase
         .from("transactions")
         .select(
@@ -895,6 +915,11 @@ export const Financial = () => {
 
   useEffect(() => {
     loadFinancialData();
+  }, [profile?.clinic_id]);
+
+  useEffect(() => {
+    if (loading) return;
+    loadCommissionAppointments();
   }, [profile?.clinic_id, reportStartDate, reportEndDate]);
 
   const rawCommissionReport = useMemo(
