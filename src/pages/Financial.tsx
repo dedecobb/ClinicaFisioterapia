@@ -55,9 +55,12 @@ type PackageRow = {
 
 type CommissionAppointment = {
   id: string;
+  patient_id: string | null;
+  package_id: string | null;
   start_time: string;
   status: string;
   class_price: number | string | null;
+  patients: { full_name: string } | null;
   profiles: { id: string; full_name: string } | null;
   lesson_packages: {
     total_lessons: number;
@@ -75,6 +78,20 @@ type ProfessionalReport = {
   gross: number;
   professionalShare: number;
   commissionPaid: number;
+};
+
+type CommissionDetailRow = {
+  professionalId: string;
+  professionalName: string;
+  patientId: string;
+  patientName: string;
+  packageId: string;
+  grossClassValue: number;
+  commissionClassValue: number;
+  contractedLessons: number;
+  presenceByDate: Record<string, number>;
+  presences: number;
+  totalCommission: number;
 };
 
 type TransactionRow = {
@@ -160,12 +177,56 @@ function nextMonth(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth() + 1, 1);
 }
 
+function parseDateInput(value: string): Date {
+  return new Date(`${value}T12:00:00`);
+}
+
+function toDateInputValue(date: Date): string {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function addDays(date: Date, days: number): Date {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function daysBetweenInclusive(startDate: string, endDate: string): number {
+  const start = parseDateInput(startDate);
+  const end = parseDateInput(endDate);
+  return (
+    Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1
+  );
+}
+
+function listDateRange(startDate: string, endDate: string): string[] {
+  const days = Math.max(Math.min(daysBetweenInclusive(startDate, endDate), 31), 0);
+  const start = parseDateInput(startDate);
+
+  return Array.from({ length: days }, (_, index) =>
+    toDateInputValue(addDays(start, index)),
+  );
+}
+
 function onlyDigits(value: string | null | undefined): string {
   return (value ?? "").replace(/\D/g, "");
 }
 
 function formatDate(date: string): string {
   return new Date(`${date}T12:00:00`).toLocaleDateString("pt-BR");
+}
+
+function getDefaultCommissionPeriod(): { startDate: string; endDate: string } {
+  const monthStart = startOfMonth(new Date());
+  const monthEnd = addDays(nextMonth(monthStart), -1);
+
+  return {
+    startDate: toDateInputValue(monthStart),
+    endDate: toDateInputValue(monthEnd),
+  };
 }
 
 function openWhatsApp(phone: string | null | undefined, message: string) {
@@ -290,6 +351,7 @@ function todayDate(): string {
 
 function generateCommissionReportExcel(
   report: ProfessionalReport[],
+  detailRows: CommissionDetailRow[],
   startDate: string,
   endDate: string,
 ): Blob {
@@ -398,6 +460,101 @@ function generateCommissionReportExcel(
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Comissões");
 
+  const dateColumns = listDateRange(startDate, endDate);
+  const detailWsData: unknown[][] = [];
+
+  detailWsData.push(["Relatório Detalhado de Comissão"]);
+  detailWsData.push([`Período: ${startDate} a ${endDate}`]);
+  detailWsData.push([]);
+
+  const detailHeader = [
+    "Paciente",
+    "Valor bruto aula",
+    "Comissão por aula (40%)",
+    "Aulas contratadas",
+    ...dateColumns.map(formatDate),
+    "Presenças",
+    "Valor total aulas",
+  ];
+
+  const rowsByProfessional = detailRows.reduce((acc, row) => {
+    const rows = acc.get(row.professionalId) ?? [];
+    rows.push(row);
+    acc.set(row.professionalId, rows);
+    return acc;
+  }, new Map<string, CommissionDetailRow[]>());
+
+  [...rowsByProfessional.values()]
+    .sort((a, b) => a[0].professionalName.localeCompare(b[0].professionalName))
+    .forEach((professionalRows) => {
+      const professionalName = professionalRows[0].professionalName;
+      detailWsData.push([professionalName]);
+      detailWsData.push(detailHeader);
+
+      professionalRows
+        .sort((a, b) => a.patientName.localeCompare(b.patientName))
+        .forEach((row) => {
+          detailWsData.push([
+            row.patientName,
+            row.grossClassValue,
+            row.commissionClassValue,
+            row.contractedLessons,
+            ...dateColumns.map((date) =>
+              row.presenceByDate[date] ? "PRESENÇA" : "",
+            ),
+            row.presences,
+            row.totalCommission,
+          ]);
+        });
+
+      detailWsData.push([
+        `TOTAL ${professionalName}`,
+        "",
+        "",
+        "",
+        ...dateColumns.map(() => ""),
+        professionalRows.reduce((total, row) => total + row.presences, 0),
+        professionalRows.reduce(
+          (total, row) => total + row.totalCommission,
+          0,
+        ),
+      ]);
+      detailWsData.push([]);
+    });
+
+  detailWsData.push([
+    "TOTAL GERAL",
+    "",
+    "",
+    "",
+    ...dateColumns.map(() => ""),
+    detailRows.reduce((total, row) => total + row.presences, 0),
+    detailRows.reduce((total, row) => total + row.totalCommission, 0),
+  ]);
+
+  const detailWs = XLSX.utils.aoa_to_sheet(detailWsData);
+  detailWs["!cols"] = [
+    { wch: 30 },
+    { wch: 16 },
+    { wch: 22 },
+    { wch: 18 },
+    ...dateColumns.map(() => ({ wch: 12 })),
+    { wch: 12 },
+    { wch: 18 },
+  ];
+
+  const moneyColumns = [1, 2, detailHeader.length - 1];
+  for (let row = 1; row <= detailWsData.length; row++) {
+    moneyColumns.forEach((col) => {
+      const cellAddress = XLSX.utils.encode_col(col) + row;
+      if (detailWs[cellAddress]) {
+        detailWs[cellAddress].z = '"R$ "#,##0.00';
+      }
+    });
+  }
+
+  XLSX.utils.book_append_sheet(wb, detailWs, "Detalhado");
+
   // Gerar arquivo em buffer
   const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
   return new Blob([wbout], {
@@ -490,6 +647,70 @@ function buildCommissionReport(
   );
 }
 
+function buildCommissionDetailReport(
+  appointments: CommissionAppointment[],
+  ownerId: string | null,
+  startDate: string,
+  endDate: string,
+): CommissionDetailRow[] {
+  const dateColumns = new Set(listDateRange(startDate, endDate));
+  const rows = new Map<string, CommissionDetailRow>();
+  const start = parseDateInput(startDate);
+  start.setHours(0, 0, 0, 0);
+  const end = parseDateInput(endDate);
+  end.setHours(23, 59, 59, 999);
+
+  appointments
+    .filter((appointment) => appointment.status === "presenca_registrada")
+    .filter((appointment) => {
+      const appointmentDate = new Date(appointment.start_time);
+      return appointmentDate >= start && appointmentDate <= end;
+    })
+    .forEach((appointment) => {
+      const professionalId = appointment.profiles?.id ?? "sem-profissional";
+      if (ownerId && professionalId === ownerId) return;
+
+      const appointmentDate = toDateInputValue(new Date(appointment.start_time));
+      if (!dateColumns.has(appointmentDate)) return;
+
+      const grossClassValue = getCommissionClassValue(appointment);
+      const commissionClassValue = grossClassValue * 0.4;
+      const patientId = appointment.patient_id ?? "sem-paciente";
+      const packageId = appointment.package_id ?? "sem-pacote";
+      const rowKey = [
+        professionalId,
+        patientId,
+        packageId,
+        commissionClassValue.toFixed(2),
+      ].join(":");
+
+      const current =
+        rows.get(rowKey) ??
+        ({
+          professionalId,
+          professionalName:
+            appointment.profiles?.full_name ?? "Sem profissional definido",
+          patientId,
+          patientName: appointment.patients?.full_name ?? "Paciente não informado",
+          packageId,
+          grossClassValue,
+          commissionClassValue,
+          contractedLessons: appointment.lesson_packages?.total_lessons ?? 0,
+          presenceByDate: {},
+          presences: 0,
+          totalCommission: 0,
+        } satisfies CommissionDetailRow);
+
+      current.presenceByDate[appointmentDate] =
+        (current.presenceByDate[appointmentDate] ?? 0) + 1;
+      current.presences += 1;
+      current.totalCommission += commissionClassValue;
+      rows.set(rowKey, current);
+    });
+
+  return [...rows.values()];
+}
+
 export const Financial = () => {
   const { profile } = useAuth();
   const [packages, setPackages] = useState<PackageRow[]>([]);
@@ -519,10 +740,18 @@ export const Financial = () => {
       return;
     }
 
-    const startDate = reportStartDate || "início";
-    const endDate = reportEndDate || "final";
+    const defaultPeriod = getDefaultCommissionPeriod();
+    const startDate = reportStartDate || defaultPeriod.startDate;
+    const endDate = reportEndDate || defaultPeriod.endDate;
+
+    if (daysBetweenInclusive(startDate, endDate) > 31) {
+      alert("O relatório detalhado em Excel aceita no máximo 31 dias.");
+      return;
+    }
+
     const blob = generateCommissionReportExcel(
       commissionReport,
+      commissionDetailReport,
       startDate,
       endDate,
     );
@@ -551,17 +780,25 @@ export const Financial = () => {
     setLoading(true);
     setError(null);
 
-    const monthStart = startOfMonth(new Date());
-    const monthEnd = nextMonth(monthStart);
+    const defaultPeriod = getDefaultCommissionPeriod();
+    const startDate = reportStartDate || defaultPeriod.startDate;
+    const endDate = reportEndDate || defaultPeriod.endDate;
+    const start = parseDateInput(startDate);
+    start.setHours(0, 0, 0, 0);
+    const endExclusive = addDays(parseDateInput(endDate), 1);
+    endExclusive.setHours(0, 0, 0, 0);
 
     let appointmentsQuery = supabase
       .from("appointments")
       .select(
         `
           id,
+          patient_id,
+          package_id,
           start_time,
           status,
           class_price,
+          patients (full_name),
           profiles (id, full_name),
           lesson_packages (
             total_lessons,
@@ -572,8 +809,8 @@ export const Financial = () => {
         `,
       )
       .eq("clinic_id", profile.clinic_id)
-      .gte("start_time", monthStart.toISOString())
-      .lt("start_time", monthEnd.toISOString());
+      .gte("start_time", start.toISOString())
+      .lt("start_time", endExclusive.toISOString());
 
     if (profile.role === "physio") {
       appointmentsQuery = appointmentsQuery.eq("professional_id", profile.id);
@@ -658,7 +895,7 @@ export const Financial = () => {
 
   useEffect(() => {
     loadFinancialData();
-  }, [profile?.clinic_id]);
+  }, [profile?.clinic_id, reportStartDate, reportEndDate]);
 
   const rawCommissionReport = useMemo(
     () =>
@@ -701,6 +938,16 @@ export const Financial = () => {
       }),
     [rawCommissionReport, transactions],
   );
+
+  const commissionDetailReport = useMemo(() => {
+    const defaultPeriod = getDefaultCommissionPeriod();
+    return buildCommissionDetailReport(
+      appointments,
+      ownerId,
+      reportStartDate || defaultPeriod.startDate,
+      reportEndDate || defaultPeriod.endDate,
+    );
+  }, [appointments, ownerId, reportStartDate, reportEndDate]);
 
   const totals = useMemo(() => {
     const standaloneProcedures = visibleTransactions.filter(
