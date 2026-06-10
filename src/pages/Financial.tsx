@@ -91,6 +91,7 @@ type CommissionDetailRow = {
   patientId: string;
   patientName: string;
   packageId: string;
+  packageAmount: number;
   grossClassValue: number;
   commissionClassValue: number;
   contractedLessons: number;
@@ -227,6 +228,15 @@ function onlyDigits(value: string | null | undefined): string {
 
 function formatDate(date: string): string {
   return new Date(`${date}T12:00:00`).toLocaleDateString("pt-BR");
+}
+
+function formatShortDate(date: string): string {
+  return new Date(`${date}T12:00:00`)
+    .toLocaleDateString("pt-BR", {
+      day: "2-digit",
+      month: "short",
+    })
+    .replace(".", "");
 }
 
 function getDefaultCommissionPeriod(): { startDate: string; endDate: string } {
@@ -479,10 +489,11 @@ function generateCommissionReportExcel(
 
   const detailHeader = [
     "Paciente",
+    "Valor pacote",
     "Valor bruto aula",
     "Comissão por aula (40%)",
     "Aulas contratadas",
-    ...dateColumns.map(formatDate),
+    ...dateColumns.map(formatShortDate),
     "Presenças",
     "Valor total aulas",
   ];
@@ -506,6 +517,7 @@ function generateCommissionReportExcel(
         .forEach((row) => {
           detailWsData.push([
             row.patientName,
+            row.packageAmount,
             row.grossClassValue,
             row.commissionClassValue,
             row.contractedLessons,
@@ -519,6 +531,7 @@ function generateCommissionReportExcel(
 
       detailWsData.push([
         `TOTAL ${professionalName}`,
+        "",
         "",
         "",
         "",
@@ -537,6 +550,7 @@ function generateCommissionReportExcel(
     "",
     "",
     "",
+    "",
     ...dateColumns.map(() => ""),
     detailRows.reduce((total, row) => total + row.presences, 0),
     detailRows.reduce((total, row) => total + row.totalCommission, 0),
@@ -545,15 +559,16 @@ function generateCommissionReportExcel(
   const detailWs = XLSX.utils.aoa_to_sheet(detailWsData);
   detailWs["!cols"] = [
     { wch: 30 },
+    { wch: 14 },
     { wch: 16 },
     { wch: 22 },
     { wch: 18 },
-    ...dateColumns.map(() => ({ wch: 12 })),
+    ...dateColumns.map(() => ({ wch: 8 })),
     { wch: 12 },
     { wch: 18 },
   ];
 
-  const moneyColumns = [1, 2, detailHeader.length - 1];
+  const moneyColumns = [1, 2, 3, detailHeader.length - 1];
   for (let row = 1; row <= detailWsData.length; row++) {
     moneyColumns.forEach((col) => {
       const cellAddress = XLSX.utils.encode_col(col) + row;
@@ -727,6 +742,7 @@ function buildCommissionDetailReport(
           patientId,
           patientName: appointment.patients?.full_name ?? "Paciente não informado",
           packageId,
+          packageAmount: money(appointment.lesson_packages?.total_amount),
           grossClassValue,
           commissionClassValue,
           contractedLessons: appointment.lesson_packages?.total_lessons ?? 0,
@@ -785,6 +801,18 @@ export const Financial = () => {
       endDate: reportEndDate || defaultPeriod.endDate,
     };
   };
+
+  const commissionPeriodLabel = useMemo(() => {
+    const defaultPeriod = getDefaultCommissionPeriod();
+    const startDate = reportStartDate || defaultPeriod.startDate;
+    const endDate = reportEndDate || defaultPeriod.endDate;
+
+    if (!reportStartDate && !reportEndDate) {
+      return `Mostrando o mes atual inteiro (${formatDate(startDate)} ate ${formatDate(endDate)}).`;
+    }
+
+    return `Mostrando de ${formatDate(startDate)} ate ${formatDate(endDate)}.`;
+  }, [reportEndDate, reportStartDate]);
 
   const loadCommissionAppointments = async () => {
     if (!profile?.clinic_id) return null;
@@ -1939,6 +1967,9 @@ export const Financial = () => {
                   <h3 className="text-lg font-bold text-slate-900 dark:text-white">
                     Comissão por fisioterapeuta
                   </h3>
+                  <p className="text-sm text-slate-500">
+                    {commissionPeriodLabel}
+                  </p>
                   {hasPatientSearch && (
                     <p className="text-sm text-slate-500">
                       Produção filtrada pelo paciente "{patientSearchTerm}".
