@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { clsx } from "clsx";
 import {
@@ -10,6 +10,7 @@ import {
   Loader2,
   MessageCircle,
   Receipt,
+  Search,
   TrendingUp,
   UserCheck,
   X,
@@ -575,6 +576,24 @@ function cleanProcedurePaymentDescription(value: string): string {
   return value.replace(/\s+-\s+saldo em aberto$/i, "");
 }
 
+function normalizeSearchText(value: string | null | undefined): string {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function matchesPatientSearch(
+  patientName: string | null | undefined,
+  searchTerm: string,
+): boolean {
+  const normalizedSearch = normalizeSearchText(searchTerm);
+  if (!normalizedSearch) return true;
+
+  return normalizeSearchText(patientName).includes(normalizedSearch);
+}
+
 function getPatientProfessionalName(
   patient: { profiles: { full_name: string } | null } | null,
 ): string {
@@ -742,12 +761,22 @@ export const Financial = () => {
   const [receivableFilter, setReceivableFilter] =
     useState<ReceivableFilter>("open");
   const [dueSort, setDueSort] = useState<DueSort>("asc");
+  const [patientSearchTerm, setPatientSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reportStartDate, setReportStartDate] = useState("");
   const [reportEndDate, setReportEndDate] = useState("");
+  const commissionSectionRef = useRef<HTMLDivElement | null>(null);
   const isPhysio = profile?.role === "physio";
+  const hasPatientSearch = Boolean(normalizeSearchText(patientSearchTerm));
+
+  const scrollToCommission = () => {
+    commissionSectionRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  };
 
   const getSelectedCommissionPeriod = () => {
     const defaultPeriod = getDefaultCommissionPeriod();
@@ -955,15 +984,20 @@ export const Financial = () => {
     loadCommissionAppointments();
   }, [profile?.clinic_id, reportStartDate, reportEndDate]);
 
-  const rawCommissionReport = useMemo(
+  const filteredAppointments = useMemo(
     () =>
-      buildCommissionReport(
-        appointments,
-        ownerId,
-        reportStartDate,
-        reportEndDate,
+      appointments.filter((appointment) =>
+        matchesPatientSearch(appointment.patients?.full_name, patientSearchTerm),
       ),
-    [appointments, ownerId, reportStartDate, reportEndDate],
+    [appointments, patientSearchTerm],
+  );
+
+  const filteredPackages = useMemo(
+    () =>
+      packages.filter((packageItem) =>
+        matchesPatientSearch(packageItem.patients?.full_name, patientSearchTerm),
+      ),
+    [packages, patientSearchTerm],
   );
 
   const visibleTransactions = useMemo(
@@ -971,19 +1005,43 @@ export const Financial = () => {
     [transactions],
   );
 
+  const filteredVisibleTransactions = useMemo(
+    () =>
+      visibleTransactions.filter((transaction) =>
+        matchesPatientSearch(transaction.patients?.full_name, patientSearchTerm),
+      ),
+    [patientSearchTerm, visibleTransactions],
+  );
+
+  const rawCommissionReport = useMemo(
+    () =>
+      buildCommissionReport(
+        filteredAppointments,
+        ownerId,
+        reportStartDate,
+        reportEndDate,
+      ),
+    [filteredAppointments, ownerId, reportStartDate, reportEndDate],
+  );
+
   const commissionReport = useMemo(
     () =>
       rawCommissionReport.map((item) => {
-        const commissionPaid = transactions
-          .filter(
-            (transaction) =>
-              transaction.type === "expense" &&
-              transaction.status === "paid" &&
-              transaction.category === "Comissão fisioterapeuta" &&
-              (transaction.description?.includes(item.professionalId) ||
-                transaction.description?.includes(item.professionalName)),
-          )
-          .reduce((total, transaction) => total + money(transaction.amount), 0);
+        const commissionPaid = hasPatientSearch
+          ? 0
+          : transactions
+              .filter(
+                (transaction) =>
+                  transaction.type === "expense" &&
+                  transaction.status === "paid" &&
+                  transaction.category === "Comissão fisioterapeuta" &&
+                  (transaction.description?.includes(item.professionalId) ||
+                    transaction.description?.includes(item.professionalName)),
+              )
+              .reduce(
+                (total, transaction) => total + money(transaction.amount),
+                0,
+              );
 
         return {
           ...item,
@@ -994,21 +1052,21 @@ export const Financial = () => {
           ),
         };
       }),
-    [rawCommissionReport, transactions],
+    [hasPatientSearch, rawCommissionReport, transactions],
   );
 
   const commissionDetailReport = useMemo(() => {
     const defaultPeriod = getDefaultCommissionPeriod();
     return buildCommissionDetailReport(
-      appointments,
+      filteredAppointments,
       ownerId,
       reportStartDate || defaultPeriod.startDate,
       reportEndDate || defaultPeriod.endDate,
     );
-  }, [appointments, ownerId, reportStartDate, reportEndDate]);
+  }, [filteredAppointments, ownerId, reportStartDate, reportEndDate]);
 
   const totals = useMemo(() => {
-    const standaloneProcedures = visibleTransactions.filter(
+    const standaloneProcedures = filteredVisibleTransactions.filter(
       isStandaloneProcedureIncome,
     );
     const procedureSold = standaloneProcedures.reduce(
@@ -1021,20 +1079,20 @@ export const Financial = () => {
     const procedureOpen = standaloneProcedures
       .filter((item) => item.status === "pending" || item.status === "overdue")
       .reduce((total, item) => total + money(item.amount), 0);
-    const sold = packages.reduce(
+    const sold = filteredPackages.reduce(
       (total, item) => total + money(item.total_amount),
       procedureSold,
     );
-    const paid = packages.reduce(
+    const paid = filteredPackages.reduce(
       (total, item) => total + money(item.amount_paid),
       procedurePaid,
     );
-    const open = packages.reduce(
+    const open = filteredPackages.reduce(
       (total, item) =>
         total + Math.max(money(item.total_amount) - money(item.amount_paid), 0),
       procedureOpen,
     );
-    const currentDue = packages.reduce((total, item) => {
+    const currentDue = filteredPackages.reduce((total, item) => {
       const installment = getCurrentInstallment(item);
       return total + (installment ? getRemainingInstallment(installment) : 0);
     }, procedureOpen);
@@ -1044,10 +1102,10 @@ export const Financial = () => {
     );
 
     return { sold, paid, open, currentDue, professionalShare };
-  }, [commissionReport, packages, visibleTransactions]);
+  }, [commissionReport, filteredPackages, filteredVisibleTransactions]);
 
   const receivables = useMemo(() => {
-    const packageRows: ReceivableItem[] = packages.flatMap((packageItem) =>
+    const packageRows: ReceivableItem[] = filteredPackages.flatMap((packageItem) =>
       getInstallments(packageItem).map((installment) => ({
         kind: "package" as const,
         packageItem,
@@ -1058,7 +1116,7 @@ export const Financial = () => {
         status: getInstallmentPaymentStatus(installment),
       })),
     );
-    const procedureRows: ReceivableItem[] = visibleTransactions
+    const procedureRows: ReceivableItem[] = filteredVisibleTransactions
       .filter(isStandaloneProcedureIncome)
       .map((transaction) => ({
         kind: "procedure" as const,
@@ -1091,7 +1149,7 @@ export const Financial = () => {
             : b.transaction.due_date;
         return aDate.localeCompare(bDate) * direction;
       });
-  }, [dueSort, packages, receivableFilter, visibleTransactions]);
+  }, [dueSort, filteredPackages, filteredVisibleTransactions, receivableFilter]);
 
   const openPaymentModal = (
     packageItem: PackageRow,
@@ -1409,6 +1467,40 @@ export const Financial = () => {
         </div>
       ) : (
         <>
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
+            <div className="relative flex-1">
+              <Search
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                size={18}
+              />
+              <input
+                type="text"
+                placeholder="Buscar paciente..."
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all text-sm"
+                value={patientSearchTerm}
+                onChange={(event) => setPatientSearchTerm(event.target.value)}
+              />
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2">
+              {hasPatientSearch && (
+                <Button
+                  variant="ghost"
+                  onClick={() => setPatientSearchTerm("")}
+                >
+                  Limpar busca
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={scrollToCommission}
+              >
+                <UserCheck size={16} />
+                Ir para comissões
+              </Button>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
             {!isPhysio && (
               <>
@@ -1619,9 +1711,19 @@ export const Financial = () => {
                 <h3 className="text-lg font-bold text-slate-900 dark:text-white">
                   Histórico de pacotes e parcelas
                 </h3>
+                {hasPatientSearch && (
+                  <p className="text-sm text-slate-500">
+                    Mostrando pacotes compatíveis com "{patientSearchTerm}".
+                  </p>
+                )}
               </div>
               <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                {packages.map((packageItem) => {
+                {filteredPackages.length === 0 ? (
+                  <div className="px-6 py-10 text-center text-sm text-slate-500">
+                    Nenhum pacote encontrado para este paciente.
+                  </div>
+                ) : (
+                  filteredPackages.map((packageItem) => {
                   const installments = getInstallments(packageItem);
                   const currentInstallment = getCurrentInstallment(packageItem);
                   const packageOpen = Math.max(
@@ -1824,18 +1926,24 @@ export const Financial = () => {
                       </div>
                     </div>
                   );
-                })}
+                }))}
               </div>
             </Card>
           )}
 
-          <Card className="p-0 overflow-hidden">
+          <div ref={commissionSectionRef} className="scroll-mt-6">
+            <Card className="p-0 overflow-hidden">
             <div className="p-6 border-b border-slate-100 dark:border-slate-800">
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                 <div>
                   <h3 className="text-lg font-bold text-slate-900 dark:text-white">
                     Comissão por fisioterapeuta
                   </h3>
+                  {hasPatientSearch && (
+                    <p className="text-sm text-slate-500">
+                      Produção filtrada pelo paciente "{patientSearchTerm}".
+                    </p>
+                  )}
                 </div>
                 <div className="flex flex-col md:flex-row gap-4">
                   <div>
@@ -1944,7 +2052,8 @@ export const Financial = () => {
                 </tbody>
               </table>
             </div>
-          </Card>
+            </Card>
+          </div>
 
           {!isPhysio && (
             <Card className="p-0 overflow-hidden">
@@ -1969,7 +2078,7 @@ export const Financial = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {visibleTransactions.length === 0 ? (
+                    {filteredVisibleTransactions.length === 0 ? (
                       <tr>
                         <td
                           colSpan={6}
@@ -1979,7 +2088,7 @@ export const Financial = () => {
                         </td>
                       </tr>
                     ) : (
-                      visibleTransactions.map((transaction) => (
+                      filteredVisibleTransactions.map((transaction) => (
                         <tr key={transaction.id}>
                           <td className="px-6 py-4 text-sm text-slate-500">
                             {formatDate(transaction.due_date)}
