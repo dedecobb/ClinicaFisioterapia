@@ -49,7 +49,11 @@ type PackageRow = {
   start_date: string;
   expected_end_date: string | null;
   status: "ativo" | "concluido" | "cancelado";
-  patients: { full_name: string; phone: string | null } | null;
+  patients: {
+    full_name: string;
+    phone: string | null;
+    profiles: { full_name: string } | null;
+  } | null;
   package_installments: InstallmentRow[];
 };
 
@@ -104,7 +108,10 @@ type TransactionRow = {
   description: string | null;
   due_date: string;
   created_at: string;
-  patients: { full_name: string } | null;
+  patients: {
+    full_name: string;
+    profiles: { full_name: string } | null;
+  } | null;
 };
 
 type TransactionStatus = TransactionRow["status"];
@@ -117,6 +124,7 @@ type ReceivableRow = {
   packageItem: PackageRow;
   installment: InstallmentRow;
   patientName: string;
+  professionalName: string;
   remaining: number;
   status: PaymentStatus;
 };
@@ -125,6 +133,7 @@ type ProcedureReceivableRow = {
   kind: "procedure";
   transaction: TransactionRow;
   patientName: string;
+  professionalName: string;
   remaining: number;
   status: PaymentStatus;
 };
@@ -566,6 +575,12 @@ function cleanProcedurePaymentDescription(value: string): string {
   return value.replace(/\s+-\s+saldo em aberto$/i, "");
 }
 
+function getPatientProfessionalName(
+  patient: { profiles: { full_name: string } | null } | null,
+): string {
+  return patient?.profiles?.full_name ?? "Sem fisioterapeuta";
+}
+
 function getCommissionClassValue(appointment: CommissionAppointment): number {
   const packageItem = appointment.lesson_packages;
 
@@ -865,7 +880,11 @@ export const Financial = () => {
             start_date,
             expected_end_date,
             status,
-            patients (full_name, phone),
+            patients (
+              full_name,
+              phone,
+              profiles!patients_responsible_professional_id_fkey (full_name)
+            ),
             package_installments (
               id,
               installment_number,
@@ -884,7 +903,21 @@ export const Financial = () => {
       supabase
         .from("transactions")
         .select(
-          "id, patient_id, amount, type, category, status, description, due_date, created_at, patients (full_name)",
+          `
+            id,
+            patient_id,
+            amount,
+            type,
+            category,
+            status,
+            description,
+            due_date,
+            created_at,
+            patients (
+              full_name,
+              profiles!patients_responsible_professional_id_fkey (full_name)
+            )
+          `,
         )
         .eq("clinic_id", profile.clinic_id)
         .order("created_at", { ascending: false }),
@@ -1020,6 +1053,7 @@ export const Financial = () => {
         packageItem,
         installment,
         patientName: packageItem.patients?.full_name ?? "Paciente",
+        professionalName: getPatientProfessionalName(packageItem.patients),
         remaining: getRemainingInstallment(installment),
         status: getInstallmentPaymentStatus(installment),
       })),
@@ -1030,6 +1064,7 @@ export const Financial = () => {
         kind: "procedure" as const,
         transaction,
         patientName: transaction.patients?.full_name ?? "Paciente",
+        professionalName: getPatientProfessionalName(transaction.patients),
         remaining:
           transaction.status === "paid" || transaction.status === "cancelled"
             ? 0
@@ -1487,6 +1522,9 @@ export const Financial = () => {
                           <td className="px-6 py-4">
                             <p className="text-sm font-semibold text-slate-900 dark:text-white">
                               {row.patientName}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              Fisio: {row.professionalName}
                             </p>
                             <p className="text-xs text-slate-500">
                               {row.kind === "package"

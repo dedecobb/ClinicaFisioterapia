@@ -18,7 +18,15 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-slate-200 dark:bg-slate-800 rounded-full;
+  @apply bg-slate-300 dark:bg-slate-700 rounded-full;
+}
+
+* {
+  scrollbar-color: rgb(203 213 225 / 0.9) transparent;
+}
+
+.dark * {
+  scrollbar-color: rgb(51 65 85 / 0.9) transparent;
 }
 
 .animate-in {

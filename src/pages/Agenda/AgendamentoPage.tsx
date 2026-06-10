@@ -564,6 +564,7 @@ export const AgendamentoPage: React.FC = () => {
                 <AgendamentoCard
                   key={ag.id}
                   agendamento={ag}
+                  fisioterapeutas={fisioterapeutas}
                   canManage={canManageAgenda}
                   procedureProgress={getProcedureProgress(ag)}
                   onEditar={() => abrirEditarModal(ag)}
@@ -596,6 +597,7 @@ export const AgendamentoPage: React.FC = () => {
 
 interface CardProps {
   agendamento: Agendamento;
+  fisioterapeutas: Fisioterapeuta[];
   canManage: boolean;
   procedureProgress?: ProcedureProgress;
   onEditar: () => void;
@@ -605,6 +607,7 @@ interface CardProps {
 
 const AgendamentoCard: React.FC<CardProps> = ({
   agendamento: ag,
+  fisioterapeutas,
   canManage,
   procedureProgress,
   onEditar,
@@ -612,13 +615,16 @@ const AgendamentoCard: React.FC<CardProps> = ({
   onAlterarStatus,
 }) => {
   const procedimentos = formatProcedures(ag.procedimentos);
+  const fisioterapeutaCor =
+    fisioterapeutas.find((f) => f.id === ag.fisioterapeutaId)?.cor ??
+    ag.fisioterapeuta.cor;
 
   return (
     <div className={`ag-card ag-card-${ag.status}`}>
       {/* Barra lateral colorida */}
       <div
         className="ag-barra"
-        style={{ backgroundColor: ag.fisioterapeuta.cor }}
+        style={{ backgroundColor: fisioterapeutaCor }}
       />
 
       <div className="ag-content">
@@ -644,7 +650,7 @@ const AgendamentoCard: React.FC<CardProps> = ({
             </span>
           )}
         </div>
-        <div className="ag-fisio" style={{ color: ag.fisioterapeuta.cor }}>
+        <div className="ag-fisio" style={{ color: fisioterapeutaCor }}>
           {ag.fisioterapeuta.nome}
         </div>
 

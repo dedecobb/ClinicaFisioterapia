@@ -13,6 +13,7 @@ import {
   Search,
   Trash2,
   User,
+  UserCheck,
 } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
@@ -73,6 +74,19 @@ function getPatientProcedureCredits(patient: Patient): PatientProcedure[] {
     .forEach((procedure) => byType.set(procedure.type, procedure));
 
   return Array.from(byType.values());
+}
+
+function getResponsibleProfessionalName(
+  patient: Patient,
+  professionals: Fisioterapeuta[],
+): string {
+  if (!patient.responsible_professional_id) return "Sem fisioterapeuta";
+
+  return (
+    professionals.find(
+      (professional) => professional.id === patient.responsible_professional_id,
+    )?.nome ?? "Fisioterapeuta não encontrado"
+  );
 }
 
 function openWhatsApp(phone: string | null | undefined, message: string) {
@@ -470,6 +484,12 @@ export const PacientesPage = () => {
               <p className="text-xs text-slate-500 mt-1">
                 {STATUS_LABEL[patient.status] ?? patient.status}
               </p>
+              <div className="mt-3 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
+                <UserCheck size={14} />
+                <span className="truncate">
+                  {getResponsibleProfessionalName(patient, fisioterapeutas)}
+                </span>
+              </div>
 
               {getPatientProcedureCredits(patient).length > 0 && (
                 <div className="mt-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-950 p-3 space-y-2">
