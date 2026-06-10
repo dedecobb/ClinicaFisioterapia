@@ -301,8 +301,7 @@ export async function addAttachmentsToEvolution(
 
 // ── Upload de arquivos (Supabase Storage) ─────────────────────────────────────
 //
-// Crie o bucket "patient-files" no Supabase Dashboard → Storage
-// Defina como público (ou gere URLs assinadas para conteúdo privado)
+// O bucket "patient-files" e suas policies são criados por migration.
 
 const BUCKET = "patient-files";
 
