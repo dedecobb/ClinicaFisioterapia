@@ -7,12 +7,23 @@ import {
   PatientProcedure,
   PROCEDURE_OPTIONS,
 } from "./types";
+import {
+  SESSION_CAPACITY,
+  SESSION_DURATION_MINUTES,
+} from "../Agenda/Agendamentoservice";
 
 const PATIENTS_TABLE = "patients";
 const PACKAGES_TABLE = "lesson_packages";
 const INSTALLMENTS_TABLE = "package_installments";
 const TRANSACTIONS_TABLE = "transactions";
 const CLINIC_UTC_OFFSET = "-03:00";
+
+type AppointmentInsert = {
+  clinic_id: string;
+  start_time: string;
+  status: string;
+  package_id: string | null;
+};
 
 function pad2(value: number): string {
   return String(value).padStart(2, "0");
@@ -254,6 +265,52 @@ function toDateTime(date: string, time: string): string {
   return new Date(`${date}T${time}:00${CLINIC_UTC_OFFSET}`).toISOString();
 }
 
+async function assertAppointmentBatchCapacity(
+  appointments: AppointmentInsert[],
+  ignorePackageId?: string,
+): Promise<void> {
+  const clinicId = appointments[0]?.clinic_id;
+  if (!clinicId) return;
+
+  const requestedByStartTime = appointments
+    .filter((appointment) => appointment.status !== "cancelada")
+    .reduce<Record<string, number>>((map, appointment) => {
+      map[appointment.start_time] = (map[appointment.start_time] ?? 0) + 1;
+      return map;
+    }, {});
+
+  for (const [startTime, requestedCount] of Object.entries(
+    requestedByStartTime,
+  )) {
+    let query = supabase
+      .from("appointments")
+      .select("id", { count: "exact", head: true })
+      .eq("clinic_id", clinicId)
+      .eq("start_time", startTime)
+      .neq("status", "cancelada");
+
+    if (ignorePackageId) {
+      query = query.not("package_id", "eq", ignorePackageId);
+    }
+
+    const { count, error } = await query;
+
+    if (error) {
+      throw formatSupabaseError(
+        "Erro ao validar lotação das sessões",
+        error,
+        "appointments",
+      );
+    }
+
+    if ((count ?? 0) + requestedCount > SESSION_CAPACITY) {
+      throw new Error(
+        `Uma das sessões já atingiu o limite de ${SESSION_CAPACITY} pacientes no mesmo horário.`,
+      );
+    }
+  }
+}
+
 function generateLessonDates(
   startDate: string,
   weekdays: number[],
@@ -331,10 +388,7 @@ async function sincronizarAgendamentosPacote({
     );
   }
 
-  const endTime = addMinutesToTime(
-    form.fixed_time,
-    form.lesson_duration_minutes,
-  );
+  const endTime = addMinutesToTime(form.fixed_time, SESSION_DURATION_MINUTES);
   const lessonUnitValue = getLessonUnitValue(form);
 
   const appointments = lessonDates.flatMap((lessonDate, index) => {
@@ -360,6 +414,8 @@ async function sincronizarAgendamentosPacote({
   });
 
   if (appointments.length === 0) return;
+
+  await assertAppointmentBatchCapacity(appointments, packageId);
 
   const { error: appointmentsError } = await supabase
     .from("appointments")
@@ -493,7 +549,7 @@ async function criarAgendamentosProcedimentosAvulsos({
   validateStandaloneProcedureFields(form);
 
   const credits = getProcedureCredits(procedures);
-  const duration = Number(form.lesson_duration_minutes) || 50;
+  const duration = SESSION_DURATION_MINUTES;
 
   const appointments = credits.map((credit) => {
     const scheduledDate = credit.procedure.scheduled_date ?? todayDate();
@@ -520,6 +576,8 @@ async function criarAgendamentosProcedimentosAvulsos({
       notes: `${isRenewal ? "Renovação: " : ""}Procedimento avulso ${credit.creditNumber}/${credit.totalCredits}: ${procedureName}.`,
     };
   });
+
+  await assertAppointmentBatchCapacity(appointments);
 
   const { error } = await supabase.from("appointments").insert(appointments);
 
@@ -897,7 +955,7 @@ export async function criarPaciente(
       expected_end_date: lessonDates[lessonDates.length - 1] ?? form.plan_start_date,
       fixed_weekdays: form.fixed_weekdays,
       fixed_time: form.fixed_time,
-      lesson_duration_minutes: form.lesson_duration_minutes,
+      lesson_duration_minutes: SESSION_DURATION_MINUTES,
     })
     .select(
       "id, total_lessons, completed_lessons, missed_lessons, justified_absences, justified_absence_limit, lesson_value, procedure_amount, procedure_credits, total_amount, amount_paid, payment_status, payment_method, installments, start_date, expected_end_date, fixed_weekdays, fixed_time, status",
@@ -1037,7 +1095,7 @@ export async function renovarPacotePaciente(
       expected_end_date: lessonDates[lessonDates.length - 1] ?? form.plan_start_date,
       fixed_weekdays: form.fixed_weekdays,
       fixed_time: form.fixed_time,
-      lesson_duration_minutes: form.lesson_duration_minutes,
+      lesson_duration_minutes: SESSION_DURATION_MINUTES,
     })
     .select(
       "id, total_lessons, completed_lessons, missed_lessons, justified_absences, justified_absence_limit, lesson_value, procedure_amount, procedure_credits, total_amount, amount_paid, payment_status, payment_method, installments, start_date, expected_end_date, fixed_weekdays, fixed_time, status",
@@ -1218,7 +1276,7 @@ async function atualizarPacotePrincipal(
       expected_end_date: lessonDates[lessonDates.length - 1] ?? form.plan_start_date,
       fixed_weekdays: form.fixed_weekdays,
       fixed_time: form.fixed_time,
-      lesson_duration_minutes: form.lesson_duration_minutes,
+      lesson_duration_minutes: SESSION_DURATION_MINUTES,
       status: form.status === "encerrado" ? "cancelado" : "ativo",
     })
     .eq("id", packageId)

@@ -6,6 +6,10 @@ import {
   Paciente,
   TipoSessao,
 } from "./types";
+import {
+  SESSION_CAPACITY,
+  SESSION_DURATION_MINUTES,
+} from "./Agendamentoservice";
 
 const TIPOS_SESSAO: TipoSessao[] = [
   "RPG",
@@ -43,7 +47,7 @@ const formVazio: NovoAgendamentoForm = {
   fisioterapeutaId: "",
   data: "",
   horaInicio: "08:00",
-  horaFim: "08:50",
+  horaFim: "09:00",
   tipoSessao: "Fisioterapia",
   status: "agendada",
   observacoes: "",
@@ -123,7 +127,7 @@ function applyPatientPackage(
     pacienteId: patient.id,
     fisioterapeutaId: pacote.professionalId ?? current.fisioterapeutaId,
     horaInicio,
-    horaFim: addMinutesToTime(horaInicio, pacote.duracaoMinutos),
+    horaFim: addMinutesToTime(horaInicio, SESSION_DURATION_MINUTES),
     tipoSessao: "Fisioterapia",
     status:
       pacote.statusPagamento === "inadimplente" ? "agendada" : current.status,
@@ -199,7 +203,19 @@ export const NovoAgendamentoModal: React.FC<Props> = ({
   const campo = <K extends keyof NovoAgendamentoForm>(
     key: K,
     value: NovoAgendamentoForm[K],
-  ) => setForm((prev) => ({ ...prev, [key]: value }));
+  ) =>
+    setForm((prev) => {
+      if (key === "horaInicio") {
+        const horaInicio = value as string;
+        return {
+          ...prev,
+          horaInicio,
+          horaFim: addMinutesToTime(horaInicio, SESSION_DURATION_MINUTES),
+        };
+      }
+
+      return { ...prev, [key]: value };
+    });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -318,6 +334,14 @@ export const NovoAgendamentoModal: React.FC<Props> = ({
               </div>
             )}
 
+            <div className="session-credit-box session-rule-box">
+              <strong>Sessões de 1 hora</strong>
+              <span>
+                Limite de {SESSION_CAPACITY} pacientes no mesmo dia e horário,
+                somando todos os fisioterapeutas.
+              </span>
+            </div>
+
             {/* Fisioterapeuta */}
             <div className="form-group">
               <label className="form-label">Fisioterapeuta *</label>
@@ -364,7 +388,7 @@ export const NovoAgendamentoModal: React.FC<Props> = ({
                   type="time"
                   className="form-input"
                   value={form.horaFim}
-                  onChange={(e) => campo("horaFim", e.target.value)}
+                  readOnly
                   required
                 />
               </div>

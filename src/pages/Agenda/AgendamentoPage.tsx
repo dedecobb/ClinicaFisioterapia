@@ -11,6 +11,7 @@ import {
   getAgendamentosPorMes,
   getFisioterapeutas,
   getPacientes,
+  SESSION_CAPACITY,
 } from "./Agendamentoservice";
 import {
   Agendamento,
@@ -78,6 +79,12 @@ function formatProcedures(procedures: PatientProcedure[] | undefined): string {
 type ProcedureProgress = {
   label: string;
   done: number;
+  total: number;
+};
+
+type SessionOccupancy = {
+  horaInicio: string;
+  horaFim: string;
   total: number;
 };
 
@@ -225,6 +232,35 @@ export const AgendamentoPage: React.FC = () => {
 
     return lista.sort((a, b) => a.horaInicio.localeCompare(b.horaInicio));
   }, [agendamentos, dataSelecionada, filtros]);
+
+  const ocupacaoSessoesDia = useMemo(() => {
+    const mapa = new Map<string, SessionOccupancy>();
+
+    agendamentos
+      .filter((a) => a.data === dataSelecionada && a.status !== "cancelada")
+      .forEach((a) => {
+        const atual = mapa.get(a.horaInicio);
+        mapa.set(a.horaInicio, {
+          horaInicio: a.horaInicio,
+          horaFim: atual?.horaFim ?? a.horaFim,
+          total: (atual?.total ?? 0) + 1,
+        });
+      });
+
+    return Array.from(mapa.values()).sort((a, b) =>
+      a.horaInicio.localeCompare(b.horaInicio),
+    );
+  }, [agendamentos, dataSelecionada]);
+
+  const ocupacaoPorHorario = useMemo(() => {
+    return ocupacaoSessoesDia.reduce<Record<string, SessionOccupancy>>(
+      (mapa, ocupacao) => {
+        mapa[ocupacao.horaInicio] = ocupacao;
+        return mapa;
+      },
+      {},
+    );
+  }, [ocupacaoSessoesDia]);
 
   // ── totais do mês ───────────────────────────────────────────────────────────
 
@@ -544,6 +580,29 @@ export const AgendamentoPage: React.FC = () => {
             </span>
           </div>
 
+          {ocupacaoSessoesDia.length > 0 && (
+            <div className="session-capacity-panel">
+              <span className="session-capacity-title">Lotação por sessão</span>
+              <div className="session-capacity-list">
+                {ocupacaoSessoesDia.map((ocupacao) => {
+                  const lotada = ocupacao.total >= SESSION_CAPACITY;
+
+                  return (
+                    <span
+                      key={ocupacao.horaInicio}
+                      className={`session-capacity-chip ${
+                        lotada ? "session-capacity-full" : ""
+                      }`}
+                    >
+                      {ocupacao.horaInicio}-{ocupacao.horaFim}:{" "}
+                      {ocupacao.total}/{SESSION_CAPACITY}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Cards dos agendamentos */}
           {carregando ? (
             <div className="empty-state">
@@ -567,6 +626,7 @@ export const AgendamentoPage: React.FC = () => {
                   fisioterapeutas={fisioterapeutas}
                   canManage={canManageAgenda}
                   procedureProgress={getProcedureProgress(ag)}
+                  sessionOccupancy={ocupacaoPorHorario[ag.horaInicio]}
                   onEditar={() => abrirEditarModal(ag)}
                   onExcluir={() => excluirAgendamento(ag.id)}
                   onAlterarStatus={(status) => alterarStatus(ag.id, status)}
@@ -600,6 +660,7 @@ interface CardProps {
   fisioterapeutas: Fisioterapeuta[];
   canManage: boolean;
   procedureProgress?: ProcedureProgress;
+  sessionOccupancy?: SessionOccupancy;
   onEditar: () => void;
   onExcluir: () => void;
   onAlterarStatus: (status: StatusAgendamento) => void;
@@ -610,6 +671,7 @@ const AgendamentoCard: React.FC<CardProps> = ({
   fisioterapeutas,
   canManage,
   procedureProgress,
+  sessionOccupancy,
   onEditar,
   onExcluir,
   onAlterarStatus,
@@ -633,9 +695,25 @@ const AgendamentoCard: React.FC<CardProps> = ({
           <span className="ag-hora">
             {ag.horaInicio} – {ag.horaFim}
           </span>
-          <span className={`notranslate badge badge-${ag.status}`} translate="no">
-            {STATUS_LABEL[ag.status]}
-          </span>
+          <div className="ag-badge-group">
+            {sessionOccupancy && (
+              <span
+                className={`badge badge-capacidade ${
+                  sessionOccupancy.total >= SESSION_CAPACITY
+                    ? "badge-capacidade-full"
+                    : ""
+                }`}
+              >
+                {sessionOccupancy.total}/{SESSION_CAPACITY}
+              </span>
+            )}
+            <span
+              className={`notranslate badge badge-${ag.status}`}
+              translate="no"
+            >
+              {STATUS_LABEL[ag.status]}
+            </span>
+          </div>
         </div>
 
         {/* Linha 2: Paciente */}

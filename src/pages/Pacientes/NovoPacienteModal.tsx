@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "../../components/ui/Button";
+import { SESSION_DURATION_MINUTES } from "../Agenda/Agendamentoservice";
 import {
   NewPatientForm,
   Patient,
@@ -57,7 +58,7 @@ const emptyForm: NewPatientForm = {
   contracted_lessons: 8,
   fixed_weekdays: [2, 4],
   fixed_time: "08:00",
-  lesson_duration_minutes: 50,
+  lesson_duration_minutes: SESSION_DURATION_MINUTES,
   responsible_professional_id: "",
   procedures: [],
   lesson_value: 0,
@@ -265,7 +266,10 @@ function addMinutesToSchedule(
   };
 }
 
-function defaultProcedureSchedule(offsetSlots = 0, durationMinutes = 50) {
+function defaultProcedureSchedule(
+  offsetSlots = 0,
+  durationMinutes = SESSION_DURATION_MINUTES,
+) {
   return addMinutesToSchedule(
     today(),
     nextAvailableTime(),
@@ -356,7 +360,7 @@ function formFromPatient(
       activePackage?.fixed_time?.slice(0, 5) ??
       patient.fixed_time?.slice(0, 5) ??
       (hasStoredLessons ? "08:00" : ""),
-    lesson_duration_minutes: 50,
+    lesson_duration_minutes: SESSION_DURATION_MINUTES,
     responsible_professional_id: patient.responsible_professional_id ?? "",
     procedures,
     lesson_value: Number(activePackage?.lesson_value) || 0,
@@ -540,7 +544,8 @@ export const NovoPacienteModal = ({
               );
               const schedule = defaultProcedureSchedule(
                 selectedCredits,
-                Number(current.lesson_duration_minutes) || 50,
+                Number(current.lesson_duration_minutes) ||
+                  SESSION_DURATION_MINUTES,
               );
 
               return [

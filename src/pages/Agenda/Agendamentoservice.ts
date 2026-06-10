@@ -136,6 +136,8 @@ const statusToDb: Record<StatusAgendamento, AppointmentStatusDB> = {
 const CLINIC_TIME_ZONE = "America/Sao_Paulo";
 const CLINIC_UTC_OFFSET = "-03:00";
 const TRANSACTIONS_TABLE = "transactions";
+export const SESSION_DURATION_MINUTES = 60;
+export const SESSION_CAPACITY = 5;
 
 function getDateParts(value: string) {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -176,6 +178,56 @@ function formatDateBr(value: string): string {
 
 function toDateTime(date: string, time: string): string {
   return new Date(`${date}T${time}:00${CLINIC_UTC_OFFSET}`).toISOString();
+}
+
+function addMinutesToTime(time: string, minutes: number): string {
+  const [hour, minute] = time.split(":").map(Number);
+  const date = new Date(2000, 0, 1, hour, minute + minutes, 0);
+  return date.toTimeString().slice(0, 5);
+}
+
+function normalizeSessionForm(form: NovoAgendamentoForm): NovoAgendamentoForm {
+  return {
+    ...form,
+    horaFim: addMinutesToTime(form.horaInicio, SESSION_DURATION_MINUTES),
+  };
+}
+
+async function assertSessionCapacity({
+  clinicId,
+  startTime,
+  status,
+  ignoreAppointmentId,
+}: {
+  clinicId: string;
+  startTime: string;
+  status: StatusAgendamento;
+  ignoreAppointmentId?: string;
+}): Promise<void> {
+  if (status === "cancelada") return;
+
+  let query = supabase
+    .from("appointments")
+    .select("id", { count: "exact", head: true })
+    .eq("clinic_id", clinicId)
+    .eq("start_time", startTime)
+    .neq("status", statusToDb.cancelada);
+
+  if (ignoreAppointmentId) {
+    query = query.neq("id", ignoreAppointmentId);
+  }
+
+  const { count, error } = await query;
+
+  if (error) {
+    throw new Error(`Erro ao validar lotação da sessão: ${error.message}`);
+  }
+
+  if ((count ?? 0) >= SESSION_CAPACITY) {
+    throw new Error(
+      `Esta sessão já tem ${SESSION_CAPACITY} pacientes neste horário. Escolha outro horário.`,
+    );
+  }
 }
 
 function toMonthBoundary(year: number, month: number): string {
@@ -405,7 +457,8 @@ function toPaciente(db: PatientDB): Paciente {
           valorAula: Number(pacote.lesson_value) || 0,
           diasFixos: pacote.fixed_weekdays ?? [],
           horarioFixo: pacote.fixed_time.slice(0, 5),
-          duracaoMinutos: pacote.lesson_duration_minutes || 50,
+          duracaoMinutos:
+            pacote.lesson_duration_minutes || SESSION_DURATION_MINUTES,
           statusPagamento: pacote.payment_status,
           procedimentos,
         }
@@ -627,20 +680,30 @@ export async function criarAgendamento(
   clinicId: string,
   form: NovoAgendamentoForm,
 ): Promise<Agendamento> {
+  const normalizedForm = normalizeSessionForm(form);
+  const startTime = toDateTime(normalizedForm.data, normalizedForm.horaInicio);
+  const endTime = toDateTime(normalizedForm.data, normalizedForm.horaFim);
+
+  await assertSessionCapacity({
+    clinicId,
+    startTime,
+    status: normalizedForm.status,
+  });
+
   const { data, error } = await supabase
     .from("appointments")
     .insert({
       clinic_id: clinicId,
-      patient_id: form.pacienteId,
-      professional_id: form.fisioterapeutaId,
-      start_time: toDateTime(form.data, form.horaInicio),
-      end_time: toDateTime(form.data, form.horaFim),
-      type: form.tipoSessao,
-      status: statusToDb[form.status],
-      notes: form.observacoes || null,
-      package_id: form.pacoteId || null,
-      package_lesson_number: form.sessaoNumero || null,
-      class_price: form.valorAula || 0,
+      patient_id: normalizedForm.pacienteId,
+      professional_id: normalizedForm.fisioterapeutaId,
+      start_time: startTime,
+      end_time: endTime,
+      type: normalizedForm.tipoSessao,
+      status: statusToDb[normalizedForm.status],
+      notes: normalizedForm.observacoes || null,
+      package_id: normalizedForm.pacoteId || null,
+      package_lesson_number: normalizedForm.sessaoNumero || null,
+      class_price: normalizedForm.valorAula || 0,
     })
     .select(
       `
@@ -668,19 +731,19 @@ export async function criarAgendamento(
 
   const createdAppointment = data as unknown as AppointmentDB;
 
-  if (form.pacoteId) {
-    await atualizarResumoPacote(form.pacoteId);
+  if (normalizedForm.pacoteId) {
+    await atualizarResumoPacote(normalizedForm.pacoteId);
   } else {
     await syncStandaloneProcedureReceivable(createdAppointment.id, {
       clinic_id: clinicId,
-      patient_id: form.pacienteId,
-      professional_id: form.fisioterapeutaId,
-      start_time: toDateTime(form.data, form.horaInicio),
-      end_time: toDateTime(form.data, form.horaFim),
-      type: form.tipoSessao,
-      status: statusToDb[form.status],
+      patient_id: normalizedForm.pacienteId,
+      professional_id: normalizedForm.fisioterapeutaId,
+      start_time: startTime,
+      end_time: endTime,
+      type: normalizedForm.tipoSessao,
+      status: statusToDb[normalizedForm.status],
       package_id: null,
-      class_price: form.valorAula || 0,
+      class_price: normalizedForm.valorAula || 0,
       patients: createdAppointment.patients
         ? { full_name: createdAppointment.patients.full_name }
         : null,
@@ -694,6 +757,7 @@ export async function atualizarAgendamento(
   id: string,
   form: NovoAgendamentoForm,
 ): Promise<Agendamento> {
+  const normalizedForm = normalizeSessionForm(form);
   const { data: currentAppointment, error: currentError } = await supabase
     .from("appointments")
     .select("clinic_id, package_id, start_time, end_time, notes")
@@ -710,29 +774,36 @@ export async function atualizarAgendamento(
   const clinicId = (currentAppointment as { clinic_id: string }).clinic_id;
   const oldPackageId = (currentAppointment as { package_id: string | null })
     .package_id;
-  const newStart = toDateTime(form.data, form.horaInicio);
-  const newEnd = toDateTime(form.data, form.horaFim);
+  const newStart = toDateTime(normalizedForm.data, normalizedForm.horaInicio);
+  const newEnd = toDateTime(normalizedForm.data, normalizedForm.horaFim);
   const changedSchedule = oldStart !== newStart || oldEnd !== newEnd;
   const remarcacaoNote = changedSchedule
-    ? `Remarcação: de ${formatDateBr(toDate(oldStart))} ${toTime(oldStart)}-${toTime(oldEnd)} para ${formatDateBr(form.data)} ${form.horaInicio}-${form.horaFim}.`
+    ? `Remarcação: de ${formatDateBr(toDate(oldStart))} ${toTime(oldStart)}-${toTime(oldEnd)} para ${formatDateBr(normalizedForm.data)} ${normalizedForm.horaInicio}-${normalizedForm.horaFim}.`
     : "";
-  const notes = [form.observacoes || oldNotes || "", remarcacaoNote]
+  const notes = [normalizedForm.observacoes || oldNotes || "", remarcacaoNote]
     .filter(Boolean)
     .join("\n");
+
+  await assertSessionCapacity({
+    clinicId,
+    startTime: newStart,
+    status: normalizedForm.status,
+    ignoreAppointmentId: id,
+  });
 
   const { data, error } = await supabase
     .from("appointments")
     .update({
-      patient_id: form.pacienteId,
-      professional_id: form.fisioterapeutaId,
+      patient_id: normalizedForm.pacienteId,
+      professional_id: normalizedForm.fisioterapeutaId,
       start_time: newStart,
       end_time: newEnd,
-      type: form.tipoSessao,
-      status: statusToDb[form.status],
+      type: normalizedForm.tipoSessao,
+      status: statusToDb[normalizedForm.status],
       notes: notes || null,
-      package_id: form.pacoteId || null,
-      package_lesson_number: form.sessaoNumero || null,
-      class_price: form.valorAula || 0,
+      package_id: normalizedForm.pacoteId || null,
+      package_lesson_number: normalizedForm.sessaoNumero || null,
+      class_price: normalizedForm.valorAula || 0,
     })
     .eq("id", id)
     .select(
@@ -759,27 +830,27 @@ export async function atualizarAgendamento(
     throw new Error(`Erro ao atualizar agendamento: ${error.message}`);
   }
 
-  if (form.pacoteId) {
-    await atualizarResumoPacote(form.pacoteId);
+  if (normalizedForm.pacoteId) {
+    await atualizarResumoPacote(normalizedForm.pacoteId);
     await deletePendingProcedureReceivable(id);
   } else {
     await syncStandaloneProcedureReceivable(id, {
       clinic_id: clinicId,
-      patient_id: form.pacienteId,
-      professional_id: form.fisioterapeutaId,
+      patient_id: normalizedForm.pacienteId,
+      professional_id: normalizedForm.fisioterapeutaId,
       start_time: newStart,
       end_time: newEnd,
-      type: form.tipoSessao,
-      status: statusToDb[form.status],
+      type: normalizedForm.tipoSessao,
+      status: statusToDb[normalizedForm.status],
       package_id: null,
-      class_price: form.valorAula || 0,
+      class_price: normalizedForm.valorAula || 0,
       patients: (data as unknown as AppointmentDB).patients
         ? { full_name: (data as unknown as AppointmentDB).patients!.full_name }
         : null,
     });
   }
 
-  if (oldPackageId && oldPackageId !== form.pacoteId) {
+  if (oldPackageId && oldPackageId !== normalizedForm.pacoteId) {
     await atualizarResumoPacote(oldPackageId);
   }
 

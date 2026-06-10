@@ -363,6 +363,47 @@
   font-weight: 500;
 }
 
+.session-capacity-panel {
+  background: #fff;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.session-capacity-title {
+  font-size: 0.75rem;
+  color: var(--gray-600);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.session-capacity-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.session-capacity-chip {
+  border: 1px solid var(--teal-100);
+  background: var(--teal-50);
+  color: var(--teal-700);
+  border-radius: 20px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.session-capacity-full {
+  border-color: #f7c1c1;
+  background: var(--red-50);
+  color: var(--red-700);
+}
+
 /* ── Empty State ─────────────────────────────────────────────────────────────── */
 .empty-state {
   background: #fff;
@@ -431,6 +472,7 @@
   align-items: center;
   justify-content: space-between;
   margin-bottom: 2px;
+  gap: 0.75rem;
 }
 
 .ag-hora {
@@ -438,6 +480,13 @@
   font-weight: 600;
   color: var(--gray-600);
   font-variant-numeric: tabular-nums;
+}
+.ag-badge-group {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  flex-wrap: wrap;
 }
 .ag-paciente {
   font-size: 1rem;
@@ -521,6 +570,14 @@
 }
 .badge-cancelada,
 .badge-falta {
+  background: var(--red-50);
+  color: var(--red-700);
+}
+.badge-capacidade {
+  background: var(--blue-50);
+  color: var(--blue-700);
+}
+.badge-capacidade-full {
   background: var(--red-50);
   color: var(--red-700);
 }
