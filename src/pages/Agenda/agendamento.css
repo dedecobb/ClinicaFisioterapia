@@ -258,6 +258,53 @@
   background: var(--amber-500);
 }
 
+/* ── Legenda de Status ───────────────────────────────────────────────────────── */
+.status-legenda {
+  border-top: 1px solid var(--gray-100);
+  padding-top: 0.9rem;
+  margin-top: 0.2rem;
+  margin-bottom: 0.9rem;
+}
+
+.status-legenda-titulo {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--gray-800);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.65rem;
+}
+
+.status-legenda-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.status-legenda-item {
+  display: grid;
+  grid-template-columns: 116px minmax(0, 1fr);
+  align-items: start;
+  gap: 0.65rem;
+}
+
+.status-legenda-badge {
+  justify-self: start;
+  border-radius: 20px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1.2;
+  padding: 4px 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.status-legenda-descricao {
+  font-size: 0.74rem;
+  line-height: 1.35;
+  color: var(--gray-600);
+}
+
 /* ── Legenda ─────────────────────────────────────────────────────────────────── */
 .legenda {
   border-top: 1px solid var(--gray-100);

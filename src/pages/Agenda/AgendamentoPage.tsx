@@ -63,6 +63,40 @@ const STATUS_AGENDA: StatusAgendamento[] = [
   "cancelada",
 ];
 
+const STATUS_LEGENDAS: Array<{
+  status: StatusAgendamento;
+  descricao: string;
+}> = [
+  {
+    status: "agendada",
+    descricao: "Atendimento marcado, aguardando confirmação.",
+  },
+  {
+    status: "confirmada",
+    descricao: "Paciente confirmou que irá comparecer.",
+  },
+  {
+    status: "presenca_registrada",
+    descricao: "Paciente compareceu e a sessão foi realizada.",
+  },
+  {
+    status: "ausencia_justificada",
+    descricao: "Paciente avisou/justificou a ausência, sem contar como falta.",
+  },
+  {
+    status: "falta",
+    descricao: "Paciente não compareceu; conta como aula utilizada/falta paga.",
+  },
+  {
+    status: "reposicao",
+    descricao: "Sessão extra para compensar uma ausência anterior.",
+  },
+  {
+    status: "cancelada",
+    descricao: "Atendimento cancelado; não conta como sessão realizada.",
+  },
+];
+
 function procedureQuantity(procedure: PatientProcedure) {
   return Number(procedure.quantity) || 1;
 }
@@ -501,6 +535,25 @@ export const AgendamentoPage: React.FC = () => {
                 </button>
               );
             })}
+          </div>
+
+          <div className="status-legenda">
+            <h3 className="status-legenda-titulo">Legenda dos status</h3>
+            <div className="status-legenda-lista">
+              {STATUS_LEGENDAS.map((item) => (
+                <div key={item.status} className="status-legenda-item">
+                  <span
+                    className={`status-legenda-badge badge-${item.status}`}
+                    translate="no"
+                  >
+                    {STATUS_LABEL[item.status]}
+                  </span>
+                  <span className="status-legenda-descricao">
+                    {item.descricao}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* Legenda fisioterapeutas */}
