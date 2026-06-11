@@ -55,7 +55,6 @@ const STATUS_LABEL: Record<StatusAgendamento, string> = messages.agenda.status;
 
 const STATUS_AGENDA: StatusAgendamento[] = [
   "agendada",
-  "confirmada",
   "presenca_registrada",
   "ausencia_justificada",
   "falta",
@@ -70,10 +69,6 @@ const STATUS_LEGENDAS: Array<{
   {
     status: "agendada",
     descricao: "Atendimento marcado, aguardando confirmação.",
-  },
-  {
-    status: "confirmada",
-    descricao: "Paciente confirmou que irá comparecer.",
   },
   {
     status: "presenca_registrada",
@@ -303,7 +298,8 @@ export const AgendamentoPage: React.FC = () => {
     const doMes = agendamentos.filter((a) => a.data.startsWith(prefix));
     return {
       total: doMes.length,
-      confirmados: doMes.filter((a) => a.status === "confirmada").length,
+      presencas: doMes.filter((a) => a.status === "presenca_registrada")
+        .length,
       pendentes: doMes.filter((a) => a.status === "agendada").length,
       cancelados: doMes.filter((a) => a.status === "cancelada").length,
     };
@@ -466,8 +462,8 @@ export const AgendamentoPage: React.FC = () => {
           <span className="resumo-valor">{totaisMes.total}</span>
         </div>
         <div className="resumo-card resumo-confirmado">
-          <span className="resumo-label">Confirmados</span>
-          <span className="resumo-valor">{totaisMes.confirmados}</span>
+          <span className="resumo-label">Presenças</span>
+          <span className="resumo-valor">{totaisMes.presencas}</span>
         </div>
         <div className="resumo-card resumo-pendente">
           <span className="resumo-label">Agendadas</span>
@@ -516,7 +512,9 @@ export const AgendamentoPage: React.FC = () => {
               const ags = agendamentosPorData[dataStr] ?? [];
               const isHoje = dataStr === hoje();
               const isSelecionado = dataStr === dataSelecionada;
-              const temConfirmado = ags.some((a) => a.status === "confirmada");
+              const temPresenca = ags.some(
+                (a) => a.status === "presenca_registrada",
+              );
               const temPendente = ags.some((a) => a.status === "agendada");
 
               return (
@@ -528,7 +526,7 @@ export const AgendamentoPage: React.FC = () => {
                   <span className="cal-dia-num">{dia}</span>
                   {ags.length > 0 && (
                     <div className="cal-dots">
-                      {temConfirmado && <span className="dot dot-confirmado" />}
+                      {temPresenca && <span className="dot dot-confirmado" />}
                       {temPendente && <span className="dot dot-pendente" />}
                     </div>
                   )}

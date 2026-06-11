@@ -22,7 +22,6 @@ const TIPOS_SESSAO: TipoSessao[] = [
 
 const STATUS_LABEL = {
   agendada: "Agendada",
-  confirmada: "Confirmada",
   presenca_registrada: "Presença",
   ausencia_justificada: "Ausência justificada",
   falta: "Falta",
@@ -420,7 +419,6 @@ export const NovoAgendamentoModal: React.FC<Props> = ({
                 {(
                   [
                     "agendada",
-                    "confirmada",
                     "presenca_registrada",
                     "ausencia_justificada",
                     "falta",
