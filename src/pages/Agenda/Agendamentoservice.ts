@@ -265,6 +265,7 @@ function toTipoSessao(value: string): TipoSessao {
     "Drenagem linfática",
     "Liberação miofascial",
     "Massagem relaxante",
+    "Pilates",
     "Fisioterapia",
     "Fisioterapia pélvica",
   ];
@@ -513,7 +514,7 @@ function toAgendamento(db: AppointmentDB): Agendamento {
     data: toDate(db.start_time),
     horaInicio: toTime(db.start_time),
     horaFim: toTime(db.end_time),
-    tipoSessao: toTipoSessao(db.type),
+    tipoSessao: db.package_id ? "Pilates" : toTipoSessao(db.type),
     status: statusFromDb[db.status],
     observacoes: normalizePackageNotes(db) ?? undefined,
     pacoteId: db.package_id ?? undefined,

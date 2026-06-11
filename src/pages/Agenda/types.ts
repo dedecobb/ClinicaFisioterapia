@@ -12,6 +12,7 @@ export type TipoSessao =
   | "Drenagem linfática"
   | "Liberação miofascial"
   | "Massagem relaxante"
+  | "Pilates"
   | "Fisioterapia"
   | "Fisioterapia pélvica";
 

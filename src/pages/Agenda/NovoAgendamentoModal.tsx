@@ -16,6 +16,7 @@ const TIPOS_SESSAO: TipoSessao[] = [
   "Drenagem linfática",
   "Liberação miofascial",
   "Massagem relaxante",
+  "Pilates",
   "Fisioterapia",
   "Fisioterapia pélvica",
 ];
@@ -127,7 +128,7 @@ function applyPatientPackage(
     fisioterapeutaId: pacote.professionalId ?? current.fisioterapeutaId,
     horaInicio,
     horaFim: addMinutesToTime(horaInicio, SESSION_DURATION_MINUTES),
-    tipoSessao: "Fisioterapia",
+    tipoSessao: "Pilates",
     status:
       pacote.statusPagamento === "inadimplente" ? "agendada" : current.status,
     sessaoNumero: getNextSessionNumber(patient),
@@ -152,7 +153,7 @@ export const NovoAgendamentoModal: React.FC<Props> = ({
   const [form, setForm] = useState<NovoAgendamentoForm>(formVazio);
   const selectedPatient = pacientes.find((p) => p.id === form.pacienteId);
   const tipoOptions = selectedPatient?.pacoteAtivo
-    ? ["Fisioterapia"]
+    ? ["Pilates"]
     : (selectedPatient?.procedimentos ?? [])
         .map((procedure) => toSessionType(procedure.name))
         .filter(
