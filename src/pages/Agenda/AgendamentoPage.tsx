@@ -537,6 +537,21 @@ export const AgendamentoPage: React.FC = () => {
             })}
           </div>
 
+          {/* Legenda fisioterapeutas */}
+          <div className="legenda">
+            {fisioterapeutas.map((f) => (
+              <div key={f.id} className="legenda-item">
+                <span
+                  className="legenda-dot"
+                  style={{ backgroundColor: f.cor }}
+                />
+                <span className="legenda-nome">
+                  {f.nome.replace("Dr", "Dr.")}
+                </span>
+              </div>
+            ))}
+          </div>
+
           <div className="status-legenda">
             <h3 className="status-legenda-titulo">Legenda dos status</h3>
             <div className="status-legenda-lista">
@@ -554,21 +569,6 @@ export const AgendamentoPage: React.FC = () => {
                 </div>
               ))}
             </div>
-          </div>
-
-          {/* Legenda fisioterapeutas */}
-          <div className="legenda">
-            {fisioterapeutas.map((f) => (
-              <div key={f.id} className="legenda-item">
-                <span
-                  className="legenda-dot"
-                  style={{ backgroundColor: f.cor }}
-                />
-                <span className="legenda-nome">
-                  {f.nome.replace("Dr", "Dr.")}
-                </span>
-              </div>
-            ))}
           </div>
         </div>
 
