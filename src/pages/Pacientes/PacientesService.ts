@@ -25,6 +25,11 @@ type AppointmentInsert = {
   package_id: string | null;
 };
 
+type PatientDuplicateCandidate = Pick<
+  Patient,
+  "id" | "full_name" | "cpf" | "phone" | "birth_date"
+>;
+
 function pad2(value: number): string {
   return String(value).padStart(2, "0");
 }
@@ -45,6 +50,15 @@ function onlyDigits(value: string): string {
   return value.replace(/\D/g, "");
 }
 
+function normalizePatientName(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
 function formatSupabaseError(
   action: string,
   error: SupabaseErrorLike,
@@ -56,6 +70,92 @@ function formatSupabaseError(
   const suffix = extra ? ` (${extra})` : "";
 
   return new Error(`${action} na tabela ${table}: ${error.message}${suffix}`);
+}
+
+async function getPatientClinicId(patientId: string): Promise<string> {
+  const { data, error } = await supabase
+    .from(PATIENTS_TABLE)
+    .select("clinic_id")
+    .eq("id", patientId)
+    .single();
+
+  if (error) {
+    throw formatSupabaseError("Erro ao localizar paciente", error);
+  }
+
+  const clinicId = (data as Pick<Patient, "clinic_id"> | null)?.clinic_id;
+  if (!clinicId) {
+    throw new Error("Não foi possível identificar a clínica do paciente.");
+  }
+
+  return clinicId;
+}
+
+function getDuplicateReasons(
+  form: NewPatientForm,
+  patient: PatientDuplicateCandidate,
+): string[] {
+  const reasons: string[] = [];
+  const formName = normalizePatientName(form.full_name);
+  const patientName = normalizePatientName(patient.full_name);
+  const formCpf = onlyDigits(form.cpf);
+  const patientCpf = onlyDigits(patient.cpf ?? "");
+  const formPhone = onlyDigits(form.phone);
+  const patientPhone = onlyDigits(patient.phone ?? "");
+
+  if (formName && patientName && formName === patientName) {
+    reasons.push("mesmo nome");
+  }
+
+  if (formCpf && patientCpf && formCpf === patientCpf) {
+    reasons.push("mesmo CPF");
+  }
+
+  if (formPhone && patientPhone && formPhone === patientPhone) {
+    reasons.push("mesmo telefone");
+  }
+
+  if (
+    form.birth_date &&
+    patient.birth_date &&
+    form.birth_date === patient.birth_date &&
+    formName &&
+    patientName &&
+    formName === patientName
+  ) {
+    reasons.push("mesma data de nascimento");
+  }
+
+  return reasons;
+}
+
+async function assertPatientIsNotDuplicate(
+  clinicId: string,
+  form: NewPatientForm,
+  ignorePatientId?: string,
+): Promise<void> {
+  const { data, error } = await supabase
+    .from(PATIENTS_TABLE)
+    .select("id, full_name, cpf, phone, birth_date")
+    .eq("clinic_id", clinicId);
+
+  if (error) {
+    throw formatSupabaseError("Erro ao validar duplicidade do paciente", error);
+  }
+
+  const duplicate = ((data ?? []) as PatientDuplicateCandidate[])
+    .filter((patient) => patient.id !== ignorePatientId)
+    .map((patient) => ({
+      patient,
+      reasons: getDuplicateReasons(form, patient),
+    }))
+    .find(({ reasons }) => reasons.length > 0);
+
+  if (!duplicate) return;
+
+  throw new Error(
+    `Já existe um paciente cadastrado com dados semelhantes: ${duplicate.patient.full_name} (${duplicate.reasons.join(", ")}). Revise o cadastro antes de salvar para evitar duplicidade.`,
+  );
 }
 
 function normalizeProcedures(form: NewPatientForm): PatientProcedure[] {
@@ -879,6 +979,8 @@ export async function criarPaciente(
     validateStandaloneProcedureFields(form);
   }
 
+  await assertPatientIsNotDuplicate(clinicId, form);
+
   const { data, error } = await supabase
     .from(PATIENTS_TABLE)
     .insert({
@@ -1158,6 +1260,9 @@ export async function atualizarPaciente(
   if (!withLessons && procedures.length > 0) {
     validateStandaloneProcedureFields(form);
   }
+
+  const clinicId = await getPatientClinicId(patientId);
+  await assertPatientIsNotDuplicate(clinicId, form, patientId);
 
   const { data, error } = await supabase
     .from(PATIENTS_TABLE)
