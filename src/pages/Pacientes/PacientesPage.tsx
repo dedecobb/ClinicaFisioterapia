@@ -226,6 +226,18 @@ export const PacientesPage = () => {
     if (
       form.procedures.some(
         (procedure) =>
+          procedure.schedule_mode === "fixed_weekdays" &&
+          (!procedure.recurring_start_date ||
+            !procedure.recurring_time ||
+            !procedure.recurring_weekdays?.length),
+      )
+    ) {
+      return "Informe data inicial, horário e dias fixos dos procedimentos recorrentes.";
+    }
+
+    if (
+      form.procedures.some(
+        (procedure) =>
           (procedure.schedule ?? []).filter((item) => item.date && item.time)
             .length > Number(procedure.quantity),
       )

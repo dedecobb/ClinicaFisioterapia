@@ -204,6 +204,21 @@ function normalizeProcedures(form: NewPatientForm): PatientProcedure[] {
           ? { scheduled_time: procedure.scheduled_time }
           : {}),
         ...(schedule.length > 0 ? { schedule } : {}),
+        ...(procedure.schedule_mode
+          ? { schedule_mode: procedure.schedule_mode }
+          : {}),
+        ...(procedure.recurring_start_date
+          ? { recurring_start_date: procedure.recurring_start_date }
+          : {}),
+        ...(procedure.recurring_time
+          ? { recurring_time: procedure.recurring_time }
+          : {}),
+        ...(procedure.recurring_weekdays?.length
+          ? { recurring_weekdays: procedure.recurring_weekdays }
+          : {}),
+        ...(procedure.recurring_status
+          ? { recurring_status: procedure.recurring_status }
+          : {}),
       };
     })
     .filter((procedure) => procedure.name.trim());
@@ -648,6 +663,18 @@ function validateStandaloneProcedureFields(form: NewPatientForm) {
   procedures.forEach((procedure) => {
     const quantity = Math.max(Number(procedure.quantity) || 1, 1);
     const scheduledCredits = procedure.schedule?.length ?? 0;
+
+    if (procedure.schedule_mode === "fixed_weekdays") {
+      if (
+        !procedure.recurring_start_date ||
+        !procedure.recurring_time ||
+        !procedure.recurring_weekdays?.length
+      ) {
+        throw new Error(
+          `Informe data inicial, horário e dias fixos para gerar ${procedure.name}.`,
+        );
+      }
+    }
 
     if (scheduledCredits > quantity) {
       throw new Error(

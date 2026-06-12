@@ -46,6 +46,11 @@ export interface PatientProcedure {
   scheduled_date?: string;
   scheduled_time?: string;
   schedule?: PatientProcedureSchedule[];
+  schedule_mode?: "manual" | "fixed_weekdays";
+  recurring_start_date?: string;
+  recurring_time?: string;
+  recurring_weekdays?: number[];
+  recurring_status?: "agendada" | "presenca_registrada";
 }
 
 export interface PatientProcedureSchedule {

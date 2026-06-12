@@ -209,6 +209,16 @@ function getProceduresTotal(procedures: NewPatientForm["procedures"]): number {
   );
 }
 
+function getProcedureTotal(
+  procedure: NewPatientForm["procedures"][number] | undefined,
+): number {
+  if (!procedure) return 0;
+  return roundMoney(
+    (Number(procedure.agreed_value) || 0) *
+      (Number(procedure.quantity) || 0),
+  );
+}
+
 function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
 }
@@ -283,6 +293,63 @@ function normalizeProcedureTimeForDate(date: string, time: string): string {
   return time;
 }
 
+function generateFixedProcedureSchedule({
+  startDate,
+  time,
+  weekdays,
+  quantity,
+  status,
+}: {
+  startDate: string;
+  time: string;
+  weekdays: number[];
+  quantity: number;
+  status: "agendada" | "presenca_registrada";
+}) {
+  if (!startDate || !time || weekdays.length === 0 || quantity <= 0) return [];
+
+  const selected = new Set(weekdays);
+  const cursor = new Date(`${startDate}T12:00:00`);
+  const schedule: Array<{
+    date: string;
+    time: string;
+    status: "agendada" | "presenca_registrada";
+  }> = [];
+
+  while (schedule.length < quantity) {
+    if (selected.has(cursor.getDay())) {
+      schedule.push({
+        date: `${cursor.getFullYear()}-${pad2(cursor.getMonth() + 1)}-${pad2(
+          cursor.getDate(),
+        )}`,
+        time,
+        status,
+      });
+    }
+
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return schedule;
+}
+
+function withGeneratedProcedureSchedule(
+  procedure: NewPatientForm["procedures"][number],
+) {
+  if (procedure.schedule_mode !== "fixed_weekdays") return procedure;
+
+  return {
+    ...procedure,
+    schedule: generateFixedProcedureSchedule({
+      startDate: procedure.recurring_start_date ?? "",
+      time: procedure.recurring_time ?? "",
+      weekdays: procedure.recurring_weekdays ?? [],
+      quantity: Math.max(Number(procedure.quantity) || 1, 1),
+      status: procedure.recurring_status ?? "agendada",
+    }),
+  };
+}
+
 function normalizeProcedureScheduleForForm(
   procedure: NonNullable<Patient["procedures"]>[number],
 ) {
@@ -314,6 +381,11 @@ function normalizeProceduresForForm(
       quantity: Number(procedure.quantity) || 1,
       agreed_value: Number(procedure.agreed_value) || 0,
       schedule: normalizeProcedureScheduleForForm(procedure),
+      schedule_mode: procedure.schedule_mode ?? "manual",
+      recurring_start_date: procedure.recurring_start_date ?? "",
+      recurring_time: procedure.recurring_time ?? "",
+      recurring_weekdays: procedure.recurring_weekdays ?? [],
+      recurring_status: procedure.recurring_status ?? "agendada",
     };
   });
 }
@@ -566,6 +638,11 @@ export const NovoPacienteModal = ({
                   agreed_value: 0,
                   quantity: 1,
                   schedule: [],
+                  schedule_mode: "manual",
+                  recurring_start_date: today(),
+                  recurring_time: nextAvailableTime(),
+                  recurring_weekdays: [],
+                  recurring_status: "agendada",
                 },
               ];
             })(),
@@ -579,6 +656,88 @@ export const NovoPacienteModal = ({
       procedures: current.procedures.map((item) =>
         item.type === type ? { ...item, agreed_value: value } : item,
       ),
+    }));
+  };
+
+  const updateProcedureTotal = (type: ProcedureType, value: number) => {
+    setFormData((current) => ({
+      ...current,
+      procedures: current.procedures.map((item) => {
+        if (item.type !== type) return item;
+
+        const quantity = Math.max(Number(item.quantity) || 1, 1);
+        return {
+          ...item,
+          agreed_value: roundMoney((Number(value) || 0) / quantity),
+        };
+      }),
+    }));
+  };
+
+  const updateProcedureScheduleMode = (
+    type: ProcedureType,
+    mode: "manual" | "fixed_weekdays",
+  ) => {
+    setFormData((current) => ({
+      ...current,
+      procedures: current.procedures.map((item) => {
+        if (item.type !== type) return item;
+
+        const next = {
+          ...item,
+          schedule_mode: mode,
+          recurring_start_date: item.recurring_start_date || today(),
+          recurring_time: item.recurring_time || nextAvailableTime(),
+          recurring_status: item.recurring_status ?? "agendada",
+        };
+
+        return mode === "fixed_weekdays"
+          ? withGeneratedProcedureSchedule(next)
+          : next;
+      }),
+    }));
+  };
+
+  const updateProcedureRecurrence = (
+    type: ProcedureType,
+    updates: Partial<NewPatientForm["procedures"][number]>,
+  ) => {
+    setFormData((current) => ({
+      ...current,
+      procedures: current.procedures.map((item) => {
+        if (item.type !== type) return item;
+        return withGeneratedProcedureSchedule({
+          ...item,
+          ...updates,
+          schedule_mode: "fixed_weekdays",
+        });
+      }),
+    }));
+  };
+
+  const toggleProcedureRecurringWeekday = (
+    type: ProcedureType,
+    weekday: number,
+  ) => {
+    setFormData((current) => ({
+      ...current,
+      procedures: current.procedures.map((item) => {
+        if (item.type !== type) return item;
+
+        const weekdays = item.recurring_weekdays ?? [];
+        const recurring_weekdays = weekdays.includes(weekday)
+          ? weekdays.filter((value) => value !== weekday)
+          : [...weekdays, weekday].sort((a, b) => a - b);
+
+        return withGeneratedProcedureSchedule({
+          ...item,
+          schedule_mode: "fixed_weekdays",
+          recurring_start_date: item.recurring_start_date || today(),
+          recurring_time: item.recurring_time || nextAvailableTime(),
+          recurring_weekdays,
+          recurring_status: item.recurring_status ?? "agendada",
+        });
+      }),
     }));
   };
 
@@ -670,15 +829,21 @@ export const NovoPacienteModal = ({
   const updateProcedureQuantity = (type: ProcedureType, value: number) => {
     setFormData((current) => ({
       ...current,
-      procedures: current.procedures.map((item) =>
-        item.type === type
-          ? {
-              ...item,
-              quantity: value,
+      procedures: current.procedures.map((item) => {
+        if (item.type !== type) return item;
+
+        const next = {
+          ...item,
+          quantity: value,
+        };
+
+        return item.schedule_mode === "fixed_weekdays"
+          ? withGeneratedProcedureSchedule(next)
+          : {
+              ...next,
               schedule: (item.schedule ?? []).slice(0, Math.max(value, 0)),
-            }
-          : item,
-      ),
+            };
+      }),
     }));
   };
 
@@ -1077,7 +1242,7 @@ export const NovoPacienteModal = ({
                               : "border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900"
                           }`}
                         >
-                          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_7rem_10rem_10rem] lg:items-end">
                             <label className="flex min-w-0 flex-1 items-center gap-3">
                               <input
                                 type="checkbox"
@@ -1091,7 +1256,10 @@ export const NovoPacienteModal = ({
                               </span>
                             </label>
 
-                            <div className="w-full sm:w-28">
+                            <div className="space-y-1">
+                              <label className="text-xs font-semibold uppercase text-slate-400">
+                                Créditos
+                              </label>
                               <input
                                 type="number"
                                 min={1}
@@ -1109,41 +1277,112 @@ export const NovoPacienteModal = ({
                               />
                             </div>
 
-                            <div className="relative w-full sm:w-40">
-                              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400">
-                                R$
-                              </span>
-                              <input
-                                type="number"
-                                min={0}
-                                step="0.01"
-                                disabled={loading || !selected}
-                                aria-label={`Valor unitário para ${procedure.name}`}
-                                className="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
-                                placeholder="Valor unit."
-                                value={selectedProcedure?.agreed_value ?? ""}
-                                onChange={(event) =>
-                                  updateProcedureValue(
-                                    procedure.type,
-                                    Number(event.target.value),
-                                  )
-                                }
-                              />
+                            <div className="space-y-1">
+                              <label className="text-xs font-semibold uppercase text-slate-400">
+                                Valor unitário
+                              </label>
+                              <div className="relative">
+                                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400">
+                                  R$
+                                </span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step="0.01"
+                                  disabled={loading || !selected}
+                                  aria-label={`Valor unitário para ${procedure.name}`}
+                                  className="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
+                                  placeholder="Unit."
+                                  value={selectedProcedure?.agreed_value ?? ""}
+                                  onChange={(event) =>
+                                    updateProcedureValue(
+                                      procedure.type,
+                                      Number(event.target.value),
+                                    )
+                                  }
+                                />
+                              </div>
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="text-xs font-semibold uppercase text-slate-400">
+                                Valor total
+                              </label>
+                              <div className="relative">
+                                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400">
+                                  R$
+                                </span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step="0.01"
+                                  disabled={loading || !selected}
+                                  aria-label={`Valor total para ${procedure.name}`}
+                                  className="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
+                                  placeholder="Total"
+                                  value={
+                                    selectedProcedure
+                                      ? getProcedureTotal(selectedProcedure)
+                                      : ""
+                                  }
+                                  onChange={(event) =>
+                                    updateProcedureTotal(
+                                      procedure.type,
+                                      Number(event.target.value),
+                                    )
+                                  }
+                                />
+                              </div>
                             </div>
                           </div>
 
                           {selectedProcedure && (
                             <div className="mt-3 space-y-3 border-t border-slate-200 pt-3 dark:border-slate-800">
                               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                                <div className="text-xs font-semibold uppercase text-slate-400">
-                                  Agenda dos créditos:{" "}
-                                  {(selectedProcedure.schedule ?? []).length}/
-                                  {Number(selectedProcedure.quantity) || 1}
+                                <div className="inline-flex rounded-lg border border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-950">
+                                  <button
+                                    type="button"
+                                    disabled={loading}
+                                    onClick={() =>
+                                      updateProcedureScheduleMode(
+                                        procedure.type,
+                                        "manual",
+                                      )
+                                    }
+                                    className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                                      (selectedProcedure.schedule_mode ??
+                                        "manual") === "manual"
+                                        ? "bg-brand-600 text-white"
+                                        : "text-slate-500 hover:bg-slate-100"
+                                    }`}
+                                  >
+                                    Manual
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={loading}
+                                    onClick={() =>
+                                      updateProcedureScheduleMode(
+                                        procedure.type,
+                                        "fixed_weekdays",
+                                      )
+                                    }
+                                    className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                                      selectedProcedure.schedule_mode ===
+                                      "fixed_weekdays"
+                                        ? "bg-brand-600 text-white"
+                                        : "text-slate-500 hover:bg-slate-100"
+                                    }`}
+                                  >
+                                    Dias fixos
+                                  </button>
                                 </div>
                                 <button
                                   type="button"
                                   disabled={
                                     loading ||
+                                    selectedProcedure.schedule_mode ===
+                                      "fixed_weekdays" ||
                                     (selectedProcedure.schedule ?? []).length >=
                                       (Number(selectedProcedure.quantity) || 1)
                                   }
@@ -1155,6 +1394,139 @@ export const NovoPacienteModal = ({
                                   <Plus size={14} />
                                   Agendar crédito
                                 </button>
+                              </div>
+
+                              {selectedProcedure.schedule_mode ===
+                                "fixed_weekdays" && (
+                                <div className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950 sm:grid-cols-2">
+                                  <div className="space-y-1">
+                                    <label className="text-xs font-semibold uppercase text-slate-400">
+                                      Primeiro procedimento
+                                    </label>
+                                    <div className="relative">
+                                      <Calendar
+                                        className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                                        size={16}
+                                      />
+                                      <input
+                                        type="date"
+                                        disabled={loading}
+                                        className="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
+                                        value={
+                                          selectedProcedure.recurring_start_date ??
+                                          today()
+                                        }
+                                        onChange={(event) =>
+                                          updateProcedureRecurrence(
+                                            procedure.type,
+                                            {
+                                              recurring_start_date:
+                                                event.target.value,
+                                            },
+                                          )
+                                        }
+                                      />
+                                    </div>
+                                  </div>
+
+                                  <div className="space-y-1">
+                                    <label className="text-xs font-semibold uppercase text-slate-400">
+                                      Horário fixo
+                                    </label>
+                                    <div className="relative">
+                                      <Clock
+                                        className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                                        size={16}
+                                      />
+                                      <input
+                                        type="time"
+                                        step={300}
+                                        disabled={loading}
+                                        className="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
+                                        value={
+                                          selectedProcedure.recurring_time ??
+                                          nextAvailableTime()
+                                        }
+                                        onChange={(event) =>
+                                          updateProcedureRecurrence(
+                                            procedure.type,
+                                            {
+                                              recurring_time:
+                                                event.target.value,
+                                            },
+                                          )
+                                        }
+                                      />
+                                    </div>
+                                  </div>
+
+                                  <div className="space-y-1 sm:col-span-2">
+                                    <label className="text-xs font-semibold uppercase text-slate-400">
+                                      Dias da semana
+                                    </label>
+                                    <div className="flex flex-wrap gap-2">
+                                      {WEEKDAYS.map((weekday) => (
+                                        <button
+                                          key={weekday.value}
+                                          type="button"
+                                          disabled={loading}
+                                          onClick={() =>
+                                            toggleProcedureRecurringWeekday(
+                                              procedure.type,
+                                              weekday.value,
+                                            )
+                                          }
+                                          className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                                            (
+                                              selectedProcedure.recurring_weekdays ??
+                                              []
+                                            ).includes(weekday.value)
+                                              ? "border-brand-500 bg-brand-50 text-brand-700"
+                                              : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                                          }`}
+                                        >
+                                          {weekday.label}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
+
+                                  <div className="space-y-1 sm:col-span-2">
+                                    <label className="text-xs font-semibold uppercase text-slate-400">
+                                      Status gerado
+                                    </label>
+                                    <select
+                                      disabled={loading}
+                                      className="w-full px-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
+                                      value={
+                                        selectedProcedure.recurring_status ??
+                                        "agendada"
+                                      }
+                                      onChange={(event) =>
+                                        updateProcedureRecurrence(
+                                          procedure.type,
+                                          {
+                                            recurring_status: event.target
+                                              .value as
+                                              | "agendada"
+                                              | "presenca_registrada",
+                                          },
+                                        )
+                                      }
+                                    >
+                                      <option value="agendada">Agendada</option>
+                                      <option value="presenca_registrada">
+                                        Realizada
+                                      </option>
+                                    </select>
+                                  </div>
+                                </div>
+                              )}
+
+                              <div className="text-xs font-semibold uppercase text-slate-400">
+                                Agenda dos créditos:{" "}
+                                {(selectedProcedure.schedule ?? []).length}/
+                                {Number(selectedProcedure.quantity) || 1}
                               </div>
 
                               {(selectedProcedure.schedule ?? []).map(
@@ -1174,7 +1546,11 @@ export const NovoPacienteModal = ({
                                         />
                                         <input
                                           type="date"
-                                          disabled={loading}
+                                          disabled={
+                                            loading ||
+                                            selectedProcedure.schedule_mode ===
+                                              "fixed_weekdays"
+                                          }
                                           className="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
                                           value={scheduledItem.date}
                                           onChange={(event) =>
@@ -1202,7 +1578,11 @@ export const NovoPacienteModal = ({
                                         <input
                                           type="time"
                                           step={300}
-                                          disabled={loading}
+                                          disabled={
+                                            loading ||
+                                            selectedProcedure.schedule_mode ===
+                                              "fixed_weekdays"
+                                          }
                                           className="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
                                           value={scheduledItem.time}
                                           onChange={(event) =>
@@ -1223,7 +1603,11 @@ export const NovoPacienteModal = ({
                                         Status
                                       </label>
                                       <select
-                                        disabled={loading}
+                                        disabled={
+                                          loading ||
+                                          selectedProcedure.schedule_mode ===
+                                            "fixed_weekdays"
+                                        }
                                         className="w-full px-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
                                         value={
                                           scheduledItem.status ?? "agendada"
@@ -1248,7 +1632,11 @@ export const NovoPacienteModal = ({
 
                                     <button
                                       type="button"
-                                      disabled={loading}
+                                      disabled={
+                                        loading ||
+                                        selectedProcedure.schedule_mode ===
+                                          "fixed_weekdays"
+                                      }
                                       onClick={() =>
                                         removeProcedureSchedule(
                                           procedure.type,
