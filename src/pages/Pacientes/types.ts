@@ -45,6 +45,13 @@ export interface PatientProcedure {
   quantity: number;
   scheduled_date?: string;
   scheduled_time?: string;
+  schedule?: PatientProcedureSchedule[];
+}
+
+export interface PatientProcedureSchedule {
+  date: string;
+  time: string;
+  status?: "agendada" | "presenca_registrada";
 }
 
 export interface PackageSummary {

@@ -146,7 +146,7 @@ export const PacientesPage = () => {
       active = false;
       window.clearTimeout(debounce);
     };
-  }, [searchTerm, profile?.clinic_id]);
+  }, [searchTerm, profile]);
 
   useEffect(() => {
     let active = true;
@@ -174,9 +174,15 @@ export const PacientesPage = () => {
 
     // Recarrega a lista de pacientes quando o modal fecha
     if (!isModalOpen && profile?.clinic_id && !loading) {
+      const currentProfile = profile;
+
       async function refreshPatients() {
         try {
-          const data = await listarPacientes(profile.clinic_id, searchTerm, profile);
+          const data = await listarPacientes(
+            currentProfile.clinic_id,
+            searchTerm,
+            currentProfile,
+          );
           if (active) setPatients(data);
         } catch (err) {
           // Erro silencioso para não interromper a navegação
@@ -191,7 +197,7 @@ export const PacientesPage = () => {
     return () => {
       active = false;
     };
-  }, [isModalOpen, profile?.clinic_id, searchTerm]);
+  }, [isModalOpen, loading, profile, searchTerm]);
 
   const validatePatientForm = (form: NewPatientForm): string | null => {
     const hasLessons = Number(form.contracted_lessons) > 0;
@@ -219,10 +225,12 @@ export const PacientesPage = () => {
 
     if (
       form.procedures.some(
-        (procedure) => !procedure.scheduled_date || !procedure.scheduled_time,
+        (procedure) =>
+          (procedure.schedule ?? []).filter((item) => item.date && item.time)
+            .length > Number(procedure.quantity),
       )
     ) {
-      return "Informe data e horário de todos os procedimentos selecionados.";
+      return "Há mais agendamentos do que créditos contratados em um procedimento.";
     }
 
     if (Number(form.contracted_lessons) < 0) {

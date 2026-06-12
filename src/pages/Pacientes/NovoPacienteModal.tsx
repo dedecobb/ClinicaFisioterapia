@@ -10,6 +10,8 @@ import {
   Mail,
   MapPin,
   Phone,
+  Plus,
+  Trash2,
   User,
   X,
 } from "lucide-react";
@@ -278,24 +280,40 @@ function defaultProcedureSchedule(
 }
 
 function normalizeProcedureTimeForDate(date: string, time: string): string {
-  const minTime = nextAvailableTime();
-
-  if (date === today() && time < minTime) return minTime;
   return time;
+}
+
+function normalizeProcedureScheduleForForm(
+  procedure: NonNullable<Patient["procedures"]>[number],
+) {
+  const schedule = (procedure.schedule ?? []).filter(
+    (item) => item.date && item.time,
+  );
+
+  if (schedule.length > 0) return schedule;
+
+  if (procedure.scheduled_date && procedure.scheduled_time) {
+    return [
+      {
+        date: procedure.scheduled_date,
+        time: procedure.scheduled_time,
+        status: "agendada" as const,
+      },
+    ];
+  }
+
+  return [];
 }
 
 function normalizeProceduresForForm(
   procedures: Patient["procedures"] | undefined | null,
 ): NewPatientForm["procedures"] {
-  return (procedures ?? []).map((procedure, index) => {
-    const fallback = defaultProcedureSchedule(index);
-
+  return (procedures ?? []).map((procedure) => {
     return {
       ...procedure,
       quantity: Number(procedure.quantity) || 1,
       agreed_value: Number(procedure.agreed_value) || 0,
-      scheduled_date: procedure.scheduled_date ?? fallback.date,
-      scheduled_time: procedure.scheduled_time ?? fallback.time,
+      schedule: normalizeProcedureScheduleForForm(procedure),
     };
   });
 }
@@ -431,33 +449,35 @@ export const NovoPacienteModal = ({
           throw new Error("CEP não encontrado.");
         }
 
-        // Auto-preenchimento do IBGE para Cuiabá
-        const cityName = data.localidade?.trim() || current.address.cityName;
-        const isCuiaba =
-          cityName
-            .toLowerCase()
-            .normalize("NFD")
-            .replace(/[\u0300-\u036f]/g, "") === "cuiaba";
-        const ibgeCode = isCuiaba
-          ? "5103403"
-          : onlyDigits(data.ibge ?? current.address.cityCode);
-
         lastFetchedCep.current = cepDigits;
         setFormData((current) => ({
           ...current,
-          address: {
-            ...current.address,
-            postalCode: onlyDigits(data.cep ?? cepDigits),
-            street: data.logradouro?.trim() || current.address.street,
-            additionalInformation:
-              current.address.additionalInformation ||
-              data.complemento?.trim() ||
-              "",
-            district: data.bairro?.trim() || current.address.district,
-            cityName: cityName,
-            cityCode: ibgeCode,
-            state: uppercaseState(data.uf ?? current.address.state),
-          },
+          address: (() => {
+            const cityName =
+              data.localidade?.trim() || current.address.cityName;
+            const isCuiaba =
+              cityName
+                .toLowerCase()
+                .normalize("NFD")
+                .replace(/[\u0300-\u036f]/g, "") === "cuiaba";
+            const ibgeCode = isCuiaba
+              ? "5103403"
+              : onlyDigits(data.ibge ?? current.address.cityCode);
+
+            return {
+              ...current.address,
+              postalCode: onlyDigits(data.cep ?? cepDigits),
+              street: data.logradouro?.trim() || current.address.street,
+              additionalInformation:
+                current.address.additionalInformation ||
+                data.complemento?.trim() ||
+                "",
+              district: data.bairro?.trim() || current.address.district,
+              cityName,
+              cityCode: ibgeCode,
+              state: uppercaseState(data.uf ?? current.address.state),
+            };
+          })(),
         }));
       } catch (err) {
         if (controller.signal.aborted) return;
@@ -538,16 +558,6 @@ export const NovoPacienteModal = ({
         procedures: selected
           ? current.procedures.filter((item) => item.type !== type)
           : (() => {
-              const selectedCredits = current.procedures.reduce(
-                (total, item) => total + (Number(item.quantity) || 1),
-                0,
-              );
-              const schedule = defaultProcedureSchedule(
-                selectedCredits,
-                Number(current.lesson_duration_minutes) ||
-                  SESSION_DURATION_MINUTES,
-              );
-
               return [
                 ...current.procedures,
                 {
@@ -555,8 +565,7 @@ export const NovoPacienteModal = ({
                   name: option.name,
                   agreed_value: 0,
                   quantity: 1,
-                  scheduled_date: schedule.date,
-                  scheduled_time: schedule.time,
+                  schedule: [],
                 },
               ];
             })(),
@@ -573,9 +582,54 @@ export const NovoPacienteModal = ({
     }));
   };
 
+  const addProcedureSchedule = (type: ProcedureType) => {
+    setFormData((current) => ({
+      ...current,
+      procedures: current.procedures.map((item) => {
+        if (item.type !== type) return item;
+
+        const quantity = Math.max(Number(item.quantity) || 1, 1);
+        const schedule = item.schedule ?? [];
+        if (schedule.length >= quantity) return item;
+
+        const nextSlot = defaultProcedureSchedule(
+          schedule.length,
+          Number(current.lesson_duration_minutes) || SESSION_DURATION_MINUTES,
+        );
+
+        return {
+          ...item,
+          schedule: [
+            ...schedule,
+            {
+              date: nextSlot.date,
+              time: nextSlot.time,
+              status: "agendada" as const,
+            },
+          ],
+        };
+      }),
+    }));
+  };
+
+  const removeProcedureSchedule = (type: ProcedureType, index: number) => {
+    setFormData((current) => ({
+      ...current,
+      procedures: current.procedures.map((item) =>
+        item.type === type
+          ? {
+              ...item,
+              schedule: (item.schedule ?? []).filter((_, itemIndex) => itemIndex !== index),
+            }
+          : item,
+      ),
+    }));
+  };
+
   const updateProcedureSchedule = (
     type: ProcedureType,
-    field: "scheduled_date" | "scheduled_time",
+    index: number,
+    field: "date" | "time" | "status",
     value: string,
   ) => {
     setFormData((current) => ({
@@ -583,17 +637,31 @@ export const NovoPacienteModal = ({
       procedures: current.procedures.map((item) => {
         if (item.type !== type) return item;
 
-        const nextDate =
-          field === "scheduled_date" ? value : (item.scheduled_date ?? today());
-        const nextTime =
-          field === "scheduled_time"
-            ? value
-            : (item.scheduled_time ?? nextAvailableTime());
-
         return {
           ...item,
-          scheduled_date: nextDate,
-          scheduled_time: normalizeProcedureTimeForDate(nextDate, nextTime),
+          schedule: (item.schedule ?? []).map((scheduledItem, itemIndex) => {
+            if (itemIndex !== index) return scheduledItem;
+
+            const nextDate =
+              field === "date" ? value : scheduledItem.date || today();
+            const nextTime =
+              field === "time"
+                ? value
+                : scheduledItem.time || nextAvailableTime();
+
+            return {
+              ...scheduledItem,
+              date: nextDate,
+              time:
+                field === "time" || field === "date"
+                  ? normalizeProcedureTimeForDate(nextDate, nextTime)
+                  : nextTime,
+              status:
+                field === "status"
+                  ? (value as "agendada" | "presenca_registrada")
+                  : scheduledItem.status ?? "agendada",
+            };
+          }),
         };
       }),
     }));
@@ -603,12 +671,24 @@ export const NovoPacienteModal = ({
     setFormData((current) => ({
       ...current,
       procedures: current.procedures.map((item) =>
-        item.type === type ? { ...item, quantity: value } : item,
+        item.type === type
+          ? {
+              ...item,
+              quantity: value,
+              schedule: (item.schedule ?? []).slice(0, Math.max(value, 0)),
+            }
+          : item,
       ),
     }));
   };
 
   const proceduresTotal = getProceduresTotal(formData.procedures);
+  const scheduledProcedureCredits = formData.procedures.reduce(
+    (total, procedure) =>
+      total +
+      (procedure.schedule ?? []).filter((item) => item.date && item.time).length,
+    0,
+  );
   const hasLessons = Number(formData.contracted_lessons) > 0;
   const lessonsTotal = hasLessons ? Number(formData.total_amount) || 0 : 0;
   const financialTotal = lessonsTotal + proceduresTotal;
@@ -1053,72 +1133,136 @@ export const NovoPacienteModal = ({
                           </div>
 
                           {selectedProcedure && (
-                            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3 border-t border-slate-200 pt-3 dark:border-slate-800">
-                              <div className="space-y-1">
-                                <label className="text-xs font-semibold uppercase text-slate-400">
-                                  Data
-                                </label>
-                                <div className="relative">
-                                  <Calendar
-                                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                                    size={16}
-                                  />
-                                  <input
-                                    type="date"
-                                    min={today()}
-                                    disabled={loading}
-                                    className="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
-                                    value={
-                                      selectedProcedure.scheduled_date ??
-                                      today()
-                                    }
-                                    onChange={(event) =>
-                                      updateProcedureSchedule(
-                                        procedure.type,
-                                        "scheduled_date",
-                                        event.target.value,
-                                      )
-                                    }
-                                    required
-                                  />
+                            <div className="mt-3 space-y-3 border-t border-slate-200 pt-3 dark:border-slate-800">
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                <div className="text-xs font-semibold uppercase text-slate-400">
+                                  Agenda dos créditos:{" "}
+                                  {(selectedProcedure.schedule ?? []).length}/
+                                  {Number(selectedProcedure.quantity) || 1}
                                 </div>
+                                <button
+                                  type="button"
+                                  disabled={
+                                    loading ||
+                                    (selectedProcedure.schedule ?? []).length >=
+                                      (Number(selectedProcedure.quantity) || 1)
+                                  }
+                                  onClick={() =>
+                                    addProcedureSchedule(procedure.type)
+                                  }
+                                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-brand-200 px-3 py-2 text-xs font-semibold text-brand-700 transition-colors hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  <Plus size={14} />
+                                  Agendar crédito
+                                </button>
                               </div>
 
-                              <div className="space-y-1">
-                                <label className="text-xs font-semibold uppercase text-slate-400">
-                                  Horário
-                                </label>
-                                <div className="relative">
-                                  <Clock
-                                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                                    size={16}
-                                  />
-                                  <input
-                                    type="time"
-                                    step={300}
-                                    min={
-                                      (selectedProcedure.scheduled_date ??
-                                        today()) === today()
-                                        ? nextAvailableTime()
-                                        : undefined
-                                    }
-                                    disabled={loading}
-                                    className="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
-                                    value={
-                                      selectedProcedure.scheduled_time ??
-                                      nextAvailableTime()
-                                    }
-                                    onChange={(event) =>
-                                      updateProcedureSchedule(
-                                        procedure.type,
-                                        "scheduled_time",
-                                        event.target.value,
-                                      )
-                                    }
-                                    required
-                                  />
-                                </div>
-                              </div>
+                              {(selectedProcedure.schedule ?? []).map(
+                                (scheduledItem, index) => (
+                                  <div
+                                    key={`${procedure.type}-${index}`}
+                                    className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950 sm:grid-cols-[1fr_1fr_1fr_auto]"
+                                  >
+                                    <div className="space-y-1">
+                                      <label className="text-xs font-semibold uppercase text-slate-400">
+                                        Data
+                                      </label>
+                                      <div className="relative">
+                                        <Calendar
+                                          className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                                          size={16}
+                                        />
+                                        <input
+                                          type="date"
+                                          disabled={loading}
+                                          className="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
+                                          value={scheduledItem.date}
+                                          onChange={(event) =>
+                                            updateProcedureSchedule(
+                                              procedure.type,
+                                              index,
+                                              "date",
+                                              event.target.value,
+                                            )
+                                          }
+                                          required
+                                        />
+                                      </div>
+                                    </div>
+
+                                    <div className="space-y-1">
+                                      <label className="text-xs font-semibold uppercase text-slate-400">
+                                        Horário
+                                      </label>
+                                      <div className="relative">
+                                        <Clock
+                                          className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                                          size={16}
+                                        />
+                                        <input
+                                          type="time"
+                                          step={300}
+                                          disabled={loading}
+                                          className="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
+                                          value={scheduledItem.time}
+                                          onChange={(event) =>
+                                            updateProcedureSchedule(
+                                              procedure.type,
+                                              index,
+                                              "time",
+                                              event.target.value,
+                                            )
+                                          }
+                                          required
+                                        />
+                                      </div>
+                                    </div>
+
+                                    <div className="space-y-1">
+                                      <label className="text-xs font-semibold uppercase text-slate-400">
+                                        Status
+                                      </label>
+                                      <select
+                                        disabled={loading}
+                                        className="w-full px-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
+                                        value={
+                                          scheduledItem.status ?? "agendada"
+                                        }
+                                        onChange={(event) =>
+                                          updateProcedureSchedule(
+                                            procedure.type,
+                                            index,
+                                            "status",
+                                            event.target.value,
+                                          )
+                                        }
+                                      >
+                                        <option value="agendada">
+                                          Agendada
+                                        </option>
+                                        <option value="presenca_registrada">
+                                          Realizada
+                                        </option>
+                                      </select>
+                                    </div>
+
+                                    <button
+                                      type="button"
+                                      disabled={loading}
+                                      onClick={() =>
+                                        removeProcedureSchedule(
+                                          procedure.type,
+                                          index,
+                                        )
+                                      }
+                                      className="inline-flex h-10 items-center justify-center self-end rounded-lg border border-red-200 px-3 text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                      aria-label={`Remover agendamento ${index + 1} de ${procedure.name}`}
+                                    >
+                                      <Trash2 size={16} />
+                                    </button>
+                                  </div>
+                                ),
+                              )}
                             </div>
                           )}
                         </div>
@@ -1143,7 +1287,7 @@ export const NovoPacienteModal = ({
                     Agenda e sessões contratadas
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Sessões usam dias e horário fixos. Procedimentos avulsos usam a data e o horário definidos em cada procedimento.
+                    Sessões usam dias e horário fixos. Procedimentos avulsos ficam como créditos e podem ter datas individuais na agenda.
                   </p>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1488,12 +1632,16 @@ export const NovoPacienteModal = ({
                   {isRenewing
                     ? hasLessons
                       ? "Renovar e gerar sessões"
-                      : "Adicionar e agendar procedimentos"
+                      : scheduledProcedureCredits > 0
+                        ? "Adicionar e agendar procedimentos"
+                        : "Adicionar procedimentos"
                     : isEditing
                       ? "Salvar alterações"
                       : hasLessons
                         ? "Cadastrar e gerar sessões"
-                        : "Cadastrar e agendar procedimentos"}
+                        : scheduledProcedureCredits > 0
+                          ? "Cadastrar e agendar procedimentos"
+                          : "Cadastrar procedimentos"}
                 </Button>
               </div>
             </form>

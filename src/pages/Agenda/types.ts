@@ -23,6 +23,11 @@ export interface PatientProcedure {
   quantity?: number | string | null;
   scheduled_date?: string | null;
   scheduled_time?: string | null;
+  schedule?: Array<{
+    date: string;
+    time: string;
+    status?: "agendada" | "presenca_registrada";
+  }>;
 }
 
 export interface Paciente {

@@ -20,9 +20,27 @@ const CLINIC_UTC_OFFSET = "-03:00";
 
 type AppointmentInsert = {
   clinic_id: string;
+  patient_id: string;
+  professional_id?: string;
   start_time: string;
+  end_time?: string;
   status: string;
   package_id: string | null;
+  package_lesson_number?: number | null;
+  type: string;
+  class_price?: number;
+  notes?: string;
+};
+
+type TransactionInsert = {
+  clinic_id: string;
+  patient_id: string;
+  amount: number;
+  type: string;
+  category: string;
+  status: string;
+  description: string;
+  due_date: string;
 };
 
 type PatientDuplicateCandidate = Pick<
@@ -164,18 +182,28 @@ function normalizeProcedures(form: NewPatientForm): PatientProcedure[] {
       const option = PROCEDURE_OPTIONS.find(
         (item) => item.type === procedure.type,
       );
+      const quantity = Math.max(Number(procedure.quantity) || 1, 1);
+      const schedule = (procedure.schedule ?? [])
+        .slice(0, quantity)
+        .filter((item) => item.date && item.time)
+        .map((item) => ({
+          date: item.date,
+          time: item.time,
+          status: item.status ?? "agendada",
+        }));
 
       return {
         type: procedure.type,
         name: option?.name ?? procedure.name,
         agreed_value: Number(procedure.agreed_value) || 0,
-        quantity: Number(procedure.quantity) || 1,
+        quantity,
         ...(procedure.scheduled_date
           ? { scheduled_date: procedure.scheduled_date }
           : {}),
         ...(procedure.scheduled_time
           ? { scheduled_time: procedure.scheduled_time }
           : {}),
+        ...(schedule.length > 0 ? { schedule } : {}),
       };
     })
     .filter((procedure) => procedure.name.trim());
@@ -411,6 +439,43 @@ async function assertAppointmentBatchCapacity(
   }
 }
 
+async function filterExistingStandaloneProcedureAppointments(
+  patientId: string,
+  appointments: AppointmentInsert[],
+): Promise<AppointmentInsert[]> {
+  if (appointments.length === 0) return [];
+
+  const startTimes = Array.from(
+    new Set(appointments.map((appointment) => appointment.start_time)),
+  );
+
+  const { data, error } = await supabase
+    .from("appointments")
+    .select("type, start_time")
+    .eq("patient_id", patientId)
+    .is("package_id", null)
+    .in("start_time", startTimes);
+
+  if (error) {
+    throw formatSupabaseError(
+      "Erro ao verificar procedimentos já agendados",
+      error,
+      "appointments",
+    );
+  }
+
+  const existing = new Set(
+    ((data ?? []) as Array<{ type: string; start_time: string }>).map(
+      (appointment) => `${appointment.type}|${appointment.start_time}`,
+    ),
+  );
+
+  return appointments.filter(
+    (appointment) =>
+      !existing.has(`${appointment.type}|${appointment.start_time}`),
+  );
+}
+
 function generateLessonDates(
   startDate: string,
   weekdays: number[],
@@ -545,35 +610,24 @@ function todayDate(): string {
   }).format(new Date());
 }
 
-function currentClinicTime(): string {
-  const parts = new Intl.DateTimeFormat("pt-BR", {
-    timeZone: "America/Sao_Paulo",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).formatToParts(new Date());
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-
-  return `${values.hour}:${values.minute}`;
-}
-
 function getPatientPlanFields(form: NewPatientForm) {
   const withLessons = hasLessonPackage(form);
   const procedures = normalizeProcedures(form);
   const firstProcedure = procedures[0];
+  const firstProcedureSchedule = firstProcedure?.schedule?.[0];
   const withProcedures = procedures.length > 0;
 
   return {
     plan_start_date: withLessons
       ? emptyToNull(form.plan_start_date)
       : withProcedures
-        ? firstProcedure.scheduled_date ?? todayDate()
+        ? firstProcedure.scheduled_date ?? firstProcedureSchedule?.date ?? todayDate()
         : null,
     contracted_lessons: withLessons ? form.contracted_lessons : null,
     fixed_weekdays: withLessons ? form.fixed_weekdays : null,
     fixed_time: withLessons
       ? emptyToNull(form.fixed_time)
-      : (firstProcedure.scheduled_time ?? null),
+      : (firstProcedure.scheduled_time ?? firstProcedureSchedule?.time ?? null),
   };
 }
 
@@ -591,40 +645,39 @@ function validateStandaloneProcedureFields(form: NewPatientForm) {
   const procedures = normalizeProcedures(form);
   if (procedures.length === 0) return;
 
-  if (
-    procedures.some(
-      (procedure) => !procedure.scheduled_date || !procedure.scheduled_time,
-    )
-  ) {
-    throw new Error(
-      "Informe data e horário para todos os procedimentos selecionados.",
-    );
-  }
+  procedures.forEach((procedure) => {
+    const quantity = Math.max(Number(procedure.quantity) || 1, 1);
+    const scheduledCredits = procedure.schedule?.length ?? 0;
 
-  const today = todayDate();
-  const now = currentClinicTime();
-  const hasPastSchedule = procedures.some((procedure) => {
-    const scheduledDate = procedure.scheduled_date ?? "";
-    const scheduledTime = procedure.scheduled_time ?? "";
-
-    return scheduledDate < today || (scheduledDate === today && scheduledTime < now);
+    if (scheduledCredits > quantity) {
+      throw new Error(
+        `O procedimento ${procedure.name} tem mais agendamentos do que créditos contratados.`,
+      );
+    }
   });
-
-  if (hasPastSchedule) {
-    throw new Error(
-      "Procedimentos para hoje precisam ficar em um horário igual ou posterior ao horário atual.",
-    );
-  }
 }
 
 function getProcedureCredits(procedures: PatientProcedure[]) {
   return procedures.flatMap((procedure) => {
     const quantity = Math.max(Number(procedure.quantity) || 1, 1);
+    const schedule =
+      procedure.schedule && procedure.schedule.length > 0
+        ? procedure.schedule
+        : procedure.scheduled_date && procedure.scheduled_time
+          ? [
+              {
+                date: procedure.scheduled_date,
+                time: procedure.scheduled_time,
+                status: "agendada" as const,
+              },
+            ]
+          : [];
 
-    return Array.from({ length: quantity }, (_, index) => ({
+    return schedule.slice(0, quantity).map((scheduledCredit, index) => ({
       procedure,
       creditNumber: index + 1,
       totalCredits: quantity,
+      scheduledCredit,
     }));
   });
 }
@@ -651,13 +704,13 @@ async function criarAgendamentosProcedimentosAvulsos({
   const credits = getProcedureCredits(procedures);
   const duration = SESSION_DURATION_MINUTES;
 
-  const appointments = credits.map((credit) => {
-    const scheduledDate = credit.procedure.scheduled_date ?? todayDate();
-    const scheduledTime = credit.procedure.scheduled_time ?? form.fixed_time;
+  const requestedAppointments = credits.map((credit) => {
+    const scheduledDate = credit.scheduledCredit.date;
+    const scheduledTime = credit.scheduledCredit.time;
     const start = addMinutesToSchedule(
       scheduledDate,
       scheduledTime,
-      duration * (credit.creditNumber - 1),
+      0,
     );
     const end = addMinutesToSchedule(start.date, start.time, duration);
     const procedureName = credit.procedure.name || "Procedimento";
@@ -669,13 +722,20 @@ async function criarAgendamentosProcedimentosAvulsos({
       start_time: toDateTime(start.date, start.time),
       end_time: toDateTime(end.date, end.time),
       type: procedureName,
-      status: "agendada",
+      status: credit.scheduledCredit.status ?? "agendada",
       package_id: null,
       package_lesson_number: null,
       class_price: Number(credit.procedure.agreed_value) || 0,
       notes: `${isRenewal ? "Renovação: " : ""}Procedimento avulso ${credit.creditNumber}/${credit.totalCredits}: ${procedureName}.`,
     };
   });
+
+  const appointments = await filterExistingStandaloneProcedureAppointments(
+    patientId,
+    requestedAppointments,
+  );
+
+  if (appointments.length === 0) return;
 
   await assertAppointmentBatchCapacity(appointments);
 
@@ -882,7 +942,7 @@ async function registrarFinanceiroProcedimentosAvulsos({
           due_date: paymentDate,
         }
       : null,
-  ].filter(Boolean);
+  ].filter((row): row is TransactionInsert => Boolean(row));
 
   if (rows.length === 0) return;
 
@@ -895,24 +955,6 @@ async function registrarFinanceiroProcedimentosAvulsos({
       TRANSACTIONS_TABLE,
     );
   }
-}
-
-async function hasStandaloneProcedureAppointments(patientId: string): Promise<boolean> {
-  const { count, error } = await supabase
-    .from("appointments")
-    .select("id", { count: "exact", head: true })
-    .eq("patient_id", patientId)
-    .is("package_id", null);
-
-  if (error) {
-    throw formatSupabaseError(
-      "Erro ao verificar procedimentos na agenda",
-      error,
-      "appointments",
-    );
-  }
-
-  return (count ?? 0) > 0;
 }
 
 async function sincronizarParcelasPacote(
@@ -1293,17 +1335,13 @@ export async function atualizarPaciente(
   const activePackage = await atualizarPacotePrincipal(patientId, form, totalAmount);
 
   if (!withLessons && procedures.length > 0) {
-    const hasAgenda = await hasStandaloneProcedureAppointments(patientId);
-
-    if (!hasAgenda) {
-      await criarAgendamentosProcedimentosAvulsos({
-        clinicId: patient.clinic_id,
-        patientId,
-        professionalId: form.responsible_professional_id,
-        form,
-        procedures,
-      });
-    }
+    await criarAgendamentosProcedimentosAvulsos({
+      clinicId: patient.clinic_id,
+      patientId,
+      professionalId: form.responsible_professional_id,
+      form,
+      procedures,
+    });
 
     await registrarFinanceiroProcedimentosAvulsos({
       clinicId: patient.clinic_id,

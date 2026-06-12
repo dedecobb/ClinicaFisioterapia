@@ -521,10 +521,10 @@ function toAgendamento(db: AppointmentDB): Agendamento {
     sessaoNumero: db.package_lesson_number ?? undefined,
     totalSessoes: db.lesson_packages?.total_lessons,
     valorAula: Number(db.class_price) || undefined,
-    procedimentos:
-      standaloneProcedure || syntheticStandaloneProcedure
-        ? [standaloneProcedure ?? syntheticStandaloneProcedure]
-        : allProcedures,
+    procedimentos: (() => {
+      const procedure = standaloneProcedure ?? syntheticStandaloneProcedure;
+      return procedure ? [procedure] : allProcedures;
+    })(),
   };
 }
 
