@@ -57,9 +57,9 @@ const emptyForm: NewPatientForm = {
     state: "",
   },
   plan_start_date: "",
-  contracted_lessons: 8,
-  fixed_weekdays: [2, 4],
-  fixed_time: "08:00",
+  contracted_lessons: 0,
+  fixed_weekdays: [],
+  fixed_time: "",
   lesson_duration_minutes: SESSION_DURATION_MINUTES,
   responsible_professional_id: "",
   procedures: [],
@@ -440,8 +440,7 @@ function formFromPatient(
     address,
     plan_start_date:
       activePackage?.start_date ?? patient.plan_start_date ?? today(),
-    contracted_lessons:
-      hasStoredLessons || procedures.length > 0 ? storedLessons : 8,
+    contracted_lessons: hasStoredLessons ? storedLessons : 0,
     fixed_weekdays:
       activePackage?.fixed_weekdays ??
       patient.fixed_weekdays ??
