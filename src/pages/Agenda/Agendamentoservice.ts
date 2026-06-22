@@ -193,6 +193,10 @@ function normalizeSessionForm(form: NovoAgendamentoForm): NovoAgendamentoForm {
   };
 }
 
+function formatAppointmentSlot(startTime: string): string {
+  return `${formatDateBr(toDate(startTime))} às ${toTime(startTime)}`;
+}
+
 async function assertSessionCapacity({
   clinicId,
   startTime,
@@ -224,8 +228,14 @@ async function assertSessionCapacity({
   }
 
   if ((count ?? 0) >= SESSION_CAPACITY) {
+    const message = `Olha, existe choque de horário em ${formatAppointmentSlot(
+      startTime,
+    )}. O limite recomendado é de ${SESSION_CAPACITY} pacientes no mesmo horário. Você tem certeza que deseja cadastrar mesmo assim?`;
+
+    if (typeof window !== "undefined" && window.confirm(message)) return;
+
     throw new Error(
-      `Esta sessão já tem ${SESSION_CAPACITY} pacientes neste horário. Escolha outro horário.`,
+      `Cadastro não concluído. Esta sessão já tem ${count ?? SESSION_CAPACITY}/${SESSION_CAPACITY} pacientes neste horário. Escolha outro horário ou tente novamente e confirme o cadastro mesmo assim.`,
     );
   }
 }

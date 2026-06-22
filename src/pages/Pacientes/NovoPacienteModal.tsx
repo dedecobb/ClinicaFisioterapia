@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
+  AlertCircle,
   Calendar,
   Clock,
   ClipboardList,
@@ -482,6 +483,11 @@ export const NovoPacienteModal = ({
   const isEditing = mode === "edit";
   const isRenewing = mode === "renew";
   const cepDigits = onlyDigits(formData.address.postalCode);
+  const isScheduleConflict =
+    error?.includes("Horário lotado") ||
+    error?.includes("choque de horário") ||
+    error?.includes("limite de 5 pacientes") ||
+    error?.includes("lotação");
 
   useEffect(() => {
     if (isOpen) {
@@ -914,8 +920,30 @@ export const NovoPacienteModal = ({
             >
               <div className="flex-1 overflow-y-auto p-8 space-y-6">
                 {error && (
-                  <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
-                    {error}
+                  <div
+                    role="alert"
+                    className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-100"
+                  >
+                    <div className="flex gap-3">
+                      <AlertCircle
+                        size={20}
+                        className="mt-0.5 shrink-0 text-rose-600 dark:text-rose-300"
+                      />
+                      <div className="space-y-1">
+                        <strong className="block text-sm">
+                          {isScheduleConflict
+                            ? "Não foi possível gerar a agenda"
+                            : "Não foi possível salvar"}
+                        </strong>
+                        <p>{error}</p>
+                        {isScheduleConflict && (
+                          <p className="text-rose-700 dark:text-rose-200">
+                            Revise os campos Data de Início, Dias fixos e
+                            Horário fixo das sessões antes de tentar novamente.
+                          </p>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 )}
 
@@ -2005,31 +2033,61 @@ export const NovoPacienteModal = ({
                 </div>
               </div>
 
-              <div className="p-6 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex gap-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="flex-1"
-                  onClick={onClose}
-                  disabled={loading}
-                >
-                  Cancelar
-                </Button>
-                <Button type="submit" className="flex-[2]" isLoading={loading}>
-                  {isRenewing
-                    ? hasLessons
-                      ? "Renovar e gerar sessões"
-                      : scheduledProcedureCredits > 0
-                        ? "Adicionar e agendar procedimentos"
-                        : "Adicionar procedimentos"
-                    : isEditing
-                      ? "Salvar alterações"
-                      : hasLessons
-                        ? "Cadastrar e gerar sessões"
+              <div className="space-y-4 border-t border-slate-100 bg-slate-50/50 p-6 dark:border-slate-800 dark:bg-slate-900/50">
+                {error && (
+                  <div
+                    role="alert"
+                    className="rounded-xl border border-rose-300 bg-rose-50 p-4 text-sm text-rose-800 shadow-sm dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-100"
+                  >
+                    <div className="flex gap-3">
+                      <AlertCircle
+                        size={20}
+                        className="mt-0.5 shrink-0 text-rose-600 dark:text-rose-300"
+                      />
+                      <div className="space-y-1">
+                        <strong className="block text-sm">
+                          {isScheduleConflict
+                            ? "Horário incompatível"
+                            : "Atenção antes de salvar"}
+                        </strong>
+                        <p>{error}</p>
+                        {isScheduleConflict && (
+                          <p className="text-rose-700 dark:text-rose-200">
+                            Escolha outro horário, remova um dos dias fixos ou
+                            mude a data de início.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="flex-1"
+                    onClick={onClose}
+                    disabled={loading}
+                  >
+                    Cancelar
+                  </Button>
+                  <Button type="submit" className="flex-[2]" isLoading={loading}>
+                    {isRenewing
+                      ? hasLessons
+                        ? "Renovar e gerar sessões"
                         : scheduledProcedureCredits > 0
-                          ? "Cadastrar e agendar procedimentos"
-                          : "Cadastrar procedimentos"}
-                </Button>
+                          ? "Adicionar e agendar procedimentos"
+                          : "Adicionar procedimentos"
+                      : isEditing
+                        ? "Salvar alterações"
+                        : hasLessons
+                          ? "Cadastrar e gerar sessões"
+                          : scheduledProcedureCredits > 0
+                            ? "Cadastrar e agendar procedimentos"
+                            : "Cadastrar procedimentos"}
+                  </Button>
+                </div>
               </div>
             </form>
           </motion.div>

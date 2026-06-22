@@ -16,6 +16,7 @@ const PATIENTS_TABLE = "patients";
 const PACKAGES_TABLE = "lesson_packages";
 const INSTALLMENTS_TABLE = "package_installments";
 const TRANSACTIONS_TABLE = "transactions";
+const CLINIC_TIME_ZONE = "America/Sao_Paulo";
 const CLINIC_UTC_OFFSET = "-03:00";
 
 type AppointmentInsert = {
@@ -408,6 +409,24 @@ function toDateTime(date: string, time: string): string {
   return new Date(`${date}T${time}:00${CLINIC_UTC_OFFSET}`).toISOString();
 }
 
+function formatAppointmentSlot(startTime: string): string {
+  const date = new Date(startTime);
+  const formattedDate = new Intl.DateTimeFormat("pt-BR", {
+    timeZone: CLINIC_TIME_ZONE,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
+  const formattedTime = new Intl.DateTimeFormat("pt-BR", {
+    timeZone: CLINIC_TIME_ZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+
+  return `${formattedDate} às ${formattedTime}`;
+}
+
 async function assertAppointmentBatchCapacity(
   appointments: AppointmentInsert[],
   ignorePackageId?: string,
@@ -421,6 +440,8 @@ async function assertAppointmentBatchCapacity(
       map[appointment.start_time] = (map[appointment.start_time] ?? 0) + 1;
       return map;
     }, {});
+
+  const conflicts: string[] = [];
 
   for (const [startTime, requestedCount] of Object.entries(
     requestedByStartTime,
@@ -447,10 +468,22 @@ async function assertAppointmentBatchCapacity(
     }
 
     if ((count ?? 0) + requestedCount > SESSION_CAPACITY) {
-      throw new Error(
-        `Uma das sessões já atingiu o limite de ${SESSION_CAPACITY} pacientes no mesmo horário.`,
-      );
+      conflicts.push(formatAppointmentSlot(startTime));
     }
+  }
+
+  if (conflicts.length > 0) {
+    const visibleConflicts = conflicts.slice(0, 4).join(", ");
+    const remainingConflicts = conflicts.length - 4;
+    const remainingText =
+      remainingConflicts > 0 ? ` e mais ${remainingConflicts} sessão(ões)` : "";
+    const message = `Olha, existe choque de horário em ${visibleConflicts}${remainingText}. O limite recomendado é de ${SESSION_CAPACITY} pacientes no mesmo horário. Você tem certeza que deseja cadastrar mesmo assim?`;
+
+    if (typeof window !== "undefined" && window.confirm(message)) return;
+
+    throw new Error(
+      `Cadastro não concluído. Existe choque de horário em ${visibleConflicts}${remainingText}. Altere o horário fixo, os dias da semana ou a data de início, ou tente novamente e confirme o cadastro mesmo assim.`,
+    );
   }
 }
 
@@ -515,6 +548,53 @@ function generateLessonDates(
   return dates;
 }
 
+function buildLessonAppointments({
+  clinicId,
+  patientId,
+  professionalId,
+  packageId,
+  lessonDates,
+  form,
+  totalLessons,
+  lockedLessonNumbers = new Set<number>(),
+  isRenewal = false,
+}: {
+  clinicId: string;
+  patientId: string;
+  professionalId: string;
+  packageId: string | null;
+  lessonDates: string[];
+  form: NewPatientForm;
+  totalLessons: number;
+  lockedLessonNumbers?: Set<number>;
+  isRenewal?: boolean;
+}): AppointmentInsert[] {
+  const endTime = addMinutesToTime(form.fixed_time, SESSION_DURATION_MINUTES);
+  const lessonUnitValue = getLessonUnitValue(form);
+
+  return lessonDates.flatMap((lessonDate, index) => {
+    const lessonNumber = index + 1;
+
+    if (lockedLessonNumbers.has(lessonNumber)) return [];
+
+    return [
+      {
+        clinic_id: clinicId,
+        patient_id: patientId,
+        professional_id: professionalId,
+        package_id: packageId,
+        package_lesson_number: lessonNumber,
+        class_price: lessonUnitValue,
+        start_time: toDateTime(lessonDate, form.fixed_time),
+        end_time: toDateTime(lessonDate, endTime),
+        type: "Fisioterapia",
+        status: "agendada",
+        notes: `${isRenewal ? "Renovação: aula" : "Aula"} ${lessonNumber}/${totalLessons} ${isRenewal ? "do novo pacote" : "do pacote"}.`,
+      },
+    ];
+  });
+}
+
 async function sincronizarAgendamentosPacote({
   clinicId,
   patientId,
@@ -524,6 +604,7 @@ async function sincronizarAgendamentosPacote({
   form,
   totalLessons,
   isRenewal = false,
+  skipCapacityConfirmation = false,
 }: {
   clinicId: string;
   patientId: string;
@@ -533,6 +614,7 @@ async function sincronizarAgendamentosPacote({
   form: NewPatientForm;
   totalLessons: number;
   isRenewal?: boolean;
+  skipCapacityConfirmation?: boolean;
 }) {
   const { data: lockedAppointments, error: lockedError } = await supabase
     .from("appointments")
@@ -554,6 +636,24 @@ async function sincronizarAgendamentosPacote({
       .filter((value): value is number => Number.isFinite(value)),
   );
 
+  const appointments = buildLessonAppointments({
+    clinicId,
+    patientId,
+    professionalId,
+    packageId,
+    lessonDates,
+    form,
+    totalLessons,
+    lockedLessonNumbers,
+    isRenewal,
+  });
+
+  if (appointments.length === 0) return;
+
+  if (!skipCapacityConfirmation) {
+    await assertAppointmentBatchCapacity(appointments, packageId);
+  }
+
   const { error: deleteError } = await supabase
     .from("appointments")
     .delete()
@@ -567,35 +667,6 @@ async function sincronizarAgendamentosPacote({
       "appointments",
     );
   }
-
-  const endTime = addMinutesToTime(form.fixed_time, SESSION_DURATION_MINUTES);
-  const lessonUnitValue = getLessonUnitValue(form);
-
-  const appointments = lessonDates.flatMap((lessonDate, index) => {
-    const lessonNumber = index + 1;
-
-    if (lockedLessonNumbers.has(lessonNumber)) return [];
-
-    return [
-      {
-        clinic_id: clinicId,
-        patient_id: patientId,
-        professional_id: professionalId,
-        package_id: packageId,
-        package_lesson_number: lessonNumber,
-        class_price: lessonUnitValue,
-        start_time: toDateTime(lessonDate, form.fixed_time),
-        end_time: toDateTime(lessonDate, endTime),
-        type: "Fisioterapia",
-        status: "agendada",
-        notes: `${isRenewal ? "Renovação: aula" : "Aula"} ${lessonNumber}/${totalLessons} ${isRenewal ? "do novo pacote" : "do pacote"}.`,
-      },
-    ];
-  });
-
-  if (appointments.length === 0) return;
-
-  await assertAppointmentBatchCapacity(appointments, packageId);
 
   const { error: appointmentsError } = await supabase
     .from("appointments")
@@ -1050,6 +1121,29 @@ export async function criarPaciente(
 
   await assertPatientIsNotDuplicate(clinicId, form);
 
+  let lessonDates: string[] = [];
+
+  if (withLessons) {
+    validateLessonPackageFields(form);
+    lessonDates = generateLessonDates(
+      form.plan_start_date,
+      form.fixed_weekdays,
+      form.contracted_lessons,
+    );
+
+    await assertAppointmentBatchCapacity(
+      buildLessonAppointments({
+        clinicId,
+        patientId: "pre-validacao",
+        professionalId: form.responsible_professional_id,
+        packageId: null,
+        lessonDates,
+        form,
+        totalLessons: form.contracted_lessons,
+      }),
+    );
+  }
+
   const { data, error } = await supabase
     .from(PATIENTS_TABLE)
     .insert({
@@ -1100,13 +1194,6 @@ export async function criarPaciente(
     };
   }
 
-  validateLessonPackageFields(form);
-  const lessonDates = generateLessonDates(
-    form.plan_start_date,
-    form.fixed_weekdays,
-    form.contracted_lessons,
-  );
-
   const { data: packageData, error: packageError } = await supabase
     .from(PACKAGES_TABLE)
     .insert({
@@ -1154,6 +1241,7 @@ export async function criarPaciente(
     lessonDates,
     form,
     totalLessons: activePackage.total_lessons,
+    skipCapacityConfirmation: true,
   });
 
   await registrarRecebimentoInicial({
@@ -1193,6 +1281,30 @@ export async function renovarPacotePaciente(
 
   if (!withLessons) {
     validateStandaloneProcedureFields(form);
+  }
+
+  let lessonDates: string[] = [];
+
+  if (withLessons) {
+    validateLessonPackageFields(form);
+    lessonDates = generateLessonDates(
+      form.plan_start_date,
+      form.fixed_weekdays,
+      form.contracted_lessons,
+    );
+
+    await assertAppointmentBatchCapacity(
+      buildLessonAppointments({
+        clinicId,
+        patientId,
+        professionalId: form.responsible_professional_id,
+        packageId: null,
+        lessonDates,
+        form,
+        totalLessons: form.contracted_lessons,
+        isRenewal: true,
+      }),
+    );
   }
 
   const { data: patientData, error: patientError } = await supabase
@@ -1239,13 +1351,6 @@ export async function renovarPacotePaciente(
       lesson_packages: [],
     };
   }
-
-  validateLessonPackageFields(form);
-  const lessonDates = generateLessonDates(
-    form.plan_start_date,
-    form.fixed_weekdays,
-    form.contracted_lessons,
-  );
 
   const { data: packageData, error: packageError } = await supabase
     .from(PACKAGES_TABLE)
@@ -1295,6 +1400,7 @@ export async function renovarPacotePaciente(
     form,
     totalLessons: renewedPackage.total_lessons,
     isRenewal: true,
+    skipCapacityConfirmation: true,
   });
 
   await registrarRecebimentoInicial({
@@ -1429,6 +1535,19 @@ async function atualizarPacotePrincipal(
     form.contracted_lessons,
   );
 
+  await assertAppointmentBatchCapacity(
+    buildLessonAppointments({
+      clinicId,
+      patientId,
+      professionalId: form.responsible_professional_id,
+      packageId,
+      lessonDates,
+      form,
+      totalLessons: form.contracted_lessons,
+    }),
+    packageId,
+  );
+
   const { data, error } = await supabase
     .from(PACKAGES_TABLE)
     .update({
@@ -1475,6 +1594,7 @@ async function atualizarPacotePrincipal(
     lessonDates,
     form,
     totalLessons: (data as PackageSummary).total_lessons,
+    skipCapacityConfirmation: true,
   });
 
   return data as PackageSummary;

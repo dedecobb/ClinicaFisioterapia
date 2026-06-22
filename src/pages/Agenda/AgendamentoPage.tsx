@@ -145,6 +145,7 @@ export const AgendamentoPage: React.FC = () => {
   const [carregando, setCarregando] = useState(true);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const [sessaoSelecionada, setSessaoSelecionada] = useState<string | null>(null);
   const [filtros, setFiltros] = useState<FiltrosAgendamento>({
     fisioterapeutaId: "todos",
     status: "todos",
@@ -241,6 +242,10 @@ export const AgendamentoPage: React.FC = () => {
   const agendamentosDia = useMemo(() => {
     let lista = agendamentos.filter((a) => a.data === dataSelecionada);
 
+    if (sessaoSelecionada) {
+      lista = lista.filter((a) => a.horaInicio === sessaoSelecionada);
+    }
+
     if (filtros.fisioterapeutaId !== "todos")
       lista = lista.filter(
         (a) => a.fisioterapeutaId === filtros.fisioterapeutaId,
@@ -260,7 +265,11 @@ export const AgendamentoPage: React.FC = () => {
       );
 
     return lista.sort((a, b) => a.horaInicio.localeCompare(b.horaInicio));
-  }, [agendamentos, dataSelecionada, filtros]);
+  }, [agendamentos, dataSelecionada, filtros, sessaoSelecionada]);
+
+  useEffect(() => {
+    setSessaoSelecionada(null);
+  }, [dataSelecionada]);
 
   const ocupacaoSessoesDia = useMemo(() => {
     const mapa = new Map<string, SessionOccupancy>();
@@ -290,6 +299,19 @@ export const AgendamentoPage: React.FC = () => {
       {},
     );
   }, [ocupacaoSessoesDia]);
+
+  const pacientesSessaoSelecionada = useMemo(() => {
+    if (!sessaoSelecionada) return [];
+
+    return agendamentos
+      .filter(
+        (agendamento) =>
+          agendamento.data === dataSelecionada &&
+          agendamento.horaInicio === sessaoSelecionada &&
+          agendamento.status !== "cancelada",
+      )
+      .sort((a, b) => a.paciente.nome.localeCompare(b.paciente.nome));
+  }, [agendamentos, dataSelecionada, sessaoSelecionada]);
 
   // ── totais do mês ───────────────────────────────────────────────────────────
 
@@ -635,24 +657,59 @@ export const AgendamentoPage: React.FC = () => {
             <div className="session-capacity-panel">
               <span className="session-capacity-title">Lotação por sessão</span>
               <div className="session-capacity-list">
-                {ocupacaoSessoesDia.map((ocupacao) => {
-                  const lotada = ocupacao.total >= SESSION_CAPACITY;
-
-                  return (
-                    <span
-                      key={ocupacao.horaInicio}
-                      className={`session-capacity-chip ${
-                        lotada ? "session-capacity-full" : ""
-                      }`}
-                    >
-                      {ocupacao.horaInicio}-{ocupacao.horaFim}:{" "}
-                      {ocupacao.total}/{SESSION_CAPACITY}
-                    </span>
-                  );
-                })}
-              </div>
-            </div>
-          )}
+	                {ocupacaoSessoesDia.map((ocupacao) => {
+	                  const lotada = ocupacao.total >= SESSION_CAPACITY;
+	                  const selecionada =
+	                    sessaoSelecionada === ocupacao.horaInicio;
+	
+	                  return (
+	                    <button
+	                      key={ocupacao.horaInicio}
+	                      type="button"
+	                      onClick={() =>
+	                        setSessaoSelecionada((atual) =>
+	                          atual === ocupacao.horaInicio
+	                            ? null
+	                            : ocupacao.horaInicio,
+	                        )
+	                      }
+	                      className={`session-capacity-chip ${
+	                        lotada ? "session-capacity-full" : ""
+	                      } ${selecionada ? "session-capacity-selected" : ""}`}
+	                      aria-pressed={selecionada}
+	                    >
+	                      {ocupacao.horaInicio}-{ocupacao.horaFim}:{" "}
+	                      {ocupacao.total}/{SESSION_CAPACITY}
+	                    </button>
+	                  );
+	                })}
+	              </div>
+	              {sessaoSelecionada && (
+	                <div className="session-patients-panel">
+	                  <div className="session-patients-header">
+	                    <strong>
+	                      Pacientes das {sessaoSelecionada}-
+	                      {ocupacaoPorHorario[sessaoSelecionada]?.horaFim}
+	                    </strong>
+	                    <button
+	                      type="button"
+	                      onClick={() => setSessaoSelecionada(null)}
+	                      className="session-clear-button"
+	                    >
+	                      Limpar filtro
+	                    </button>
+	                  </div>
+	                  <div className="session-patients-list">
+	                    {pacientesSessaoSelecionada.map((agendamento) => (
+	                      <span key={agendamento.id}>
+	                        {agendamento.paciente.nome}
+	                      </span>
+	                    ))}
+	                  </div>
+	                </div>
+	              )}
+	            </div>
+	          )}
 
           {/* Cards dos agendamentos */}
           {carregando ? (
