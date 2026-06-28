@@ -819,8 +819,16 @@ export const Financial = () => {
     initialExpenseForm(),
   );
   const commissionSectionRef = useRef<HTMLDivElement | null>(null);
+  const expenseSectionRef = useRef<HTMLDivElement | null>(null);
   const isPhysio = profile?.role === "physio";
   const hasPatientSearch = Boolean(normalizeSearchText(patientSearchTerm));
+
+  const scrollToExpense = () => {
+    expenseSectionRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  };
 
   const scrollToCommission = () => {
     commissionSectionRef.current?.scrollIntoView({
@@ -1625,6 +1633,12 @@ export const Financial = () => {
                   Limpar busca
                 </Button>
               )}
+              {!isPhysio && (
+                <Button className="gap-2" onClick={scrollToExpense}>
+                  <PlusCircle size={16} />
+                  Lançar despesa
+                </Button>
+              )}
               <Button
                 variant="outline"
                 className="gap-2"
@@ -2080,7 +2094,10 @@ export const Financial = () => {
 
           {!isPhysio && (
             <Card className="p-0 overflow-hidden">
-              <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div
+                ref={expenseSectionRef}
+                className="p-6 border-b border-slate-100 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4"
+              >
                 <div>
                   <h3 className="text-lg font-bold text-slate-900 dark:text-white">
                     Despesas da clínica
