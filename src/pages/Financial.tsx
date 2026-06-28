@@ -4,11 +4,13 @@ import { clsx } from "clsx";
 import {
   AlertTriangle,
   ArrowUpDown,
+  ArrowDownCircle,
   Check,
   DollarSign,
   Filter,
   Loader2,
   MessageCircle,
+  PlusCircle,
   Receipt,
   Search,
   TrendingUp,
@@ -121,6 +123,14 @@ type TransactionStatus = TransactionRow["status"];
 type ReceivableFilter = "open" | "paid" | "all";
 type DueSort = "asc" | "desc";
 
+type ExpenseFormState = {
+  amount: string;
+  category: string;
+  description: string;
+  dueDate: string;
+  status: TransactionStatus;
+};
+
 type ReceivableRow = {
   kind: "package";
   packageItem: PackageRow;
@@ -171,6 +181,28 @@ const transactionStatusLabel: Record<TransactionStatus, string> = {
   overdue: "Vencido",
   cancelled: "Cancelado",
 };
+
+const expenseCategories = [
+  "Aluguel",
+  "Comissão fisioterapeuta",
+  "Material clínico",
+  "Limpeza",
+  "Água",
+  "Energia elétrica",
+  "Internet",
+  "Impostos",
+  "Marketing",
+  "Manutenção",
+  "Outros",
+];
+
+const initialExpenseForm = (): ExpenseFormState => ({
+  amount: "",
+  category: "Outros",
+  description: "",
+  dueDate: todayDate(),
+  status: "paid",
+});
 
 function money(value: number | string | null | undefined): number {
   return Number(value) || 0;
@@ -783,6 +815,9 @@ export const Financial = () => {
   const [error, setError] = useState<string | null>(null);
   const [reportStartDate, setReportStartDate] = useState("");
   const [reportEndDate, setReportEndDate] = useState("");
+  const [expenseForm, setExpenseForm] = useState<ExpenseFormState>(() =>
+    initialExpenseForm(),
+  );
   const commissionSectionRef = useRef<HTMLDivElement | null>(null);
   const isPhysio = profile?.role === "physio";
   const hasPatientSearch = Boolean(normalizeSearchText(patientSearchTerm));
@@ -1041,6 +1076,14 @@ export const Financial = () => {
     [patientSearchTerm, visibleTransactions],
   );
 
+  const expenseTransactions = useMemo(
+    () =>
+      visibleTransactions
+        .filter((transaction) => transaction.type === "expense")
+        .sort((a, b) => b.due_date.localeCompare(a.due_date)),
+    [visibleTransactions],
+  );
+
   const rawCommissionReport = useMemo(
     () =>
       buildCommissionReport(
@@ -1128,9 +1171,37 @@ export const Financial = () => {
       (total, item) => total + item.professionalShare,
       0,
     );
+    const paidExpenses = transactions
+      .filter(
+        (transaction) =>
+          transaction.type === "expense" && transaction.status === "paid",
+      )
+      .reduce((total, item) => total + money(item.amount), 0);
+    const openExpenses = transactions
+      .filter(
+        (transaction) =>
+          transaction.type === "expense" &&
+          (transaction.status === "pending" || transaction.status === "overdue"),
+      )
+      .reduce((total, item) => total + money(item.amount), 0);
+    const net = paid - paidExpenses;
 
-    return { sold, paid, open, currentDue, professionalShare };
-  }, [commissionReport, filteredPackages, filteredVisibleTransactions]);
+    return {
+      sold,
+      paid,
+      open,
+      currentDue,
+      professionalShare,
+      paidExpenses,
+      openExpenses,
+      net,
+    };
+  }, [
+    commissionReport,
+    filteredPackages,
+    filteredVisibleTransactions,
+    transactions,
+  ]);
 
   const receivables = useMemo(() => {
     const packageRows: ReceivableItem[] = filteredPackages.flatMap((packageItem) =>
@@ -1430,6 +1501,42 @@ export const Financial = () => {
     await loadFinancialData();
   };
 
+  const handleRegisterExpense = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!profile?.clinic_id) return;
+
+    const amount = Number(expenseForm.amount);
+    if (!amount || amount <= 0) {
+      setError("Informe um valor de despesa válido.");
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+
+    const { error: transactionError } = await supabase
+      .from("transactions")
+      .insert({
+        clinic_id: profile.clinic_id,
+        amount,
+        type: "expense",
+        category: expenseForm.category,
+        status: expenseForm.status,
+        description: expenseForm.description.trim() || null,
+        due_date: expenseForm.dueDate || todayDate(),
+      });
+
+    if (transactionError) {
+      setError(transactionError.message);
+      setSaving(false);
+      return;
+    }
+
+    setExpenseForm(initialExpenseForm());
+    setSaving(false);
+    await loadFinancialData();
+  };
+
   const printReceipt = (
     packageItem: PackageRow,
     installment?: InstallmentRow,
@@ -1529,7 +1636,7 @@ export const Financial = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-6">
             {!isPhysio && (
               <>
                 <FinancialCard
@@ -1553,6 +1660,18 @@ export const Financial = () => {
                   value={totals.open}
                   icon={AlertTriangle}
                   danger
+                />
+                <FinancialCard
+                  label="Despesas pagas"
+                  value={totals.paidExpenses}
+                  icon={ArrowDownCircle}
+                  danger
+                />
+                <FinancialCard
+                  label="Resultado líquido"
+                  value={totals.net}
+                  icon={DollarSign}
+                  danger={totals.net < 0}
                 />
               </>
             )}
@@ -1955,6 +2074,191 @@ export const Financial = () => {
                     </div>
                   );
                 }))}
+              </div>
+            </Card>
+          )}
+
+          {!isPhysio && (
+            <Card className="p-0 overflow-hidden">
+              <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+                    Despesas da clínica
+                  </h3>
+                  <p className="text-sm text-slate-500">
+                    Registre contas pagas ou pendentes para acompanhar o que sai.
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <p className="text-slate-500">Pagas</p>
+                    <p className="font-bold text-rose-600">
+                      {currencyFormatter.format(totals.paidExpenses)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">Em aberto</p>
+                    <p className="font-bold text-amber-600">
+                      {currencyFormatter.format(totals.openExpenses)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 xl:grid-cols-[360px_minmax(0,1fr)] gap-0">
+                <form
+                  onSubmit={handleRegisterExpense}
+                  className="p-6 border-b xl:border-b-0 xl:border-r border-slate-100 dark:border-slate-800 space-y-4"
+                >
+                  <div>
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                      Valor
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      required
+                      className="mt-2 w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none"
+                      value={expenseForm.amount}
+                      onChange={(event) =>
+                        setExpenseForm((current) => ({
+                          ...current,
+                          amount: event.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                      Categoria
+                    </label>
+                    <select
+                      className="mt-2 w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none"
+                      value={expenseForm.category}
+                      onChange={(event) =>
+                        setExpenseForm((current) => ({
+                          ...current,
+                          category: event.target.value,
+                        }))
+                      }
+                    >
+                      {expenseCategories.map((category) => (
+                        <option key={category}>{category}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-1 gap-4">
+                    <div>
+                      <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                        Data
+                      </label>
+                      <input
+                        type="date"
+                        required
+                        className="mt-2 w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none"
+                        value={expenseForm.dueDate}
+                        onChange={(event) =>
+                          setExpenseForm((current) => ({
+                            ...current,
+                            dueDate: event.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                        Status
+                      </label>
+                      <select
+                        className="mt-2 w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none"
+                        value={expenseForm.status}
+                        onChange={(event) =>
+                          setExpenseForm((current) => ({
+                            ...current,
+                            status: event.target.value as TransactionStatus,
+                          }))
+                        }
+                      >
+                        <option value="paid">Pago</option>
+                        <option value="pending">Pendente</option>
+                        <option value="overdue">Vencido</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                      Descrição
+                    </label>
+                    <textarea
+                      rows={3}
+                      className="mt-2 w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none resize-none"
+                      value={expenseForm.description}
+                      onChange={(event) =>
+                        setExpenseForm((current) => ({
+                          ...current,
+                          description: event.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+                  <Button type="submit" className="w-full gap-2" isLoading={saving}>
+                    <PlusCircle size={16} />
+                    Lançar despesa
+                  </Button>
+                </form>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="bg-slate-50 dark:bg-slate-900/50 text-slate-500 text-xs font-bold uppercase tracking-wider">
+                        <th className="px-6 py-4">Data</th>
+                        <th className="px-6 py-4">Categoria</th>
+                        <th className="px-6 py-4">Status</th>
+                        <th className="px-6 py-4">Descrição</th>
+                        <th className="px-6 py-4">Valor</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {expenseTransactions.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={5}
+                            className="px-6 py-10 text-center text-sm text-slate-500"
+                          >
+                            Nenhuma despesa lançada ainda.
+                          </td>
+                        </tr>
+                      ) : (
+                        expenseTransactions.map((transaction) => (
+                          <tr key={transaction.id}>
+                            <td className="px-6 py-4 text-sm text-slate-500">
+                              {formatDate(transaction.due_date)}
+                            </td>
+                            <td className="px-6 py-4 text-sm font-semibold">
+                              {transaction.category}
+                            </td>
+                            <td className="px-6 py-4">
+                              <Badge
+                                variant={badgeVariantForTransaction(
+                                  transaction.status,
+                                )}
+                              >
+                                {transactionStatusLabel[transaction.status]}
+                              </Badge>
+                            </td>
+                            <td className="px-6 py-4 text-sm text-slate-500">
+                              {transaction.description ?? "-"}
+                            </td>
+                            <td className="px-6 py-4 text-sm font-bold text-rose-600">
+                              -{currencyFormatter.format(money(transaction.amount))}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </Card>
           )}
