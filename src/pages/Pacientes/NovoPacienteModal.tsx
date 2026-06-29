@@ -866,6 +866,19 @@ export const NovoPacienteModal = ({
   const hasLessons = Number(formData.contracted_lessons) > 0;
   const lessonsTotal = hasLessons ? Number(formData.total_amount) || 0 : 0;
   const financialTotal = lessonsTotal + proceduresTotal;
+  const submitButtonLabel = isRenewing
+    ? hasLessons
+      ? "Renovar e gerar sessões"
+      : scheduledProcedureCredits > 0
+        ? "Adicionar e agendar procedimentos"
+        : "Adicionar procedimentos"
+    : isEditing
+      ? "Salvar alterações"
+      : hasLessons
+        ? "Cadastrar e gerar sessões"
+        : scheduledProcedureCredits > 0
+          ? "Cadastrar e agendar procedimentos"
+          : "Cadastrar procedimentos";
 
   useEffect(() => {
     setFormData((current) => {
@@ -2043,62 +2056,50 @@ export const NovoPacienteModal = ({
                     </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="space-y-4 border-t border-slate-100 bg-slate-50/50 p-6 dark:border-slate-800 dark:bg-slate-900/50">
-                {error && (
-                  <div
-                    role="alert"
-                    className="rounded-xl border border-rose-300 bg-rose-50 p-4 text-sm text-rose-800 shadow-sm dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-100"
-                  >
-                    <div className="flex gap-3">
-                      <AlertCircle
-                        size={20}
-                        className="mt-0.5 shrink-0 text-rose-600 dark:text-rose-300"
-                      />
-                      <div className="space-y-1">
-                        <strong className="block text-sm">
-                          {isScheduleConflict
-                            ? "Horário incompatível"
-                            : "Atenção antes de salvar"}
-                        </strong>
-                        <p>{error}</p>
-                        {isScheduleConflict && (
-                          <p className="text-rose-700 dark:text-rose-200">
-                            Escolha outro horário, remova um dos dias fixos ou
-                            mude a data de início.
-                          </p>
-                        )}
+                <div className="space-y-4 rounded-2xl border border-slate-100 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-900/50">
+                  {error && (
+                    <div
+                      role="alert"
+                      className="rounded-xl border border-rose-300 bg-rose-50 p-4 text-sm text-rose-800 shadow-sm dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-100"
+                    >
+                      <div className="flex gap-3">
+                        <AlertCircle
+                          size={20}
+                          className="mt-0.5 shrink-0 text-rose-600 dark:text-rose-300"
+                        />
+                        <div className="space-y-1">
+                          <strong className="block text-sm">
+                            {isScheduleConflict
+                              ? "Horário incompatível"
+                              : "Atenção antes de salvar"}
+                          </strong>
+                          <p>{error}</p>
+                          {isScheduleConflict && (
+                            <p className="text-rose-700 dark:text-rose-200">
+                              Escolha outro horário, remova um dos dias fixos ou
+                              mude a data de início.
+                            </p>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
+                  )}
 
-                <div className="flex gap-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="flex-1"
-                    onClick={onClose}
-                    disabled={loading}
-                  >
-                    Cancelar
-                  </Button>
-                  <Button type="submit" className="flex-[2]" isLoading={loading}>
-                    {isRenewing
-                      ? hasLessons
-                        ? "Renovar e gerar sessões"
-                        : scheduledProcedureCredits > 0
-                          ? "Adicionar e agendar procedimentos"
-                          : "Adicionar procedimentos"
-                      : isEditing
-                        ? "Salvar alterações"
-                        : hasLessons
-                          ? "Cadastrar e gerar sessões"
-                          : scheduledProcedureCredits > 0
-                            ? "Cadastrar e agendar procedimentos"
-                            : "Cadastrar procedimentos"}
-                  </Button>
+                  <div className="flex gap-3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="flex-1"
+                      onClick={onClose}
+                      disabled={loading}
+                    >
+                      Cancelar
+                    </Button>
+                    <Button type="submit" className="flex-[2]" isLoading={loading}>
+                      {submitButtonLabel}
+                    </Button>
+                  </div>
                 </div>
               </div>
             </form>
