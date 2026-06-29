@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, type WheelEvent, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   AlertCircle,
@@ -222,6 +222,10 @@ function getProcedureTotal(
 
 function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+function preventNumberInputWheelChange(event: WheelEvent<HTMLInputElement>) {
+  event.currentTarget.blur();
 }
 
 function clinicNowParts() {
@@ -1295,6 +1299,7 @@ export const NovoPacienteModal = ({
                                 className="w-full px-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
                                 placeholder="Qtd."
                                 value={selectedProcedure?.quantity ?? ""}
+                                onWheel={preventNumberInputWheelChange}
                                 onChange={(event) =>
                                   updateProcedureQuantity(
                                     procedure.type,
@@ -1321,6 +1326,7 @@ export const NovoPacienteModal = ({
                                   className="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
                                   placeholder="Unit."
                                   value={selectedProcedure?.agreed_value ?? ""}
+                                  onWheel={preventNumberInputWheelChange}
                                   onChange={(event) =>
                                     updateProcedureValue(
                                       procedure.type,
@@ -1352,6 +1358,7 @@ export const NovoPacienteModal = ({
                                       ? getProcedureTotal(selectedProcedure)
                                       : ""
                                   }
+                                  onWheel={preventNumberInputWheelChange}
                                   onChange={(event) =>
                                     updateProcedureTotal(
                                       procedure.type,
@@ -1739,6 +1746,7 @@ export const NovoPacienteModal = ({
                         disabled={loading}
                         className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
                         value={formData.contracted_lessons}
+                        onWheel={preventNumberInputWheelChange}
                         onChange={(event) =>
                           setFormData((current) => {
                             const contractedLessons = Number(
@@ -1854,6 +1862,7 @@ export const NovoPacienteModal = ({
                         disabled={loading || !hasLessons}
                         className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
                         value={formData.lesson_value}
+                        onWheel={preventNumberInputWheelChange}
                         onChange={(event) => {
                           const lessonValue = Number(event.target.value);
                           setFormData((current) => {
@@ -1891,6 +1900,7 @@ export const NovoPacienteModal = ({
                         disabled={loading || !hasLessons}
                         className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
                         value={lessonsTotal}
+                        onWheel={preventNumberInputWheelChange}
                         onChange={(event) => {
                           const totalAmount = Number(event.target.value);
                           setFormData((current) => {
@@ -1929,6 +1939,7 @@ export const NovoPacienteModal = ({
                         disabled={loading}
                         className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
                         value={formData.amount_paid}
+                        onWheel={preventNumberInputWheelChange}
                         onChange={(event) =>
                           updateField(
                             "amount_paid",
@@ -2021,6 +2032,7 @@ export const NovoPacienteModal = ({
                         disabled={loading}
                         className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
                         value={formData.installments}
+                        onWheel={preventNumberInputWheelChange}
                         onChange={(event) =>
                           updateField(
                             "installments",

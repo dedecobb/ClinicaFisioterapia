@@ -583,11 +583,11 @@ export const PacientesPage = () => {
                 </div>
               </div>
 
-              <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 flex gap-2">
+              <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 flex flex-wrap gap-2">
                 <Button
                   variant="outline"
                   size="sm"
-                  className="flex-1 gap-2"
+                  className="min-w-[108px] flex-1 gap-2"
                   onClick={() => navigate(`/pacientes/${patient.id}/prontuario`)}
                 >
                   Prontuário
@@ -596,17 +596,18 @@ export const PacientesPage = () => {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="gap-2"
+                    className="min-w-[140px] flex-1 gap-2"
                     onClick={() => openRenewModal(patient)}
                     title="Renovar pacote"
                   >
                     <CreditCard size={16} />
+                    Renovar Pacote
                   </Button>
                 )}
                 <Button
                   variant="secondary"
                   size="sm"
-                  className="text-emerald-600 dark:text-emerald-400"
+                  className="shrink-0 text-emerald-600 dark:text-emerald-400"
                   disabled={!onlyDigits(patient.phone)}
                   onClick={() =>
                     openWhatsApp(
