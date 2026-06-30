@@ -213,11 +213,9 @@ export async function getPatientById(
   }
 
   const patient = data as Patient;
-  const currentPackage = [...(patient.lesson_packages ?? [])].sort((a, b) => {
-    if (a.status === "ativo" && b.status !== "ativo") return -1;
-    if (a.status !== "ativo" && b.status === "ativo") return 1;
-    return b.start_date.localeCompare(a.start_date);
-  })[0];
+  const currentPackage = [...(patient.lesson_packages ?? [])]
+    .filter((packageItem) => packageItem.status === "ativo")
+    .sort((a, b) => b.start_date.localeCompare(a.start_date))[0];
   const packageProcedures = currentPackage?.procedure_credits ?? [];
   const procedures = mergeProcedures(patient.procedures, packageProcedures);
 

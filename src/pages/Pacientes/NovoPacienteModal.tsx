@@ -401,7 +401,9 @@ function formFromPatient(
 ): NewPatientForm {
   if (!patient) return emptyForm;
 
-  const activePackage = patient.lesson_packages?.[0];
+  const activePackage = patient.lesson_packages?.find(
+    (packageItem) => packageItem.status === "ativo",
+  );
   const packageProcedures = normalizeProceduresForForm(
     activePackage?.procedure_credits,
   );
@@ -622,6 +624,11 @@ export const NovoPacienteModal = ({
       const fixed_weekdays = current.fixed_weekdays.includes(weekday)
         ? current.fixed_weekdays.filter((item) => item !== weekday)
         : [...current.fixed_weekdays, weekday].sort((a, b) => a - b);
+      const contractedLessons = Number(current.contracted_lessons) || 0;
+
+      if (contractedLessons > 0 && fixed_weekdays.length > contractedLessons) {
+        return current;
+      }
 
       return { ...current, fixed_weekdays };
     });
@@ -737,6 +744,11 @@ export const NovoPacienteModal = ({
         const recurring_weekdays = weekdays.includes(weekday)
           ? weekdays.filter((value) => value !== weekday)
           : [...weekdays, weekday].sort((a, b) => a - b);
+        const quantity = Math.max(Number(item.quantity) || 1, 1);
+
+        if (recurring_weekdays.length > quantity) {
+          return item;
+        }
 
         return withGeneratedProcedureSchedule({
           ...item,
@@ -1770,9 +1782,27 @@ export const NovoPacienteModal = ({
                             return {
                               ...current,
                               contracted_lessons: contractedLessons,
+                              fixed_weekdays: withLessons
+                                ? current.fixed_weekdays.slice(
+                                    0,
+                                    contractedLessons,
+                                  )
+                                : [],
+                              fixed_time: withLessons ? current.fixed_time : "",
+                              plan_start_date: withLessons
+                                ? current.plan_start_date || today()
+                                : "",
+                              lesson_value: withLessons ? current.lesson_value : 0,
                               total_amount: withLessons
                                 ? current.lesson_value * contractedLessons
                                 : 0,
+                              amount_paid: Math.min(
+                                Number(current.amount_paid) || 0,
+                                getProceduresTotal(current.procedures) +
+                                  (withLessons
+                                    ? current.lesson_value * contractedLessons
+                                    : 0),
+                              ),
                             };
                           })
                         }

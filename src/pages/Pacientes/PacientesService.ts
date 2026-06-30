@@ -286,6 +286,14 @@ function getFinancialTotalAmount(form: NewPatientForm): number {
   return getLessonsAmount(form) + getProcedureAmount(form);
 }
 
+function sortActivePackagesFirst(packages: PackageSummary[]): PackageSummary[] {
+  return [...packages].sort((a, b) => {
+    if (a.status === "ativo" && b.status !== "ativo") return -1;
+    if (a.status !== "ativo" && b.status === "ativo") return 1;
+    return b.start_date.localeCompare(a.start_date);
+  });
+}
+
 function validatePaymentAmount(form: NewPatientForm, totalAmount: number) {
   if ((Number(form.amount_paid) || 0) > totalAmount) {
     throw new Error("O valor pago não pode ser maior que o total financeiro.");
@@ -376,9 +384,9 @@ export async function listarPacientes(
 
   return (data ?? []).map((patient) => ({
     ...(patient as Patient),
-    lesson_packages: ((patient as Patient).lesson_packages ?? []).sort(
-      (a, b) => b.start_date.localeCompare(a.start_date),
-    ),
+    lesson_packages: sortActivePackagesFirst(
+      (patient as Patient).lesson_packages ?? [],
+    ).filter((packageItem) => packageItem.status === "ativo"),
   }));
 }
 
@@ -723,6 +731,12 @@ function validateLessonPackageFields(form: NewPatientForm) {
   if (!form.plan_start_date || !form.fixed_time || form.fixed_weekdays.length === 0) {
     throw new Error("Informe data inicial, dias fixos e horário para gerar as sessões.");
   }
+
+  if (form.fixed_weekdays.length > Number(form.contracted_lessons)) {
+    throw new Error(
+      "A quantidade de dias fixos não pode ser maior que as sessões contratadas.",
+    );
+  }
 }
 
 function validateStandaloneProcedureFields(form: NewPatientForm) {
@@ -743,6 +757,12 @@ function validateStandaloneProcedureFields(form: NewPatientForm) {
       ) {
         throw new Error(
           `Informe data inicial, horário e dias fixos para gerar ${procedure.name}.`,
+        );
+      }
+
+      if ((procedure.recurring_weekdays?.length ?? 0) > quantity) {
+        throw new Error(
+          `O procedimento ${procedure.name} tem mais dias fixos do que créditos contratados.`,
         );
       }
     }
@@ -787,6 +807,7 @@ async function criarAgendamentosProcedimentosAvulsos({
   form,
   procedures,
   isRenewal = false,
+  replaceExisting = false,
 }: {
   clinicId: string;
   patientId: string;
@@ -794,6 +815,7 @@ async function criarAgendamentosProcedimentosAvulsos({
   form: NewPatientForm;
   procedures: PatientProcedure[];
   isRenewal?: boolean;
+  replaceExisting?: boolean;
 }) {
   if (procedures.length === 0) return;
 
@@ -827,6 +849,23 @@ async function criarAgendamentosProcedimentosAvulsos({
       notes: `${isRenewal ? "Renovação: " : ""}Procedimento avulso ${credit.creditNumber}/${credit.totalCredits}: ${procedureName}.`,
     };
   });
+
+  if (replaceExisting) {
+    const { error: deleteError } = await supabase
+      .from("appointments")
+      .delete()
+      .eq("patient_id", patientId)
+      .is("package_id", null)
+      .in("status", ["agendada", "confirmada", "cancelada"]);
+
+    if (deleteError) {
+      throw formatSupabaseError(
+        "Erro ao substituir procedimentos antigos na agenda",
+        deleteError,
+        "appointments",
+      );
+    }
+  }
 
   const appointments = await filterExistingStandaloneProcedureAppointments(
     patientId,
@@ -1465,7 +1504,12 @@ export async function atualizarPaciente(
   }
 
   const patient = data as Patient;
-  const activePackage = await atualizarPacotePrincipal(patientId, form, totalAmount);
+  const activePackage = await atualizarPacotePrincipal(
+    patientId,
+    form,
+    totalAmount,
+    clinicId,
+  );
 
   if (!withLessons && procedures.length > 0) {
     await criarAgendamentosProcedimentosAvulsos({
@@ -1474,6 +1518,7 @@ export async function atualizarPaciente(
       professionalId: form.responsible_professional_id,
       form,
       procedures,
+      replaceExisting: true,
     });
 
     await registrarFinanceiroProcedimentosAvulsos({
@@ -1497,13 +1542,13 @@ async function atualizarPacotePrincipal(
   patientId: string,
   form: NewPatientForm,
   totalAmount: number,
+  patientClinicId: string,
 ): Promise<PackageSummary | null> {
-  if (!hasLessonPackage(form)) return null;
-
   const { data: packageRow, error: packageFetchError } = await supabase
     .from(PACKAGES_TABLE)
     .select("id, clinic_id")
     .eq("patient_id", patientId)
+    .eq("status", "ativo")
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -1516,10 +1561,44 @@ async function atualizarPacotePrincipal(
     );
   }
 
-  if (!packageRow) return null;
+  if (!hasLessonPackage(form) && !packageRow) return null;
 
-  const packageId = (packageRow as { id: string; clinic_id: string }).id;
-  const clinicId = (packageRow as { id: string; clinic_id: string }).clinic_id;
+  const packageId = (packageRow as { id: string; clinic_id: string } | null)?.id;
+  const clinicId =
+    (packageRow as { id: string; clinic_id: string } | null)?.clinic_id ??
+    patientClinicId;
+
+  if (!hasLessonPackage(form)) {
+    const { error: deleteAppointmentsError } = await supabase
+      .from("appointments")
+      .delete()
+      .eq("package_id", packageId)
+      .in("status", ["agendada", "confirmada", "cancelada"]);
+
+    if (deleteAppointmentsError) {
+      throw formatSupabaseError(
+        "Erro ao remover sessões futuras do pacote",
+        deleteAppointmentsError,
+        "appointments",
+      );
+    }
+
+    const { error: packageCancelError } = await supabase
+      .from(PACKAGES_TABLE)
+      .update({ status: "cancelado" })
+      .eq("id", packageId);
+
+    if (packageCancelError) {
+      throw formatSupabaseError(
+        "Erro ao cancelar pacote sem sessões",
+        packageCancelError,
+        PACKAGES_TABLE,
+      );
+    }
+
+    return null;
+  }
+
   const procedures = normalizeProcedures(form);
   const procedureAmount = getProcedureAmount(form);
   const amountPaid = Number(form.amount_paid) || 0;
@@ -1534,6 +1613,73 @@ async function atualizarPacotePrincipal(
     form.fixed_weekdays,
     form.contracted_lessons,
   );
+
+  if (!packageId) {
+    await assertAppointmentBatchCapacity(
+      buildLessonAppointments({
+        clinicId,
+        patientId,
+        professionalId: form.responsible_professional_id,
+        packageId: null,
+        lessonDates,
+        form,
+        totalLessons: form.contracted_lessons,
+      }),
+    );
+
+    const { data, error } = await supabase
+      .from(PACKAGES_TABLE)
+      .insert({
+        clinic_id: clinicId,
+        patient_id: patientId,
+        professional_id: form.responsible_professional_id,
+        total_lessons: form.contracted_lessons,
+        lesson_value: getLessonUnitValue(form),
+        procedure_amount: procedureAmount,
+        procedure_credits: procedures,
+        total_amount: totalAmount,
+        amount_paid: amountPaid,
+        payment_method: emptyToNull(form.payment_method),
+        payment_status: paymentStatus,
+        installments: Number(form.installments) || 1,
+        start_date: form.plan_start_date,
+        expected_end_date: lessonDates[lessonDates.length - 1] ?? form.plan_start_date,
+        fixed_weekdays: form.fixed_weekdays,
+        fixed_time: form.fixed_time,
+        lesson_duration_minutes: SESSION_DURATION_MINUTES,
+        status: form.status === "encerrado" ? "cancelado" : "ativo",
+      })
+      .select(
+        "id, total_lessons, completed_lessons, missed_lessons, justified_absences, justified_absence_limit, lesson_value, procedure_amount, procedure_credits, total_amount, amount_paid, payment_status, payment_method, installments, start_date, expected_end_date, fixed_weekdays, fixed_time, status",
+      )
+      .single();
+
+    if (error) {
+      throw formatSupabaseError("Erro ao cadastrar pacote", error, PACKAGES_TABLE);
+    }
+
+    const createdPackage = data as PackageSummary;
+    await criarParcelasPacote(
+      clinicId,
+      createdPackage.id,
+      patientId,
+      form,
+      totalAmount,
+    );
+
+    await sincronizarAgendamentosPacote({
+      clinicId,
+      patientId,
+      professionalId: form.responsible_professional_id,
+      packageId: createdPackage.id,
+      lessonDates,
+      form,
+      totalLessons: createdPackage.total_lessons,
+      skipCapacityConfirmation: true,
+    });
+
+    return createdPackage;
+  }
 
   await assertAppointmentBatchCapacity(
     buildLessonAppointments({

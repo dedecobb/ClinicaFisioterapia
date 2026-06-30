@@ -238,6 +238,17 @@ export const PacientesPage = () => {
     if (
       form.procedures.some(
         (procedure) =>
+          procedure.schedule_mode === "fixed_weekdays" &&
+          (procedure.recurring_weekdays?.length ?? 0) >
+            Number(procedure.quantity),
+      )
+    ) {
+      return "Há procedimento com mais dias fixos do que créditos contratados.";
+    }
+
+    if (
+      form.procedures.some(
+        (procedure) =>
           (procedure.schedule ?? []).filter((item) => item.date && item.time)
             .length > Number(procedure.quantity),
       )
@@ -259,6 +270,10 @@ export const PacientesPage = () => {
 
     if (hasLessons && form.fixed_weekdays.length === 0) {
       return "Selecione pelo menos um dia fixo para as sessões.";
+    }
+
+    if (hasLessons && form.fixed_weekdays.length > Number(form.contracted_lessons)) {
+      return "A quantidade de dias fixos não pode ser maior que as sessões contratadas.";
     }
 
     if (hasLessons && !form.fixed_time) {

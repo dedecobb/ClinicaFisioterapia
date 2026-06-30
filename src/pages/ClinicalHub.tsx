@@ -125,6 +125,19 @@ function formatProcedures(
     .join(", ");
 }
 
+function formatAppointmentProcedures(
+  appointment: PatientAppointment,
+  patientProcedures: Patient["procedures"],
+) {
+  if (!appointment.package_id) {
+    return appointment.type?.trim() || formatProcedures(patientProcedures);
+  }
+
+  return formatProcedures(
+    appointment.lesson_packages?.procedure_credits ?? patientProcedures,
+  );
+}
+
 function formatPatientAddress(
   address: PatientAddress | string | null | undefined,
 ): string {
@@ -840,10 +853,13 @@ export const ClinicalHub = () => {
                     ) : (
                       <div className="space-y-3">
                         {appointments.map((appointment) => {
-                          const procedures = formatProcedures(
-                            appointment.lesson_packages?.procedure_credits ??
-                              patient.procedures,
+                          const procedures = formatAppointmentProcedures(
+                            appointment,
+                            patient.procedures,
                           );
+                          const appointmentKind = appointment.package_id
+                            ? "Sessão"
+                            : "Procedimento";
 
                           return (
                             <div
@@ -874,7 +890,7 @@ export const ClinicalHub = () => {
                                   </Badge>
                                 </div>
                                 <p className="text-xs text-slate-500 mt-1">
-                                  Sessão{" "}
+                                  {appointmentKind}{" "}
                                   {appointment.package_lesson_number ?? "avulsa"}
                                   {appointment.lesson_packages?.total_lessons
                                     ? `/${appointment.lesson_packages.total_lessons}`
