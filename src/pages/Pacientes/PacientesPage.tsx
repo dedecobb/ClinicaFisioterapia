@@ -403,18 +403,18 @@ export const PacientesPage = () => {
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
+    <div className="space-y-5 sm:space-y-6 animate-in fade-in duration-500">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white">
             Pacientes
           </h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">
+          <p className="text-sm sm:text-base text-slate-500 dark:text-slate-400 mt-1">
             Gerencie clientes, pacotes contratados e sessões fixas.
           </p>
         </div>
         {isAdmin && (
-          <Button className="gap-2" onClick={openModal}>
+          <Button className="w-full gap-2 sm:w-auto" onClick={openModal}>
             <Plus size={18} /> Novo Paciente
           </Button>
         )}
@@ -443,7 +443,7 @@ export const PacientesPage = () => {
         </div>
       )}
 
-      <div className="flex flex-col md:flex-row gap-4">
+      <div className="flex flex-col md:flex-row gap-3 sm:gap-4">
         <div className="relative flex-1">
           <Search
             className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -452,12 +452,12 @@ export const PacientesPage = () => {
           <input
             type="text"
           placeholder="Buscar por nome, CPF ou WhatsApp..."
-            className="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all"
+            className="min-h-11 w-full pl-10 pr-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all"
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
           />
         </div>
-        <Button variant="outline" className="gap-2">
+        <Button variant="outline" className="w-full gap-2 sm:w-auto">
           <Filter size={18} /> Filtros
         </Button>
       </div>
@@ -483,7 +483,7 @@ export const PacientesPage = () => {
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-6">
           {patients.map((patient) => (
             <Card
               key={patient.id}
@@ -527,7 +527,34 @@ export const PacientesPage = () => {
               </div>
 
               {getPatientProcedureCredits(patient).length > 0 && (
-                <div className="mt-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-950 p-3 space-y-2">
+                <details className="mt-4 rounded-xl border border-slate-100 bg-white dark:border-slate-800 dark:bg-slate-950 md:hidden">
+                  <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between px-3 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                    <span className="flex items-center gap-2">
+                      <ClipboardList size={14} />
+                      Créditos de procedimentos
+                    </span>
+                    <span>{getPatientProcedureCredits(patient).length}</span>
+                  </summary>
+                  <div className="border-t border-slate-100 p-3 dark:border-slate-800 space-y-2">
+                    {getPatientProcedureCredits(patient).map((procedure) => (
+                      <div
+                        key={procedure.type}
+                        className="flex items-center justify-between gap-3 text-xs"
+                      >
+                        <span className="truncate text-slate-600 dark:text-slate-300">
+                          {getProcedureQuantity(procedure)}x {procedure.name}
+                        </span>
+                        <span className="shrink-0 font-semibold text-slate-900 dark:text-white">
+                          {currencyFormatter.format(getProcedureTotal(procedure))}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
+
+              {getPatientProcedureCredits(patient).length > 0 && (
+                <div className="mt-4 hidden rounded-xl border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-950 p-3 space-y-2 md:block">
                   <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
                     <ClipboardList size={14} />
                     <span>Créditos de procedimentos</span>
@@ -551,7 +578,44 @@ export const PacientesPage = () => {
               )}
 
               {patient.lesson_packages?.[0] && (
-                <div className="mt-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/60 p-3 space-y-2">
+                <details className="mt-4 rounded-xl border border-slate-100 bg-slate-50/70 dark:border-slate-800 dark:bg-slate-900/60 md:hidden">
+                  <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between px-3 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                    <span>Pacote</span>
+                    <span className="font-bold text-slate-900 dark:text-white">
+                      {patient.lesson_packages[0].completed_lessons}/
+                      {patient.lesson_packages[0].total_lessons} sessões
+                    </span>
+                  </summary>
+                  <div className="border-t border-slate-100 p-3 dark:border-slate-800 space-y-2">
+                    <div className="text-xs text-slate-500">
+                      Restam{" "}
+                      {Math.max(
+                        patient.lesson_packages[0].total_lessons -
+                          patient.lesson_packages[0].completed_lessons -
+                          patient.lesson_packages[0].missed_lessons,
+                        0,
+                      )}{" "}
+                      sessões · termina em{" "}
+                      {formatDateBr(patient.lesson_packages[0].expected_end_date)}
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      {patient.lesson_packages[0].fixed_weekdays
+                        .map((day) => WEEKDAY_LABEL[day])
+                        .join(", ")}{" "}
+                      às {patient.lesson_packages[0].fixed_time.slice(0, 5)}
+                    </div>
+                    <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      {currencyFormatter.format(
+                        Number(patient.lesson_packages[0].total_amount),
+                      )}{" "}
+                      · {patient.lesson_packages[0].payment_status}
+                    </div>
+                  </div>
+                </details>
+              )}
+
+              {patient.lesson_packages?.[0] && (
+                <div className="mt-4 hidden rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/60 p-3 space-y-2 md:block">
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-semibold text-slate-500">
                       Pacote
@@ -598,11 +662,11 @@ export const PacientesPage = () => {
                 </div>
               </div>
 
-              <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 flex flex-wrap gap-2">
+              <div className="mt-5 sm:mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 flex flex-wrap gap-2">
                 <Button
                   variant="outline"
                   size="sm"
-                  className="min-w-[108px] flex-1 gap-2"
+                  className="min-w-[140px] flex-[2] gap-2"
                   onClick={() => navigate(`/pacientes/${patient.id}/prontuario`)}
                 >
                   Prontuário
@@ -622,7 +686,7 @@ export const PacientesPage = () => {
                 <Button
                   variant="secondary"
                   size="sm"
-                  className="shrink-0 text-emerald-600 dark:text-emerald-400"
+                  className="min-w-11 shrink-0 text-emerald-600 dark:text-emerald-400"
                   disabled={!onlyDigits(patient.phone)}
                   onClick={() =>
                     openWhatsApp(

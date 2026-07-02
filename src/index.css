@@ -42,3 +42,87 @@
 .fade-in {
   animation-name: fade-in;
 }
+
+@media (max-width: 639px) {
+  .mobile-card-table {
+    overflow: visible;
+  }
+
+  .mobile-card-table table,
+  .mobile-card-table thead,
+  .mobile-card-table tbody,
+  .mobile-card-table tr,
+  .mobile-card-table th,
+  .mobile-card-table td {
+    display: block;
+  }
+
+  .mobile-card-table table {
+    width: 100%;
+  }
+
+  .mobile-card-table thead {
+    display: none;
+  }
+
+  .mobile-card-table tbody {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .mobile-card-table tr {
+    border: 1px solid rgb(226 232 240);
+    border-radius: 0.75rem;
+    background: rgb(255 255 255);
+    padding: 0.75rem;
+  }
+
+  .dark .mobile-card-table tr {
+    border-color: rgb(30 41 59);
+    background: rgb(15 23 42);
+  }
+
+  .mobile-card-table td {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    border: 0;
+    padding: 0.45rem 0;
+    text-align: right;
+  }
+
+  .mobile-card-table td::before {
+    content: attr(data-label);
+    min-width: 6.5rem;
+    flex: 0 0 auto;
+    color: rgb(100 116 139);
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-align: left;
+    text-transform: uppercase;
+  }
+
+  .mobile-card-table td:first-child {
+    display: block;
+    text-align: left;
+  }
+
+  .mobile-card-table td:first-child::before {
+    display: block;
+    margin-bottom: 0.25rem;
+  }
+
+  .mobile-card-table td:last-child {
+    padding-bottom: 0;
+  }
+
+  .mobile-card-table td:last-child > div {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .mobile-card-table td:last-child button {
+    flex: 1 1 auto;
+  }
+}

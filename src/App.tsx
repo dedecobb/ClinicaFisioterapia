@@ -40,9 +40,9 @@ const ProtectedLayout = ({ children }: { children: React.ReactNode }) => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 lg:flex">
       <Sidebar />
-      <main className="flex-1 ml-64 p-8">
+      <main className="min-w-0 flex-1 px-4 pb-28 pt-5 sm:px-6 lg:ml-64 lg:p-8">
         <div className="max-w-7xl mx-auto">{children}</div>
       </main>
     </div>

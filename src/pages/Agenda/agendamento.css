@@ -1020,9 +1020,11 @@
 @media (max-width: 900px) {
   .content-grid {
     grid-template-columns: 1fr;
+    gap: 1rem;
   }
   .resumo-grid {
     grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
   }
   .calendario-card {
     position: static;
@@ -1031,17 +1033,179 @@
 
 @media (max-width: 560px) {
   .agendamento-page {
-    padding: 1rem;
-  }
-  .resumo-grid {
-    grid-template-columns: 1fr 1fr;
-  }
-  .form-row {
-    grid-template-columns: 1fr;
+    padding: 0;
+    background: transparent;
   }
   .page-header {
     flex-direction: column;
+    align-items: stretch;
+    gap: 0.9rem;
+    margin-bottom: 1rem;
+  }
+  .page-title {
+    font-size: 1.5rem;
+    letter-spacing: 0;
+  }
+  .page-subtitle {
+    max-width: 28rem;
+    font-size: 0.82rem;
+    line-height: 1.35;
+  }
+  .btn,
+  .cal-nav-btn,
+  .filtro-select,
+  .filtro-busca,
+  .session-capacity-chip,
+  .ag-action-btn {
+    min-height: 44px;
+  }
+  .btn {
+    width: 100%;
+    justify-content: center;
+  }
+  .resumo-grid {
+    grid-template-columns: 1fr 1fr;
+    margin-bottom: 1rem;
+    gap: 0.65rem;
+  }
+  .resumo-card {
+    min-height: 86px;
+    padding: 0.9rem;
+    border-left-width: 3px;
+  }
+  .resumo-label {
+    font-size: 0.68rem;
+    line-height: 1.2;
+  }
+  .resumo-valor {
+    font-size: 1.65rem;
+  }
+  .calendario-card,
+  .filtros-card,
+  .session-capacity-panel,
+  .empty-state,
+  .ag-card {
+    border: 1px solid #eceae2;
+    border-radius: 12px;
+    box-shadow: none;
+  }
+  .calendario-card {
+    padding: 1rem;
+  }
+  .cal-header {
+    margin-bottom: 0.75rem;
+  }
+  .cal-nav-btn {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    font-size: 1.25rem;
+  }
+  .cal-grid {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 2px;
+    margin-bottom: 0.75rem;
+  }
+  .cal-dia {
+    min-height: 42px;
+    padding: 4px 1px;
+  }
+  .cal-dia-num,
+  .cal-dia-hoje .cal-dia-num {
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    font-size: 0.78rem;
+  }
+  .cal-dia-semana {
+    overflow: hidden;
+    padding: 4px 0;
+    font-size: 0.62rem;
+    text-overflow: clip;
+  }
+  .legenda {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 0.5rem;
+    overflow-x: auto;
+    padding-bottom: 0.15rem;
+  }
+  .legenda-item {
+    flex: 0 0 auto;
+    border: 1px solid var(--gray-100);
+    border-radius: 999px;
+    padding: 0.35rem 0.55rem;
+    background: #fff;
+  }
+  .legenda-nome {
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .status-legenda {
+    display: none;
+  }
+  .filtros-card {
+    padding: 0.85rem;
+  }
+  .filtros-selects {
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+  .filtro-busca,
+  .filtro-select {
+    font-size: 1rem;
+    padding: 0.75rem 0.9rem;
+  }
+  .dia-header {
     align-items: flex-start;
-    gap: 1rem;
+    gap: 0.5rem;
+  }
+  .dia-titulo {
+    font-size: 1rem;
+    line-height: 1.25;
+  }
+  .dia-contador {
+    flex: 0 0 auto;
+  }
+  .session-capacity-panel {
+    padding: 0.85rem;
+  }
+  .session-capacity-list {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 0.2rem;
+  }
+  .session-capacity-chip {
+    flex: 0 0 auto;
+    padding: 0.55rem 0.75rem;
+  }
+  .ag-card {
+    display: grid;
+    grid-template-columns: 5px minmax(0, 1fr);
+  }
+  .ag-content {
+    min-width: 0;
+    padding: 0.9rem;
+  }
+  .ag-row-top,
+  .ag-row-info {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.45rem;
+  }
+  .ag-badge-group {
+    justify-content: flex-start;
+  }
+  .ag-paciente {
+    font-size: 0.96rem;
+    line-height: 1.25;
+  }
+  .empty-state {
+    padding: 2rem 1rem;
+  }
+  .form-row {
+    grid-template-columns: 1fr;
   }
 }

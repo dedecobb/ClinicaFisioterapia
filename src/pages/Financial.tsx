@@ -1585,12 +1585,12 @@ export const Financial = () => {
   };
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
+    <div className="space-y-5 sm:space-y-8 animate-in fade-in duration-500">
       <header>
-        <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
+        <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white">
           Financeiro
         </h1>
-        <p className="text-slate-500 dark:text-slate-400 mt-1">
+        <p className="text-sm sm:text-base text-slate-500 dark:text-slate-400 mt-1">
           {isPhysio
             ? "Acompanhe sua produção financeira pelas aulas realizadas e faltas pagas."
             : "Registre parcelas, acompanhe histórico de pacotes e cobre pelo WhatsApp."}
@@ -1610,7 +1610,7 @@ export const Financial = () => {
         </div>
       ) : (
         <>
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 rounded-xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 sm:p-4">
             <div className="relative flex-1">
               <Search
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -1619,7 +1619,7 @@ export const Financial = () => {
               <input
                 type="text"
                 placeholder="Buscar paciente..."
-                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all text-sm"
+                className="min-h-11 w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all text-sm"
                 value={patientSearchTerm}
                 onChange={(event) => setPatientSearchTerm(event.target.value)}
               />
@@ -1628,20 +1628,21 @@ export const Financial = () => {
               {hasPatientSearch && (
                 <Button
                   variant="ghost"
+                  className="w-full sm:w-auto"
                   onClick={() => setPatientSearchTerm("")}
                 >
                   Limpar busca
                 </Button>
               )}
               {!isPhysio && (
-                <Button className="gap-2" onClick={scrollToExpense}>
+                <Button className="w-full gap-2 sm:w-auto" onClick={scrollToExpense}>
                   <PlusCircle size={16} />
                   Lançar despesa
                 </Button>
               )}
               <Button
                 variant="outline"
-                className="gap-2"
+                className="w-full gap-2 sm:w-auto"
                 onClick={scrollToCommission}
               >
                 <UserCheck size={16} />
@@ -1650,7 +1651,7 @@ export const Financial = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-6">
+          <div className="grid grid-cols-1 min-[380px]:grid-cols-2 md:grid-cols-2 xl:grid-cols-6 gap-3 sm:gap-6">
             {!isPhysio && (
               <>
                 <FinancialCard
@@ -1698,9 +1699,9 @@ export const Financial = () => {
 
           {!isPhysio && (
             <Card className="p-0 overflow-hidden">
-              <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div className="p-4 sm:p-6 border-b border-slate-100 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                 <div>
-                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+                  <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
                     Recebíveis
                   </h3>
                   <p className="text-sm text-slate-500">
@@ -1712,7 +1713,7 @@ export const Financial = () => {
                   <label className="flex items-center gap-2 text-sm text-slate-500">
                     <Filter size={16} />
                     <select
-                      className="px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg outline-none"
+                      className="min-h-11 px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg outline-none"
                       value={receivableFilter}
                       onChange={(event) =>
                         setReceivableFilter(
@@ -1739,7 +1740,7 @@ export const Financial = () => {
                 </div>
               </div>
 
-              <div className="overflow-x-auto">
+              <div className="mobile-card-table overflow-x-auto">
                 <table className="w-full text-left">
                   <thead>
                     <tr className="bg-slate-50 dark:bg-slate-900/50 text-slate-500 text-xs font-bold uppercase tracking-wider">
@@ -1772,7 +1773,7 @@ export const Financial = () => {
                               : row.transaction.id
                           }
                         >
-                          <td className="px-6 py-4">
+                          <td className="px-6 py-4" data-label="Paciente">
                             <p className="text-sm font-semibold text-slate-900 dark:text-white">
                               {row.patientName}
                             </p>
@@ -1785,26 +1786,26 @@ export const Financial = () => {
                                 : "Procedimentos avulsos"}
                             </p>
                           </td>
-                          <td className="px-6 py-4 text-sm font-semibold">
+                          <td className="px-6 py-4 text-sm font-semibold" data-label="Parcela">
                             {row.kind === "package"
                               ? `#${row.installment.installment_number}`
                               : "Procedimento"}
                           </td>
-                          <td className="px-6 py-4 text-sm text-slate-500">
+                          <td className="px-6 py-4 text-sm text-slate-500" data-label="Vencimento">
                             {formatDate(
                               row.kind === "package"
                                 ? row.installment.due_date
                                 : row.transaction.due_date,
                             )}
                           </td>
-                          <td className="px-6 py-4 text-sm">
+                          <td className="px-6 py-4 text-sm" data-label="Valor">
                             {currencyFormatter.format(
                               row.kind === "package"
                                 ? money(row.installment.amount)
                                 : money(row.transaction.amount),
                             )}
                           </td>
-                          <td className="px-6 py-4 text-sm text-emerald-600 font-semibold">
+                          <td className="px-6 py-4 text-sm text-emerald-600 font-semibold" data-label="Recebido">
                             {currencyFormatter.format(
                               row.kind === "package"
                                 ? money(row.installment.amount_paid)
@@ -1813,15 +1814,15 @@ export const Financial = () => {
                                   : 0,
                             )}
                           </td>
-                          <td className="px-6 py-4 text-sm font-semibold">
+                          <td className="px-6 py-4 text-sm font-semibold" data-label="Saldo">
                             {currencyFormatter.format(row.remaining)}
                           </td>
-                          <td className="px-6 py-4">
+                          <td className="px-6 py-4" data-label="Status">
                             <Badge variant={badgeVariantForPayment(row.status)}>
                               {paymentLabel[row.status]}
                             </Badge>
                           </td>
-                          <td className="px-6 py-4">
+                          <td className="px-6 py-4" data-label="Ações">
                             <div className="flex gap-2">
                               {row.remaining > 0 && (
                                 <Button
@@ -1999,7 +2000,7 @@ export const Financial = () => {
                         </div>
                       )}
 
-                      <div className="overflow-x-auto">
+                      <div className="mobile-card-table overflow-x-auto">
                         <table className="w-full text-left">
                           <thead>
                             <tr className="text-xs font-bold uppercase text-slate-400">
@@ -2023,23 +2024,23 @@ export const Financial = () => {
                                   key={installment.id}
                                   className="border-t border-slate-100 dark:border-slate-800"
                                 >
-                                  <td className="py-3 pr-4 text-sm font-semibold">
+                                  <td className="py-3 pr-4 text-sm font-semibold" data-label="Parcela">
                                     #{installment.installment_number}
                                   </td>
-                                  <td className="py-3 pr-4 text-sm text-slate-500">
+                                  <td className="py-3 pr-4 text-sm text-slate-500" data-label="Vencimento">
                                     {formatDate(installment.due_date)}
                                   </td>
-                                  <td className="py-3 pr-4 text-sm">
+                                  <td className="py-3 pr-4 text-sm" data-label="Valor">
                                     {currencyFormatter.format(
                                       money(installment.amount),
                                     )}
                                   </td>
-                                  <td className="py-3 pr-4 text-sm text-emerald-600 font-semibold">
+                                  <td className="py-3 pr-4 text-sm text-emerald-600 font-semibold" data-label="Pago">
                                     {currencyFormatter.format(
                                       money(installment.amount_paid),
                                     )}
                                   </td>
-                                  <td className="py-3 pr-4">
+                                  <td className="py-3 pr-4" data-label="Status">
                                     <Badge
                                       variant={
                                         installmentStatus === "pago"
@@ -2052,7 +2053,7 @@ export const Financial = () => {
                                       {paymentLabel[installmentStatus]}
                                     </Badge>
                                   </td>
-                                  <td className="py-3 pr-4">
+                                  <td className="py-3 pr-4" data-label="Ações">
                                     <div className="flex gap-2">
                                       {installmentRemaining > 0 && (
                                         <Button
@@ -2225,7 +2226,7 @@ export const Financial = () => {
                   </Button>
                 </form>
 
-                <div className="overflow-x-auto">
+                <div className="mobile-card-table overflow-x-auto">
                   <table className="w-full text-left">
                     <thead>
                       <tr className="bg-slate-50 dark:bg-slate-900/50 text-slate-500 text-xs font-bold uppercase tracking-wider">
@@ -2249,13 +2250,13 @@ export const Financial = () => {
                       ) : (
                         expenseTransactions.map((transaction) => (
                           <tr key={transaction.id}>
-                            <td className="px-6 py-4 text-sm text-slate-500">
+                            <td className="px-6 py-4 text-sm text-slate-500" data-label="Data">
                               {formatDate(transaction.due_date)}
                             </td>
-                            <td className="px-6 py-4 text-sm font-semibold">
+                            <td className="px-6 py-4 text-sm font-semibold" data-label="Categoria">
                               {transaction.category}
                             </td>
-                            <td className="px-6 py-4">
+                            <td className="px-6 py-4" data-label="Status">
                               <Badge
                                 variant={badgeVariantForTransaction(
                                   transaction.status,
@@ -2264,10 +2265,10 @@ export const Financial = () => {
                                 {transactionStatusLabel[transaction.status]}
                               </Badge>
                             </td>
-                            <td className="px-6 py-4 text-sm text-slate-500">
+                            <td className="px-6 py-4 text-sm text-slate-500" data-label="Descrição">
                               {transaction.description ?? "-"}
                             </td>
-                            <td className="px-6 py-4 text-sm font-bold text-rose-600">
+                            <td className="px-6 py-4 text-sm font-bold text-rose-600" data-label="Valor">
                               -{currencyFormatter.format(money(transaction.amount))}
                             </td>
                           </tr>
@@ -2640,8 +2641,8 @@ function FinancialCard({
 }) {
   return (
     <Card className={danger ? "bg-rose-50/50 border-rose-100" : ""}>
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
           <p
             className={clsx(
               "text-sm font-medium",
@@ -2650,13 +2651,13 @@ function FinancialCard({
           >
             {label}
           </p>
-          <h3 className="text-2xl font-bold text-slate-900 dark:text-white mt-1">
+          <h3 className="mt-1 truncate text-xl font-bold text-slate-900 dark:text-white sm:text-2xl">
             {currencyFormatter.format(value)}
           </h3>
         </div>
         <Icon
-          className={danger ? "text-rose-600" : "text-brand-600"}
-          size={28}
+          className={clsx("shrink-0", danger ? "text-rose-600" : "text-brand-600")}
+          size={24}
         />
       </div>
     </Card>
