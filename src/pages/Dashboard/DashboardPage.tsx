@@ -71,7 +71,7 @@ const StatCard = ({
           <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
             {title}
           </p>
-          <h3 className="mt-1 truncate text-xl font-bold text-slate-900 dark:text-white sm:text-2xl">
+          <h3 className="mt-1 whitespace-nowrap text-lg font-bold leading-tight text-slate-900 dark:text-white min-[360px]:text-xl sm:text-2xl">
             {value}
           </h3>
           <div
