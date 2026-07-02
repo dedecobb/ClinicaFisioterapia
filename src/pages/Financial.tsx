@@ -2651,7 +2651,7 @@ function FinancialCard({
           >
             {label}
           </p>
-          <h3 className="mt-1 truncate text-xl font-bold text-slate-900 dark:text-white sm:text-2xl">
+          <h3 className="mt-1 text-lg font-bold leading-tight text-slate-900 dark:text-white min-[390px]:text-xl sm:text-2xl">
             {currencyFormatter.format(value)}
           </h3>
         </div>
