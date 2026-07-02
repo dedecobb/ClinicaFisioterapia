@@ -1665,12 +1665,6 @@ export const Financial = () => {
                   icon={DollarSign}
                 />
                 <FinancialCard
-                  label="Parcela atual"
-                  value={totals.currentDue}
-                  icon={AlertTriangle}
-                  danger
-                />
-                <FinancialCard
                   label="Total em aberto"
                   value={totals.open}
                   icon={AlertTriangle}
@@ -2640,8 +2634,8 @@ function FinancialCard({
   danger?: boolean;
 }) {
   return (
-    <Card className={danger ? "bg-rose-50/50 border-rose-100" : ""}>
-      <div className="flex items-center justify-between gap-3">
+    <Card className={clsx("relative", danger ? "bg-rose-50/50 border-rose-100" : "")}>
+      <div>
         <div className="min-w-0">
           <p
             className={clsx(
@@ -2656,7 +2650,10 @@ function FinancialCard({
           </h3>
         </div>
         <Icon
-          className={clsx("shrink-0", danger ? "text-rose-600" : "text-brand-600")}
+          className={clsx(
+            "absolute right-6 top-6 hidden sm:block",
+            danger ? "text-rose-600" : "text-brand-600",
+          )}
           size={24}
         />
       </div>
