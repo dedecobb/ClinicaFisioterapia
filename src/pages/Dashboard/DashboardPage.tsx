@@ -112,6 +112,7 @@ export const Dashboard = () => {
   const [dashboard, setDashboard] = useState<DashboardData>(emptyData);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const isPhysio = profile?.role === "physio";
 
   useEffect(() => {
     let active = true;
@@ -143,7 +144,7 @@ export const Dashboard = () => {
     return () => {
       active = false;
     };
-  }, [profile?.clinic_id]);
+  }, [profile]);
 
   const chartData = useMemo(
     () =>
@@ -161,7 +162,9 @@ export const Dashboard = () => {
             Olá, {profile?.full_name?.split(" ")[0] || "Doutor(a)"}
           </h1>
           <p className="text-sm sm:text-base text-slate-500 dark:text-slate-400 mt-1">
-            Sua clínica está pronta para os atendimentos de hoje.
+            {isPhysio
+              ? "Sua agenda e produção estão prontas para os atendimentos de hoje."
+              : "Sua clínica está pronta para os atendimentos de hoje."}
           </p>
         </div>
       </header>
@@ -182,7 +185,7 @@ export const Dashboard = () => {
           loading={loading}
         />
         <StatCard
-          title="Faturamento Mês"
+          title={isPhysio ? "Minha Produção Mês" : "Faturamento Mês"}
           value={currencyFormatter.format(dashboard.stats.monthRevenue)}
           icon={TrendingUp}
           trend={0}
@@ -197,18 +200,23 @@ export const Dashboard = () => {
           color="bg-violet-500"
           loading={loading}
         />
-        <StatCard
-          title="Inadimplência"
-          value={currencyFormatter.format(dashboard.stats.overdueAmount)}
-          icon={AlertCircle}
-          trend={0}
-          color="bg-rose-500"
-          loading={loading}
-        />
+        {!isPhysio && (
+          <StatCard
+            title="Inadimplência"
+            value={currencyFormatter.format(dashboard.stats.overdueAmount)}
+            icon={AlertCircle}
+            trend={0}
+            color="bg-rose-500"
+            loading={loading}
+          />
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
-        <Card title="Desempenho Financeiro" className="lg:col-span-2">
+        <Card
+          title={isPhysio ? "Minha Produção Financeira" : "Desempenho Financeiro"}
+          className="lg:col-span-2"
+        >
           <div className="h-[220px] w-full sm:h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={chartData}>

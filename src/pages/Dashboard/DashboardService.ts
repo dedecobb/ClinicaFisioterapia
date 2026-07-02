@@ -25,6 +25,19 @@ type TransactionRow = {
   created_at: string | null;
 };
 
+type ProductionAppointmentRow = {
+  id: string;
+  start_time: string;
+  status: string;
+  class_price: number | string | null;
+  lesson_packages: {
+    total_lessons: number;
+    lesson_value: number | string;
+    procedure_amount: number | string;
+    total_amount: number | string;
+  } | null;
+};
+
 const monthFormatter = new Intl.DateTimeFormat("pt-BR", { month: "short" });
 
 function startOfDay(date: Date): Date {
@@ -49,6 +62,39 @@ function moneyValue(value: number | string): number {
 
 function cents(value: number | string): number {
   return Math.round(moneyValue(value) * 100);
+}
+
+function getProductionClassValue(appointment: ProductionAppointmentRow): number {
+  const packageItem = appointment.lesson_packages;
+
+  if (!packageItem) return moneyValue(appointment.class_price ?? 0);
+
+  const totalLessons = Number(packageItem.total_lessons) || 0;
+  const lessonsAmount = Math.max(
+    moneyValue(packageItem.total_amount) -
+      moneyValue(packageItem.procedure_amount),
+    0,
+  );
+
+  if (totalLessons > 0 && lessonsAmount > 0) {
+    return lessonsAmount / totalLessons;
+  }
+
+  return (
+    moneyValue(packageItem.lesson_value) ||
+    moneyValue(appointment.class_price ?? 0)
+  );
+}
+
+function isProductionAppointment(appointment: ProductionAppointmentRow): boolean {
+  return (
+    appointment.status === "presenca_registrada" ||
+    appointment.status === "falta"
+  );
+}
+
+function getProductionShare(appointment: ProductionAppointmentRow): number {
+  return getProductionClassValue(appointment) * 0.4;
 }
 
 function isStandaloneProcedureIncome(transaction: TransactionRow): boolean {
@@ -123,6 +169,47 @@ function buildFinancialChart(
     despesas,
     saldo,
   }));
+}
+
+function buildProductionChart(
+  appointments: ProductionAppointmentRow[],
+): FinancialChartPoint[] {
+  const now = new Date();
+  const months = Array.from({ length: 6 }, (_, index) => {
+    const date = new Date(now.getFullYear(), now.getMonth() - (5 - index), 1);
+    return {
+      key: monthKey(date),
+      name: monthFormatter.format(date).replace(".", ""),
+      faturamento: 0,
+      despesas: 0,
+      saldo: 0,
+    };
+  });
+
+  const byMonth = new Map(months.map((item) => [item.key, item]));
+
+  appointments
+    .filter(isProductionAppointment)
+    .forEach((appointment) => {
+      const bucket = byMonth.get(monthKey(new Date(appointment.start_time)));
+      if (!bucket) return;
+
+      bucket.faturamento += getProductionShare(appointment);
+      bucket.saldo = bucket.faturamento;
+    });
+
+  return months.map(({ name, faturamento, despesas, saldo }) => ({
+    name,
+    faturamento,
+    despesas,
+    saldo,
+  }));
+}
+
+function sumProduction(appointments: ProductionAppointmentRow[]): number {
+  return appointments
+    .filter(isProductionAppointment)
+    .reduce((total, appointment) => total + getProductionShare(appointment), 0);
 }
 
 function birthdayThisYear(birthDate: string, reference: Date): Date {
@@ -228,6 +315,89 @@ export async function getDashboardData(
       "responsible_professional_id",
       access.id,
     );
+  }
+
+  if (access?.role === "physio") {
+    const [
+      patientsCountResult,
+      appointmentsCountResult,
+      monthAppointmentsResult,
+      chartAppointmentsResult,
+      birthdayPatientsResult,
+    ] = await Promise.all([
+      patientsCountQuery,
+      appointmentsCountQuery,
+      supabase
+        .from("appointments")
+        .select(
+          `
+            id,
+            start_time,
+            status,
+            class_price,
+            lesson_packages (
+              total_lessons,
+              lesson_value,
+              procedure_amount,
+              total_amount
+            )
+          `,
+        )
+        .eq("clinic_id", clinicId)
+        .eq("professional_id", access.id)
+        .gte("start_time", monthStart.toISOString()),
+      supabase
+        .from("appointments")
+        .select(
+          `
+            id,
+            start_time,
+            status,
+            class_price,
+            lesson_packages (
+              total_lessons,
+              lesson_value,
+              procedure_amount,
+              total_amount
+            )
+          `,
+        )
+        .eq("clinic_id", clinicId)
+        .eq("professional_id", access.id)
+        .gte("start_time", sixMonthsStart.toISOString()),
+      birthdayPatientsQuery,
+    ]);
+
+    const results = [
+      patientsCountResult,
+      appointmentsCountResult,
+      monthAppointmentsResult,
+      chartAppointmentsResult,
+      birthdayPatientsResult,
+    ];
+
+    const failed = results.find((result) => result.error);
+    if (failed?.error) {
+      throw new Error(`Erro ao carregar dashboard: ${failed.error.message}`);
+    }
+
+    const monthAppointments =
+      (monthAppointmentsResult.data ?? []) as unknown as ProductionAppointmentRow[];
+    const chartAppointments =
+      (chartAppointmentsResult.data ?? []) as unknown as ProductionAppointmentRow[];
+
+    return {
+      stats: {
+        activePatients: patientsCountResult.count ?? 0,
+        todayAppointments: appointmentsCountResult.count ?? 0,
+        monthRevenue: sumProduction(monthAppointments),
+        overdueAmount: 0,
+      },
+      chartData: buildProductionChart(chartAppointments),
+      birthdays: mapBirthdays(
+        (birthdayPatientsResult.data ?? []) as PatientRow[],
+      ),
+    };
   }
 
   const [
