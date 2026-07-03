@@ -46,6 +46,7 @@ const emptyForm: NewPatientForm = {
   phone: "",
   birth_date: "",
   gender: "other",
+  quick_note: "",
   status: "ativo",
   address: {
     postalCode: "",
@@ -426,6 +427,7 @@ function formFromPatient(
       phone: patient.phone ?? "",
       birth_date: patient.birth_date ?? "",
       gender: patient.gender ?? "other",
+      quick_note: patient.quick_note ?? "",
       status: "ativo",
       address,
       plan_start_date: today(),
@@ -443,6 +445,7 @@ function formFromPatient(
     phone: patient.phone ?? "",
     birth_date: patient.birth_date ?? "",
     gender: patient.gender ?? "other",
+    quick_note: patient.quick_note ?? "",
     status: patient.status ?? "ativo",
     address,
     plan_start_date:
@@ -590,6 +593,8 @@ export const NovoPacienteModal = ({
       formattedValue = formatCpf(value) as NewPatientForm[K];
     } else if (field === "phone" && typeof value === "string") {
       formattedValue = formatPhone(value) as NewPatientForm[K];
+    } else if (field === "quick_note" && typeof value === "string") {
+      formattedValue = value.slice(0, 180) as NewPatientForm[K];
     }
 
     setFormData((current) => ({ ...current, [field]: formattedValue }));
@@ -1119,6 +1124,32 @@ export const NovoPacienteModal = ({
                         />
                       </div>
                     </div>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">
+                    Observação rápida
+                  </h3>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                      Anotação para aparecer no card
+                    </label>
+                    <textarea
+                      disabled={loading || isRenewing}
+                      rows={3}
+                      maxLength={180}
+                      className="w-full resize-none px-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
+                      placeholder="Ex: Viajou, retorna dia 15."
+                      value={formData.quick_note}
+                      onChange={(event) =>
+                        updateField("quick_note", event.target.value)
+                      }
+                    />
+                    <p className="text-xs text-slate-400">
+                      {formData.quick_note.length}/180 caracteres
+                    </p>
                   </div>
                 </div>
 

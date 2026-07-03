@@ -328,6 +328,7 @@ export async function listarPacientes(
       phone,
       birth_date,
       gender,
+      quick_note,
       address,
       status,
       plan_start_date,
@@ -372,7 +373,7 @@ export async function listarPacientes(
   if (term) {
     const escapedTerm = term.replace(/[%_,]/g, "");
     query = query.or(
-      `full_name.ilike.%${escapedTerm}%,cpf.ilike.%${escapedTerm}%,phone.ilike.%${escapedTerm}%`,
+      `full_name.ilike.%${escapedTerm}%,cpf.ilike.%${escapedTerm}%,phone.ilike.%${escapedTerm}%,quick_note.ilike.%${escapedTerm}%`,
     );
   }
 
@@ -1193,6 +1194,7 @@ export async function criarPaciente(
       phone: emptyToNull(form.phone),
       birth_date: emptyToNull(form.birth_date),
       gender: emptyToNull(form.gender),
+      quick_note: emptyToNull(form.quick_note),
       address,
       status: form.status,
       ...patientPlanFields,
@@ -1200,7 +1202,7 @@ export async function criarPaciente(
       procedures,
     })
     .select(
-      "id, clinic_id, full_name, cpf, email, phone, birth_date, gender, address, status, plan_start_date, contracted_lessons, fixed_weekdays, fixed_time, responsible_professional_id, procedures, created_at",
+      "id, clinic_id, full_name, cpf, email, phone, birth_date, gender, quick_note, address, status, plan_start_date, contracted_lessons, fixed_weekdays, fixed_time, responsible_professional_id, procedures, created_at",
     )
     .single();
 
@@ -1350,6 +1352,7 @@ export async function renovarPacotePaciente(
     .from(PATIENTS_TABLE)
     .update({
       status: "ativo",
+      quick_note: emptyToNull(form.quick_note),
       address,
       ...patientPlanFields,
       responsible_professional_id: form.responsible_professional_id,
@@ -1357,7 +1360,7 @@ export async function renovarPacotePaciente(
     })
     .eq("id", patientId)
     .select(
-      "id, clinic_id, full_name, cpf, email, phone, birth_date, gender, address, status, plan_start_date, contracted_lessons, fixed_weekdays, fixed_time, responsible_professional_id, procedures, created_at",
+      "id, clinic_id, full_name, cpf, email, phone, birth_date, gender, quick_note, address, status, plan_start_date, contracted_lessons, fixed_weekdays, fixed_time, responsible_professional_id, procedures, created_at",
     )
     .single();
 
@@ -1487,6 +1490,7 @@ export async function atualizarPaciente(
       phone: emptyToNull(form.phone),
       birth_date: emptyToNull(form.birth_date),
       gender: emptyToNull(form.gender),
+      quick_note: emptyToNull(form.quick_note),
       address,
       status: form.status,
       ...patientPlanFields,
@@ -1495,7 +1499,7 @@ export async function atualizarPaciente(
     })
     .eq("id", patientId)
     .select(
-      "id, clinic_id, full_name, cpf, email, phone, birth_date, gender, address, status, plan_start_date, contracted_lessons, fixed_weekdays, fixed_time, responsible_professional_id, procedures, created_at",
+      "id, clinic_id, full_name, cpf, email, phone, birth_date, gender, quick_note, address, status, plan_start_date, contracted_lessons, fixed_weekdays, fixed_time, responsible_professional_id, procedures, created_at",
     )
     .single();
 
@@ -1765,4 +1769,22 @@ export async function encerrarPaciente(patientId: string): Promise<void> {
   if (packageError) {
     throw formatSupabaseError("Erro ao encerrar pacote", packageError, PACKAGES_TABLE);
   }
+}
+
+export async function atualizarObservacaoPaciente(
+  patientId: string,
+  quickNote: string,
+): Promise<Pick<Patient, "id" | "quick_note">> {
+  const { data, error } = await supabase
+    .from(PATIENTS_TABLE)
+    .update({ quick_note: emptyToNull(quickNote.slice(0, 180)) })
+    .eq("id", patientId)
+    .select("id, quick_note")
+    .single();
+
+  if (error) {
+    throw formatSupabaseError("Erro ao atualizar observação", error);
+  }
+
+  return data as Pick<Patient, "id" | "quick_note">;
 }

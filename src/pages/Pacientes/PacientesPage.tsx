@@ -10,10 +10,13 @@ import {
   MessageCircle,
   Phone,
   Plus,
+  Save,
   Search,
+  StickyNote,
   Trash2,
   User,
   UserCheck,
+  X,
 } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
@@ -22,6 +25,7 @@ import { getFisioterapeutas } from "../Agenda/Agendamentoservice";
 import { Fisioterapeuta } from "../Agenda/types";
 import {
   atualizarPaciente,
+  atualizarObservacaoPaciente,
   criarPaciente,
   encerrarPaciente,
   listarPacientes,
@@ -112,6 +116,9 @@ export const PacientesPage = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
   const [renewingPatient, setRenewingPatient] = useState<Patient | null>(null);
+  const [editingNotePatientId, setEditingNotePatientId] = useState<string | null>(null);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [noteSavingPatientId, setNoteSavingPatientId] = useState<string | null>(null);
   const navigate = useNavigate();
   const isAdmin = profile?.role === "admin";
 
@@ -402,6 +409,41 @@ export const PacientesPage = () => {
     }
   };
 
+  const openNoteEditor = (patient: Patient) => {
+    setEditingNotePatientId(patient.id);
+    setNoteDraft(patient.quick_note ?? "");
+  };
+
+  const closeNoteEditor = () => {
+    setEditingNotePatientId(null);
+    setNoteDraft("");
+  };
+
+  const savePatientNote = async (patient: Patient, note = noteDraft) => {
+    setNoteSavingPatientId(patient.id);
+    setError(null);
+
+    try {
+      const updated = await atualizarObservacaoPaciente(patient.id, note);
+      setPatients((current) =>
+        current.map((item) =>
+          item.id === patient.id ? { ...item, quick_note: updated.quick_note } : item,
+        ),
+      );
+      closeNoteEditor();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Erro ao atualizar observação.",
+      );
+    } finally {
+      setNoteSavingPatientId(null);
+    }
+  };
+
+  const deletePatientNote = async (patient: Patient) => {
+    await savePatientNote(patient, "");
+  };
+
   return (
     <div className="space-y-5 sm:space-y-6 animate-in fade-in duration-500">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -525,6 +567,96 @@ export const PacientesPage = () => {
                   {getResponsibleProfessionalName(patient, fisioterapeutas)}
                 </span>
               </div>
+
+              {editingNotePatientId === patient.id ? (
+                <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/70 p-3 dark:border-amber-900/50 dark:bg-amber-950/20">
+                  <textarea
+                    autoFocus
+                    rows={3}
+                    maxLength={180}
+                    className="w-full resize-none rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-amber-400 dark:border-amber-900/60 dark:bg-slate-950 dark:text-slate-200"
+                    placeholder="Ex: Viajou, retorna dia 15."
+                    value={noteDraft}
+                    onChange={(event) =>
+                      setNoteDraft(event.target.value.slice(0, 180))
+                    }
+                    disabled={noteSavingPatientId === patient.id}
+                  />
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <span className="text-xs text-amber-700 dark:text-amber-300">
+                      {noteDraft.length}/180
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        className="rounded-lg p-1.5 text-slate-500 hover:bg-white hover:text-slate-700 dark:hover:bg-slate-900 dark:hover:text-slate-200"
+                        onClick={closeNoteEditor}
+                        disabled={noteSavingPatientId === patient.id}
+                        title="Cancelar"
+                      >
+                        <X size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-lg p-1.5 text-emerald-700 hover:bg-white hover:text-emerald-800 disabled:cursor-not-allowed disabled:opacity-60 dark:text-emerald-300 dark:hover:bg-slate-900"
+                        onClick={() => savePatientNote(patient)}
+                        disabled={noteSavingPatientId === patient.id}
+                        title="Salvar observação"
+                      >
+                        {noteSavingPatientId === patient.id ? (
+                          <Loader2 className="animate-spin" size={16} />
+                        ) : (
+                          <Save size={16} />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : patient.quick_note ? (
+                <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/70 p-3 dark:border-amber-900/50 dark:bg-amber-950/20">
+                  <div className="flex items-start gap-2">
+                    <StickyNote
+                      size={16}
+                      className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-300"
+                    />
+                    <p className="line-clamp-3 flex-1 text-sm text-amber-950 dark:text-amber-100">
+                      {patient.quick_note}
+                    </p>
+                  </div>
+                  <div className="mt-2 flex justify-end gap-1">
+                    <button
+                      type="button"
+                      className="rounded-lg p-1.5 text-amber-700 hover:bg-white hover:text-amber-900 dark:text-amber-300 dark:hover:bg-slate-900"
+                      onClick={() => openNoteEditor(patient)}
+                      title="Editar observação"
+                    >
+                      <Edit3 size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-lg p-1.5 text-rose-500 hover:bg-white hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-60 dark:hover:bg-slate-900"
+                      onClick={() => deletePatientNote(patient)}
+                      disabled={noteSavingPatientId === patient.id}
+                      title="Apagar observação"
+                    >
+                      {noteSavingPatientId === patient.id ? (
+                        <Loader2 className="animate-spin" size={15} />
+                      ) : (
+                        <Trash2 size={15} />
+                      )}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="mt-4 flex min-h-9 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 px-3 text-xs font-semibold text-slate-500 transition-colors hover:border-amber-300 hover:bg-amber-50 hover:text-amber-700 dark:border-slate-800 dark:text-slate-400 dark:hover:border-amber-900/70 dark:hover:bg-amber-950/20 dark:hover:text-amber-300"
+                  onClick={() => openNoteEditor(patient)}
+                >
+                  <StickyNote size={14} />
+                  Adicionar observação
+                </button>
+              )}
 
               {getPatientProcedureCredits(patient).length > 0 && (
                 <details className="mt-4 rounded-xl border border-slate-100 bg-white dark:border-slate-800 dark:bg-slate-950 md:hidden">

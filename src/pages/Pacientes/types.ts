@@ -90,6 +90,7 @@ export interface Patient {
   phone: string | null;
   birth_date: string | null;
   gender: string | null;
+  quick_note: string | null;
   status: PatientStatus;
   plan_start_date: string | null;
   contracted_lessons: number | null;
@@ -109,6 +110,7 @@ export interface NewPatientForm {
   phone: string;
   birth_date: string;
   gender: string;
+  quick_note: string;
   status: PatientStatus;
   address: PatientAddressForm;
   plan_start_date: string;
