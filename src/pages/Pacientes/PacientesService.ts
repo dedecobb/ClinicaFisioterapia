@@ -315,6 +315,7 @@ export async function listarPacientes(
   clinicId: string,
   searchTerm = "",
   access?: { id: string; role: string } | null,
+  responsibleProfessionalId = "",
 ): Promise<Patient[]> {
   let query = supabase
     .from(PATIENTS_TABLE)
@@ -366,6 +367,8 @@ export async function listarPacientes(
 
   if (access?.role === "physio") {
     query = query.eq("responsible_professional_id", access.id);
+  } else if (responsibleProfessionalId) {
+    query = query.eq("responsible_professional_id", responsibleProfessionalId);
   }
 
   const term = searchTerm.trim();

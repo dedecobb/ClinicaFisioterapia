@@ -107,6 +107,7 @@ function openWhatsApp(phone: string | null | undefined, message: string) {
 export const PacientesPage = () => {
   const { user, profile, refreshProfile } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
+  const [professionalFilterId, setProfessionalFilterId] = useState("");
   const [patients, setPatients] = useState<Patient[]>([]);
   const [fisioterapeutas, setFisioterapeutas] = useState<Fisioterapeuta[]>([]);
   const [loading, setLoading] = useState(true);
@@ -135,7 +136,12 @@ export const PacientesPage = () => {
       setError(null);
 
       try {
-        const data = await listarPacientes(profile.clinic_id, searchTerm, profile);
+        const data = await listarPacientes(
+          profile.clinic_id,
+          searchTerm,
+          profile,
+          isAdmin ? professionalFilterId : "",
+        );
         if (active) setPatients(data);
       } catch (err) {
         if (!active) return;
@@ -153,7 +159,7 @@ export const PacientesPage = () => {
       active = false;
       window.clearTimeout(debounce);
     };
-  }, [searchTerm, profile]);
+  }, [searchTerm, profile, isAdmin, professionalFilterId]);
 
   useEffect(() => {
     let active = true;
@@ -189,6 +195,7 @@ export const PacientesPage = () => {
             currentProfile.clinic_id,
             searchTerm,
             currentProfile,
+            currentProfile.role === "admin" ? professionalFilterId : "",
           );
           if (active) setPatients(data);
         } catch (err) {
@@ -204,7 +211,15 @@ export const PacientesPage = () => {
     return () => {
       active = false;
     };
-  }, [isModalOpen, loading, profile, searchTerm]);
+  }, [isModalOpen, loading, profile, searchTerm, professionalFilterId]);
+
+  const matchesProfessionalFilter = (patient: Patient): boolean => {
+    return (
+      !isAdmin ||
+      !professionalFilterId ||
+      patient.responsible_professional_id === professionalFilterId
+    );
+  };
 
   const validatePatientForm = (form: NewPatientForm): string | null => {
     const hasLessons = Number(form.contracted_lessons) > 0;
@@ -317,21 +332,27 @@ export const PacientesPage = () => {
         setPatients((current) =>
           current
             .map((item) => (item.id === patient.id ? patient : item))
+            .filter(matchesProfessionalFilter)
             .sort((a, b) => a.full_name.localeCompare(b.full_name)),
         );
       } else if (editingPatient) {
         const patient = await atualizarPaciente(editingPatient.id, form);
         setPatients((current) =>
-          current
-            .map((item) => (item.id === patient.id ? patient : item))
+          (current.some((item) => item.id === patient.id)
+            ? current.map((item) => (item.id === patient.id ? patient : item))
+            : [...current, patient]
+          )
+            .filter(matchesProfessionalFilter)
             .sort((a, b) => a.full_name.localeCompare(b.full_name)),
         );
       } else {
         const patient = await criarPaciente(profile.clinic_id, form);
         setPatients((current) =>
-          [...current, patient].sort((a, b) =>
-            a.full_name.localeCompare(b.full_name),
-          ),
+          matchesProfessionalFilter(patient)
+            ? [...current, patient].sort((a, b) =>
+                a.full_name.localeCompare(b.full_name),
+              )
+            : current,
         );
       }
 
@@ -499,9 +520,26 @@ export const PacientesPage = () => {
             onChange={(event) => setSearchTerm(event.target.value)}
           />
         </div>
-        <Button variant="outline" className="w-full gap-2 sm:w-auto">
-          <Filter size={18} /> Filtros
-        </Button>
+        {isAdmin && (
+          <div className="relative w-full sm:w-72">
+            <Filter
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+              size={18}
+            />
+            <select
+              className="min-h-11 w-full appearance-none rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-4 text-sm font-medium text-slate-700 outline-none transition-all focus:ring-2 focus:ring-brand-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
+              value={professionalFilterId}
+              onChange={(event) => setProfessionalFilterId(event.target.value)}
+            >
+              <option value="">Todos os fisioterapeutas</option>
+              {fisioterapeutas.map((professional) => (
+                <option key={professional.id} value={professional.id}>
+                  {professional.nome}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       {loading ? (
