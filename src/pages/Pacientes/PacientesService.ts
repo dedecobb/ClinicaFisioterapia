@@ -514,7 +514,7 @@ function buildLessonAppointments({
   lessonDates,
   form,
   totalLessons,
-  lockedLessonNumbers = new Set<number>(),
+  existingLockedStartTimes = new Set<string>(),
   isRenewal = false,
 }: {
   clinicId: string;
@@ -524,7 +524,7 @@ function buildLessonAppointments({
   lessonDates: string[];
   form: NewPatientForm;
   totalLessons: number;
-  lockedLessonNumbers?: Set<number>;
+  existingLockedStartTimes?: Set<string>;
   isRenewal?: boolean;
 }): AppointmentInsert[] {
   const endTime = addMinutesToTime(form.fixed_time, SESSION_DURATION_MINUTES);
@@ -532,8 +532,9 @@ function buildLessonAppointments({
 
   return lessonDates.flatMap((lessonDate, index) => {
     const lessonNumber = index + 1;
+    const startTime = toDateTime(lessonDate, form.fixed_time);
 
-    if (lockedLessonNumbers.has(lessonNumber)) return [];
+    if (existingLockedStartTimes.has(startTime)) return [];
 
     return [
       {
@@ -543,7 +544,7 @@ function buildLessonAppointments({
         package_id: packageId,
         package_lesson_number: lessonNumber,
         class_price: lessonUnitValue,
-        start_time: toDateTime(lessonDate, form.fixed_time),
+        start_time: startTime,
         end_time: toDateTime(lessonDate, endTime),
         type: "Fisioterapia",
         status: "agendada",
@@ -574,7 +575,7 @@ async function sincronizarAgendamentosPacote({
 }) {
   const { data: lockedAppointments, error: lockedError } = await supabase
     .from("appointments")
-    .select("package_lesson_number")
+    .select("start_time")
     .eq("package_id", packageId)
     .in("status", ["presenca_registrada", "falta", "ausencia_justificada"]);
 
@@ -586,10 +587,10 @@ async function sincronizarAgendamentosPacote({
     );
   }
 
-  const lockedLessonNumbers = new Set(
-    ((lockedAppointments ?? []) as { package_lesson_number: number | null }[])
-      .map((appointment) => appointment.package_lesson_number)
-      .filter((value): value is number => Number.isFinite(value)),
+  const existingLockedStartTimes = new Set(
+    ((lockedAppointments ?? []) as { start_time: string | null }[])
+      .map((appointment) => appointment.start_time)
+      .filter((value): value is string => Boolean(value)),
   );
 
   const appointments = buildLessonAppointments({
@@ -600,7 +601,7 @@ async function sincronizarAgendamentosPacote({
     lessonDates,
     form,
     totalLessons,
-    lockedLessonNumbers,
+    existingLockedStartTimes,
     isRenewal,
   });
 
@@ -759,7 +760,7 @@ function getProcedureCredits(procedures: PatientProcedure[]) {
 
 function buildRepairLessonAppointments(
   packageItem: RepairablePackage,
-  existingLessonNumbers: Set<number>,
+  existingStartTimes: Set<string>,
 ): AppointmentInsert[] {
   const startTime = packageItem.fixed_time.slice(0, 5);
   const endTime = addMinutesToTime(startTime, SESSION_DURATION_MINUTES);
@@ -771,8 +772,9 @@ function buildRepairLessonAppointments(
 
   return lessonDates.flatMap((lessonDate, index) => {
     const lessonNumber = index + 1;
+    const appointmentStartTime = toDateTime(lessonDate, startTime);
 
-    if (existingLessonNumbers.has(lessonNumber)) return [];
+    if (existingStartTimes.has(appointmentStartTime)) return [];
 
     return [
       {
@@ -784,7 +786,7 @@ function buildRepairLessonAppointments(
         package_id: packageItem.id,
         package_lesson_number: lessonNumber,
         class_price: Number(packageItem.lesson_value) || 0,
-        start_time: toDateTime(lessonDate, startTime),
+        start_time: appointmentStartTime,
         end_time: toDateTime(lessonDate, endTime),
         type: "Fisioterapia",
         status: "agendada",
@@ -1741,13 +1743,13 @@ export async function repararAgendamentosPendentes(
   result.packagesChecked = packages.length;
 
   const packageIds = packages.map((packageItem) => packageItem.id);
-  const existingLessonsByPackage = new Map<string, Set<number>>();
+  const existingStartTimesByPackage = new Map<string, Set<string>>();
 
   if (packageIds.length > 0) {
     const { data: existingLessons, error: existingLessonsError } =
       await supabase
         .from("appointments")
-        .select("package_id, package_lesson_number")
+        .select("package_id, start_time")
         .in("package_id", packageIds);
 
     if (existingLessonsError) {
@@ -1761,22 +1763,23 @@ export async function repararAgendamentosPendentes(
     (
       (existingLessons ?? []) as Array<{
         package_id: string | null;
-        package_lesson_number: number | null;
+        start_time: string | null;
       }>
     ).forEach((appointment) => {
-      if (!appointment.package_id || !appointment.package_lesson_number) return;
+      if (!appointment.package_id || !appointment.start_time) return;
 
-      const lessons =
-        existingLessonsByPackage.get(appointment.package_id) ?? new Set<number>();
-      lessons.add(appointment.package_lesson_number);
-      existingLessonsByPackage.set(appointment.package_id, lessons);
+      const startTimes =
+        existingStartTimesByPackage.get(appointment.package_id) ??
+        new Set<string>();
+      startTimes.add(appointment.start_time);
+      existingStartTimesByPackage.set(appointment.package_id, startTimes);
     });
   }
 
   const missingPackageAppointments = packages.flatMap((packageItem) =>
     buildRepairLessonAppointments(
       packageItem,
-      existingLessonsByPackage.get(packageItem.id) ?? new Set<number>(),
+      existingStartTimesByPackage.get(packageItem.id) ?? new Set<string>(),
     ),
   );
 
