@@ -47,6 +47,32 @@ type PatientDuplicateCandidate = Pick<
   "id" | "full_name" | "cpf" | "phone" | "birth_date"
 >;
 
+type RepairablePackage = {
+  id: string;
+  clinic_id: string;
+  patient_id: string;
+  professional_id: string | null;
+  total_lessons: number;
+  lesson_value: number | string;
+  start_date: string;
+  fixed_weekdays: number[];
+  fixed_time: string;
+  status: PackageSummary["status"];
+  procedure_credits: PatientProcedure[] | null;
+};
+
+type RepairablePatient = Pick<
+  Patient,
+  "id" | "clinic_id" | "procedures" | "responsible_professional_id"
+>;
+
+export type AppointmentRepairResult = {
+  packagesChecked: number;
+  patientsChecked: number;
+  packageAppointmentsCreated: number;
+  procedureAppointmentsCreated: number;
+};
+
 function pad2(value: number): string {
   return String(value).padStart(2, "0");
 }
@@ -393,7 +419,7 @@ export async function listarPacientes(
 }
 
 function addMinutesToTime(time: string, minutes: number): string {
-  const [hour, minute] = time.split(":").map(Number);
+  const [hour, minute] = time.slice(0, 5).split(":").map(Number);
   const date = new Date(2000, 0, 1, hour, minute + minutes, 0);
   return date.toTimeString().slice(0, 5);
 }
@@ -699,6 +725,19 @@ function getProcedureCredits(procedures: PatientProcedure[]) {
     const schedule =
       procedure.schedule && procedure.schedule.length > 0
         ? procedure.schedule
+        : procedure.schedule_mode === "fixed_weekdays" &&
+            procedure.recurring_start_date &&
+            procedure.recurring_time &&
+            procedure.recurring_weekdays?.length
+          ? generateLessonDates(
+              procedure.recurring_start_date,
+              procedure.recurring_weekdays,
+              quantity,
+            ).map((date) => ({
+              date,
+              time: procedure.recurring_time ?? "",
+              status: procedure.recurring_status ?? "agendada",
+            }))
         : procedure.scheduled_date && procedure.scheduled_time
           ? [
               {
@@ -715,6 +754,86 @@ function getProcedureCredits(procedures: PatientProcedure[]) {
       totalCredits: quantity,
       scheduledCredit,
     }));
+  });
+}
+
+function buildRepairLessonAppointments(
+  packageItem: RepairablePackage,
+  existingLessonNumbers: Set<number>,
+): AppointmentInsert[] {
+  const startTime = packageItem.fixed_time.slice(0, 5);
+  const endTime = addMinutesToTime(startTime, SESSION_DURATION_MINUTES);
+  const lessonDates = generateLessonDates(
+    packageItem.start_date,
+    packageItem.fixed_weekdays,
+    packageItem.total_lessons,
+  );
+
+  return lessonDates.flatMap((lessonDate, index) => {
+    const lessonNumber = index + 1;
+
+    if (existingLessonNumbers.has(lessonNumber)) return [];
+
+    return [
+      {
+        clinic_id: packageItem.clinic_id,
+        patient_id: packageItem.patient_id,
+        ...(packageItem.professional_id
+          ? { professional_id: packageItem.professional_id }
+          : {}),
+        package_id: packageItem.id,
+        package_lesson_number: lessonNumber,
+        class_price: Number(packageItem.lesson_value) || 0,
+        start_time: toDateTime(lessonDate, startTime),
+        end_time: toDateTime(lessonDate, endTime),
+        type: "Fisioterapia",
+        status: "agendada",
+        notes: `Aula ${lessonNumber}/${packageItem.total_lessons} do pacote.`,
+      },
+    ];
+  });
+}
+
+function buildStandaloneProcedureAppointments({
+  clinicId,
+  patientId,
+  professionalId,
+  procedures,
+  isRenewal = false,
+}: {
+  clinicId: string;
+  patientId: string;
+  professionalId?: string | null;
+  procedures: PatientProcedure[];
+  isRenewal?: boolean;
+}): AppointmentInsert[] {
+  const credits = getProcedureCredits(procedures);
+  const duration = SESSION_DURATION_MINUTES;
+
+  return credits.map((credit) => {
+    const scheduledDate = credit.scheduledCredit.date;
+    const scheduledTime = credit.scheduledCredit.time;
+    const start = addMinutesToSchedule(
+      scheduledDate,
+      scheduledTime.slice(0, 5),
+      0,
+    );
+    const end = addMinutesToSchedule(start.date, start.time, duration);
+    const procedureName = credit.procedure.name || "Procedimento";
+
+    return {
+      clinic_id: clinicId,
+      patient_id: patientId,
+      ...(professionalId ? { professional_id: professionalId } : {}),
+      start_time: toDateTime(start.date, start.time),
+      end_time: toDateTime(end.date, end.time),
+      type: procedureName,
+      status: credit.scheduledCredit.status ?? "agendada",
+      package_id: null,
+      package_lesson_number: null,
+      class_price: Number(credit.procedure.agreed_value) || 0,
+      notes: `${isRenewal ? "Renovação: " : ""}Procedimento avulso ${credit.creditNumber}/${credit.totalCredits}: ${procedureName}.`,
+    };
   });
 }
 
@@ -739,33 +858,12 @@ async function criarAgendamentosProcedimentosAvulsos({
 
   validateStandaloneProcedureFields(form);
 
-  const credits = getProcedureCredits(procedures);
-  const duration = SESSION_DURATION_MINUTES;
-
-  const requestedAppointments = credits.map((credit) => {
-    const scheduledDate = credit.scheduledCredit.date;
-    const scheduledTime = credit.scheduledCredit.time;
-    const start = addMinutesToSchedule(
-      scheduledDate,
-      scheduledTime,
-      0,
-    );
-    const end = addMinutesToSchedule(start.date, start.time, duration);
-    const procedureName = credit.procedure.name || "Procedimento";
-
-    return {
-      clinic_id: clinicId,
-      patient_id: patientId,
-      professional_id: professionalId,
-      start_time: toDateTime(start.date, start.time),
-      end_time: toDateTime(end.date, end.time),
-      type: procedureName,
-      status: credit.scheduledCredit.status ?? "agendada",
-      package_id: null,
-      package_lesson_number: null,
-      class_price: Number(credit.procedure.agreed_value) || 0,
-      notes: `${isRenewal ? "Renovação: " : ""}Procedimento avulso ${credit.creditNumber}/${credit.totalCredits}: ${procedureName}.`,
-    };
+  const requestedAppointments = buildStandaloneProcedureAppointments({
+    clinicId,
+    patientId,
+    professionalId,
+    procedures,
+    isRenewal,
   });
 
   if (replaceExisting) {
@@ -1611,6 +1709,181 @@ async function atualizarPacotePrincipal(
   });
 
   return data as PackageSummary;
+}
+
+export async function repararAgendamentosPendentes(
+  clinicId: string,
+): Promise<AppointmentRepairResult> {
+  const result: AppointmentRepairResult = {
+    packagesChecked: 0,
+    patientsChecked: 0,
+    packageAppointmentsCreated: 0,
+    procedureAppointmentsCreated: 0,
+  };
+
+  const { data: packagesData, error: packagesError } = await supabase
+    .from(PACKAGES_TABLE)
+    .select(
+      "id, clinic_id, patient_id, professional_id, total_lessons, lesson_value, start_date, fixed_weekdays, fixed_time, status, procedure_credits",
+    )
+    .eq("clinic_id", clinicId)
+    .eq("status", "ativo");
+
+  if (packagesError) {
+    throw formatSupabaseError(
+      "Erro ao buscar pacotes para reparar agenda",
+      packagesError,
+      PACKAGES_TABLE,
+    );
+  }
+
+  const packages = (packagesData ?? []) as RepairablePackage[];
+  result.packagesChecked = packages.length;
+
+  const packageIds = packages.map((packageItem) => packageItem.id);
+  const existingLessonsByPackage = new Map<string, Set<number>>();
+
+  if (packageIds.length > 0) {
+    const { data: existingLessons, error: existingLessonsError } =
+      await supabase
+        .from("appointments")
+        .select("package_id, package_lesson_number")
+        .in("package_id", packageIds);
+
+    if (existingLessonsError) {
+      throw formatSupabaseError(
+        "Erro ao verificar sessões já existentes",
+        existingLessonsError,
+        "appointments",
+      );
+    }
+
+    (
+      (existingLessons ?? []) as Array<{
+        package_id: string | null;
+        package_lesson_number: number | null;
+      }>
+    ).forEach((appointment) => {
+      if (!appointment.package_id || !appointment.package_lesson_number) return;
+
+      const lessons =
+        existingLessonsByPackage.get(appointment.package_id) ?? new Set<number>();
+      lessons.add(appointment.package_lesson_number);
+      existingLessonsByPackage.set(appointment.package_id, lessons);
+    });
+  }
+
+  const missingPackageAppointments = packages.flatMap((packageItem) =>
+    buildRepairLessonAppointments(
+      packageItem,
+      existingLessonsByPackage.get(packageItem.id) ?? new Set<number>(),
+    ),
+  );
+
+  if (missingPackageAppointments.length > 0) {
+    const { error: insertPackageAppointmentsError } = await supabase
+      .from("appointments")
+      .insert(missingPackageAppointments);
+
+    if (insertPackageAppointmentsError) {
+      throw formatSupabaseError(
+        "Erro ao recriar sessões pendentes dos pacotes",
+        insertPackageAppointmentsError,
+        "appointments",
+      );
+    }
+
+    result.packageAppointmentsCreated = missingPackageAppointments.length;
+  }
+
+  const { data: patientsData, error: patientsError } = await supabase
+    .from(PATIENTS_TABLE)
+    .select("id, clinic_id, procedures, responsible_professional_id")
+    .eq("clinic_id", clinicId)
+    .neq("status", "encerrado");
+
+  if (patientsError) {
+    throw formatSupabaseError(
+      "Erro ao buscar pacientes para reparar procedimentos",
+      patientsError,
+    );
+  }
+
+  const patients = (patientsData ?? []) as RepairablePatient[];
+  result.patientsChecked = patients.length;
+
+  const packageProceduresByPatient = packages.reduce<
+    Record<string, PatientProcedure[]>
+  >((map, packageItem) => {
+    const procedures = packageItem.procedure_credits ?? [];
+    if (procedures.length === 0) return map;
+
+    map[packageItem.patient_id] = [
+      ...(map[packageItem.patient_id] ?? []),
+      ...procedures,
+    ];
+    return map;
+  }, {});
+
+  const packageProfessionalByPatient = packages.reduce<Record<string, string>>(
+    (map, packageItem) => {
+      if (packageItem.professional_id && !map[packageItem.patient_id]) {
+        map[packageItem.patient_id] = packageItem.professional_id;
+      }
+      return map;
+    },
+    {},
+  );
+
+  for (const patient of patients) {
+    const procedures = [
+      ...(patient.procedures ?? []),
+      ...(packageProceduresByPatient[patient.id] ?? []),
+    ];
+
+    if (procedures.length === 0) continue;
+
+    const requestedAppointments = buildStandaloneProcedureAppointments({
+      clinicId,
+      patientId: patient.id,
+      professionalId:
+        patient.responsible_professional_id ??
+        packageProfessionalByPatient[patient.id] ??
+        null,
+      procedures,
+    });
+    const uniqueAppointments = Array.from(
+      new Map(
+        requestedAppointments.map((appointment) => [
+          `${appointment.type}|${appointment.start_time}`,
+          appointment,
+        ]),
+      ).values(),
+    );
+    const missingAppointments =
+      await filterExistingStandaloneProcedureAppointments(
+        patient.id,
+        uniqueAppointments,
+      );
+
+    if (missingAppointments.length === 0) continue;
+
+    const { error: insertProcedureAppointmentsError } = await supabase
+      .from("appointments")
+      .insert(missingAppointments);
+
+    if (insertProcedureAppointmentsError) {
+      throw formatSupabaseError(
+        "Erro ao recriar procedimentos pendentes na agenda",
+        insertProcedureAppointmentsError,
+        "appointments",
+      );
+    }
+
+    result.procedureAppointmentsCreated += missingAppointments.length;
+  }
+
+  return result;
 }
 
 export async function encerrarPaciente(patientId: string): Promise<void> {

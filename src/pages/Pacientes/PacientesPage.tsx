@@ -16,6 +16,7 @@ import {
   Trash2,
   User,
   UserCheck,
+  Wrench,
   X,
 } from "lucide-react";
 import { Button } from "../../components/ui/Button";
@@ -29,6 +30,7 @@ import {
   criarPaciente,
   encerrarPaciente,
   listarPacientes,
+  repararAgendamentosPendentes,
   renovarPacotePaciente,
 } from "./PacientesService";
 import { NovoPacienteModal } from "./NovoPacienteModal";
@@ -112,7 +114,9 @@ export const PacientesPage = () => {
   const [fisioterapeutas, setFisioterapeutas] = useState<Fisioterapeuta[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [repairingAppointments, setRepairingAppointments] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [repairMessage, setRepairMessage] = useState<string | null>(null);
   const [modalError, setModalError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
@@ -396,6 +400,43 @@ export const PacientesPage = () => {
     setModalError(null);
   };
 
+  const handleRepairAppointments = async () => {
+    if (!profile?.clinic_id) {
+      setError("Não foi possível identificar a clínica para reparar a agenda.");
+      return;
+    }
+
+    if (
+      !window.confirm(
+        "Deseja reparar automaticamente sessões e procedimentos que ficaram sem agendamento? A rotina só cria itens faltantes e não apaga agendamentos existentes.",
+      )
+    ) {
+      return;
+    }
+
+    setRepairingAppointments(true);
+    setError(null);
+    setRepairMessage(null);
+
+    try {
+      const result = await repararAgendamentosPendentes(profile.clinic_id);
+      const totalCreated =
+        result.packageAppointmentsCreated + result.procedureAppointmentsCreated;
+
+      setRepairMessage(
+        totalCreated > 0
+          ? `Agenda reparada: ${result.packageAppointmentsCreated} sessão(ões) de pacote e ${result.procedureAppointmentsCreated} procedimento(s) criados.`
+          : "Agenda verificada: nenhum agendamento pendente encontrado.",
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Erro ao reparar agendamentos.",
+      );
+    } finally {
+      setRepairingAppointments(false);
+    }
+  };
+
   const handleClosePatient = async (patient: Patient) => {
     if (
       !window.confirm(
@@ -477,9 +518,19 @@ export const PacientesPage = () => {
           </p>
         </div>
         {isAdmin && (
-          <Button className="w-full gap-2 sm:w-auto" onClick={openModal}>
-            <Plus size={18} /> Novo Paciente
-          </Button>
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+            <Button
+              variant="outline"
+              className="w-full gap-2 sm:w-auto"
+              onClick={handleRepairAppointments}
+              isLoading={repairingAppointments}
+            >
+              <Wrench size={18} /> Reparar agenda
+            </Button>
+            <Button className="w-full gap-2 sm:w-auto" onClick={openModal}>
+              <Plus size={18} /> Novo Paciente
+            </Button>
+          </div>
         )}
       </header>
 
@@ -503,6 +554,12 @@ export const PacientesPage = () => {
       {error && (
         <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
           {error}
+        </div>
+      )}
+
+      {repairMessage && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
+          {repairMessage}
         </div>
       )}
 
