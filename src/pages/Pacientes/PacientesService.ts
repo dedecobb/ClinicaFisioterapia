@@ -8,7 +8,6 @@ import {
   PROCEDURE_OPTIONS,
 } from "./types";
 import {
-  SESSION_CAPACITY,
   SESSION_DURATION_MINUTES,
 } from "../Agenda/Agendamentoservice";
 
@@ -16,7 +15,6 @@ const PATIENTS_TABLE = "patients";
 const PACKAGES_TABLE = "lesson_packages";
 const INSTALLMENTS_TABLE = "package_installments";
 const TRANSACTIONS_TABLE = "transactions";
-const CLINIC_TIME_ZONE = "America/Sao_Paulo";
 const CLINIC_UTC_OFFSET = "-03:00";
 
 type AppointmentInsert = {
@@ -421,84 +419,6 @@ function toDateTime(date: string, time: string): string {
   return new Date(`${date}T${time}:00${CLINIC_UTC_OFFSET}`).toISOString();
 }
 
-function formatAppointmentSlot(startTime: string): string {
-  const date = new Date(startTime);
-  const formattedDate = new Intl.DateTimeFormat("pt-BR", {
-    timeZone: CLINIC_TIME_ZONE,
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).format(date);
-  const formattedTime = new Intl.DateTimeFormat("pt-BR", {
-    timeZone: CLINIC_TIME_ZONE,
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(date);
-
-  return `${formattedDate} às ${formattedTime}`;
-}
-
-async function assertAppointmentBatchCapacity(
-  appointments: AppointmentInsert[],
-  ignorePackageId?: string,
-): Promise<void> {
-  const clinicId = appointments[0]?.clinic_id;
-  if (!clinicId) return;
-
-  const requestedByStartTime = appointments
-    .filter((appointment) => appointment.status !== "cancelada")
-    .reduce<Record<string, number>>((map, appointment) => {
-      map[appointment.start_time] = (map[appointment.start_time] ?? 0) + 1;
-      return map;
-    }, {});
-
-  const conflicts: string[] = [];
-
-  for (const [startTime, requestedCount] of Object.entries(
-    requestedByStartTime,
-  )) {
-    let query = supabase
-      .from("appointments")
-      .select("id", { count: "exact", head: true })
-      .eq("clinic_id", clinicId)
-      .eq("start_time", startTime)
-      .neq("status", "cancelada");
-
-    if (ignorePackageId) {
-      query = query.not("package_id", "eq", ignorePackageId);
-    }
-
-    const { count, error } = await query;
-
-    if (error) {
-      throw formatSupabaseError(
-        "Erro ao validar lotação das sessões",
-        error,
-        "appointments",
-      );
-    }
-
-    if ((count ?? 0) + requestedCount > SESSION_CAPACITY) {
-      conflicts.push(formatAppointmentSlot(startTime));
-    }
-  }
-
-  if (conflicts.length > 0) {
-    const visibleConflicts = conflicts.slice(0, 4).join(", ");
-    const remainingConflicts = conflicts.length - 4;
-    const remainingText =
-      remainingConflicts > 0 ? ` e mais ${remainingConflicts} sessão(ões)` : "";
-    const message = `Olha, existe choque de horário em ${visibleConflicts}${remainingText}. O limite recomendado é de ${SESSION_CAPACITY} pacientes no mesmo horário. Você tem certeza que deseja cadastrar mesmo assim?`;
-
-    if (typeof window !== "undefined" && window.confirm(message)) return;
-
-    throw new Error(
-      `Cadastro não concluído. Existe choque de horário em ${visibleConflicts}${remainingText}. Altere o horário fixo, os dias da semana ou a data de início, ou tente novamente e confirme o cadastro mesmo assim.`,
-    );
-  }
-}
-
 async function filterExistingStandaloneProcedureAppointments(
   patientId: string,
   appointments: AppointmentInsert[],
@@ -616,7 +536,6 @@ async function sincronizarAgendamentosPacote({
   form,
   totalLessons,
   isRenewal = false,
-  skipCapacityConfirmation = false,
 }: {
   clinicId: string;
   patientId: string;
@@ -626,7 +545,6 @@ async function sincronizarAgendamentosPacote({
   form: NewPatientForm;
   totalLessons: number;
   isRenewal?: boolean;
-  skipCapacityConfirmation?: boolean;
 }) {
   const { data: lockedAppointments, error: lockedError } = await supabase
     .from("appointments")
@@ -661,10 +579,6 @@ async function sincronizarAgendamentosPacote({
   });
 
   if (appointments.length === 0) return;
-
-  if (!skipCapacityConfirmation) {
-    await assertAppointmentBatchCapacity(appointments, packageId);
-  }
 
   const { error: deleteError } = await supabase
     .from("appointments")
@@ -877,8 +791,6 @@ async function criarAgendamentosProcedimentosAvulsos({
   );
 
   if (appointments.length === 0) return;
-
-  await assertAppointmentBatchCapacity(appointments);
 
   const { error } = await supabase.from("appointments").insert(appointments);
 
@@ -1174,17 +1086,6 @@ export async function criarPaciente(
       form.contracted_lessons,
     );
 
-    await assertAppointmentBatchCapacity(
-      buildLessonAppointments({
-        clinicId,
-        patientId: "pre-validacao",
-        professionalId: form.responsible_professional_id,
-        packageId: null,
-        lessonDates,
-        form,
-        totalLessons: form.contracted_lessons,
-      }),
-    );
   }
 
   const { data, error } = await supabase
@@ -1285,7 +1186,6 @@ export async function criarPaciente(
     lessonDates,
     form,
     totalLessons: activePackage.total_lessons,
-    skipCapacityConfirmation: true,
   });
 
   await registrarRecebimentoInicial({
@@ -1337,18 +1237,6 @@ export async function renovarPacotePaciente(
       form.contracted_lessons,
     );
 
-    await assertAppointmentBatchCapacity(
-      buildLessonAppointments({
-        clinicId,
-        patientId,
-        professionalId: form.responsible_professional_id,
-        packageId: null,
-        lessonDates,
-        form,
-        totalLessons: form.contracted_lessons,
-        isRenewal: true,
-      }),
-    );
   }
 
   const { data: patientData, error: patientError } = await supabase
@@ -1445,7 +1333,6 @@ export async function renovarPacotePaciente(
     form,
     totalLessons: renewedPackage.total_lessons,
     isRenewal: true,
-    skipCapacityConfirmation: true,
   });
 
   await registrarRecebimentoInicial({
@@ -1622,18 +1509,6 @@ async function atualizarPacotePrincipal(
   );
 
   if (!packageId) {
-    await assertAppointmentBatchCapacity(
-      buildLessonAppointments({
-        clinicId,
-        patientId,
-        professionalId: form.responsible_professional_id,
-        packageId: null,
-        lessonDates,
-        form,
-        totalLessons: form.contracted_lessons,
-      }),
-    );
-
     const { data, error } = await supabase
       .from(PACKAGES_TABLE)
       .insert({
@@ -1682,24 +1557,10 @@ async function atualizarPacotePrincipal(
       lessonDates,
       form,
       totalLessons: createdPackage.total_lessons,
-      skipCapacityConfirmation: true,
     });
 
     return createdPackage;
   }
-
-  await assertAppointmentBatchCapacity(
-    buildLessonAppointments({
-      clinicId,
-      patientId,
-      professionalId: form.responsible_professional_id,
-      packageId,
-      lessonDates,
-      form,
-      totalLessons: form.contracted_lessons,
-    }),
-    packageId,
-  );
 
   const { data, error } = await supabase
     .from(PACKAGES_TABLE)
@@ -1747,7 +1608,6 @@ async function atualizarPacotePrincipal(
     lessonDates,
     form,
     totalLessons: (data as PackageSummary).total_lessons,
-    skipCapacityConfirmation: true,
   });
 
   return data as PackageSummary;

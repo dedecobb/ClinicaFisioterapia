@@ -193,53 +193,6 @@ function normalizeSessionForm(form: NovoAgendamentoForm): NovoAgendamentoForm {
   };
 }
 
-function formatAppointmentSlot(startTime: string): string {
-  return `${formatDateBr(toDate(startTime))} às ${toTime(startTime)}`;
-}
-
-async function assertSessionCapacity({
-  clinicId,
-  startTime,
-  status,
-  ignoreAppointmentId,
-}: {
-  clinicId: string;
-  startTime: string;
-  status: StatusAgendamento;
-  ignoreAppointmentId?: string;
-}): Promise<void> {
-  if (status === "cancelada") return;
-
-  let query = supabase
-    .from("appointments")
-    .select("id", { count: "exact", head: true })
-    .eq("clinic_id", clinicId)
-    .eq("start_time", startTime)
-    .neq("status", statusToDb.cancelada);
-
-  if (ignoreAppointmentId) {
-    query = query.neq("id", ignoreAppointmentId);
-  }
-
-  const { count, error } = await query;
-
-  if (error) {
-    throw new Error(`Erro ao validar lotação da sessão: ${error.message}`);
-  }
-
-  if ((count ?? 0) >= SESSION_CAPACITY) {
-    const message = `Olha, existe choque de horário em ${formatAppointmentSlot(
-      startTime,
-    )}. O limite recomendado é de ${SESSION_CAPACITY} pacientes no mesmo horário. Você tem certeza que deseja cadastrar mesmo assim?`;
-
-    if (typeof window !== "undefined" && window.confirm(message)) return;
-
-    throw new Error(
-      `Cadastro não concluído. Esta sessão já tem ${count ?? SESSION_CAPACITY}/${SESSION_CAPACITY} pacientes neste horário. Escolha outro horário ou tente novamente e confirme o cadastro mesmo assim.`,
-    );
-  }
-}
-
 function toMonthBoundary(year: number, month: number): string {
   const boundary = new Date(year, month, 1);
   const date = `${boundary.getFullYear()}-${String(
@@ -695,12 +648,6 @@ export async function criarAgendamento(
   const startTime = toDateTime(normalizedForm.data, normalizedForm.horaInicio);
   const endTime = toDateTime(normalizedForm.data, normalizedForm.horaFim);
 
-  await assertSessionCapacity({
-    clinicId,
-    startTime,
-    status: normalizedForm.status,
-  });
-
   const { data, error } = await supabase
     .from("appointments")
     .insert({
@@ -794,13 +741,6 @@ export async function atualizarAgendamento(
   const notes = [normalizedForm.observacoes || oldNotes || "", remarcacaoNote]
     .filter(Boolean)
     .join("\n");
-
-  await assertSessionCapacity({
-    clinicId,
-    startTime: newStart,
-    status: normalizedForm.status,
-    ignoreAppointmentId: id,
-  });
 
   const { data, error } = await supabase
     .from("appointments")
