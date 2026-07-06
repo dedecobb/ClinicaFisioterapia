@@ -7,9 +7,7 @@ import {
   PatientProcedure,
   PROCEDURE_OPTIONS,
 } from "./types";
-import {
-  SESSION_DURATION_MINUTES,
-} from "../Agenda/Agendamentoservice";
+import { SESSION_DURATION_MINUTES } from "../Agenda/Agendamentoservice";
 
 const PATIENTS_TABLE = "patients";
 const PACKAGES_TABLE = "lesson_packages";
@@ -275,14 +273,16 @@ function normalizeAddress(form: NewPatientForm): PatientAddress | null {
       code: onlyDigits(address.cityCode),
       name: address.cityName.trim(),
     },
-    state: address.state.replace(/[^a-zA-Z]/g, "").slice(0, 2).toUpperCase(),
+    state: address.state
+      .replace(/[^a-zA-Z]/g, "")
+      .slice(0, 2)
+      .toUpperCase(),
   };
 }
 
 function getProcedureAmount(form: NewPatientForm): number {
   return normalizeProcedures(form).reduce(
-    (total, procedure) =>
-      total + procedure.agreed_value * procedure.quantity,
+    (total, procedure) => total + procedure.agreed_value * procedure.quantity,
     0,
   );
 }
@@ -660,7 +660,9 @@ function getPatientPlanFields(form: NewPatientForm) {
     plan_start_date: withLessons
       ? emptyToNull(form.plan_start_date)
       : withProcedures
-        ? firstProcedure.scheduled_date ?? firstProcedureSchedule?.date ?? todayDate()
+        ? (firstProcedure.scheduled_date ??
+          firstProcedureSchedule?.date ??
+          todayDate())
         : null,
     contracted_lessons: withLessons ? form.contracted_lessons : null,
     fixed_weekdays: withLessons ? form.fixed_weekdays : null,
@@ -673,8 +675,14 @@ function getPatientPlanFields(form: NewPatientForm) {
 function validateLessonPackageFields(form: NewPatientForm) {
   if (!hasLessonPackage(form)) return;
 
-  if (!form.plan_start_date || !form.fixed_time || form.fixed_weekdays.length === 0) {
-    throw new Error("Informe data inicial, dias fixos e horário para gerar as sessões.");
+  if (
+    !form.plan_start_date ||
+    !form.fixed_time ||
+    form.fixed_weekdays.length === 0
+  ) {
+    throw new Error(
+      "Informe data inicial, dias fixos e horário para gerar as sessões.",
+    );
   }
 
   if (form.fixed_weekdays.length > Number(form.contracted_lessons)) {
@@ -739,15 +747,15 @@ function getProcedureCredits(procedures: PatientProcedure[]) {
               time: procedure.recurring_time ?? "",
               status: procedure.recurring_status ?? "agendada",
             }))
-        : procedure.scheduled_date && procedure.scheduled_time
-          ? [
-              {
-                date: procedure.scheduled_date,
-                time: procedure.scheduled_time,
-                status: "agendada" as const,
-              },
-            ]
-          : [];
+          : procedure.scheduled_date && procedure.scheduled_time
+            ? [
+                {
+                  date: procedure.scheduled_date,
+                  time: procedure.scheduled_time,
+                  status: "agendada" as const,
+                },
+              ]
+            : [];
 
     return schedule.slice(0, quantity).map((scheduledCredit, index) => ({
       procedure,
@@ -964,7 +972,11 @@ async function criarParcelasPacote(
     .insert(installments);
 
   if (error) {
-    throw formatSupabaseError("Erro ao gerar parcelas", error, INSTALLMENTS_TABLE);
+    throw formatSupabaseError(
+      "Erro ao gerar parcelas",
+      error,
+      INSTALLMENTS_TABLE,
+    );
   }
 }
 
@@ -1185,7 +1197,6 @@ export async function criarPaciente(
       form.fixed_weekdays,
       form.contracted_lessons,
     );
-
   }
 
   const { data, error } = await supabase
@@ -1255,7 +1266,8 @@ export async function criarPaciente(
       payment_status: paymentStatus,
       installments: Number(form.installments) || 1,
       start_date: form.plan_start_date,
-      expected_end_date: lessonDates[lessonDates.length - 1] ?? form.plan_start_date,
+      expected_end_date:
+        lessonDates[lessonDates.length - 1] ?? form.plan_start_date,
       fixed_weekdays: form.fixed_weekdays,
       fixed_time: form.fixed_time,
       lesson_duration_minutes: SESSION_DURATION_MINUTES,
@@ -1266,7 +1278,11 @@ export async function criarPaciente(
     .single();
 
   if (packageError) {
-    throw formatSupabaseError("Erro ao cadastrar pacote", packageError, PACKAGES_TABLE);
+    throw formatSupabaseError(
+      "Erro ao cadastrar pacote",
+      packageError,
+      PACKAGES_TABLE,
+    );
   }
 
   const activePackage = packageData as PackageSummary;
@@ -1336,7 +1352,6 @@ export async function renovarPacotePaciente(
       form.fixed_weekdays,
       form.contracted_lessons,
     );
-
   }
 
   const { data: patientData, error: patientError } = await supabase
@@ -1401,7 +1416,8 @@ export async function renovarPacotePaciente(
       payment_status: paymentStatus,
       installments: Number(form.installments) || 1,
       start_date: form.plan_start_date,
-      expected_end_date: lessonDates[lessonDates.length - 1] ?? form.plan_start_date,
+      expected_end_date:
+        lessonDates[lessonDates.length - 1] ?? form.plan_start_date,
       fixed_weekdays: form.fixed_weekdays,
       fixed_time: form.fixed_time,
       lesson_duration_minutes: SESSION_DURATION_MINUTES,
@@ -1412,7 +1428,11 @@ export async function renovarPacotePaciente(
     .single();
 
   if (packageError) {
-    throw formatSupabaseError("Erro ao renovar pacote", packageError, PACKAGES_TABLE);
+    throw formatSupabaseError(
+      "Erro ao renovar pacote",
+      packageError,
+      PACKAGES_TABLE,
+    );
   }
 
   const renewedPackage = packageData as PackageSummary;
@@ -1557,7 +1577,8 @@ async function atualizarPacotePrincipal(
 
   if (!hasLessonPackage(form) && !packageRow) return null;
 
-  const packageId = (packageRow as { id: string; clinic_id: string } | null)?.id;
+  const packageId = (packageRow as { id: string; clinic_id: string } | null)
+    ?.id;
   const clinicId =
     (packageRow as { id: string; clinic_id: string } | null)?.clinic_id ??
     patientClinicId;
@@ -1625,7 +1646,8 @@ async function atualizarPacotePrincipal(
         payment_status: paymentStatus,
         installments: Number(form.installments) || 1,
         start_date: form.plan_start_date,
-        expected_end_date: lessonDates[lessonDates.length - 1] ?? form.plan_start_date,
+        expected_end_date:
+          lessonDates[lessonDates.length - 1] ?? form.plan_start_date,
         fixed_weekdays: form.fixed_weekdays,
         fixed_time: form.fixed_time,
         lesson_duration_minutes: SESSION_DURATION_MINUTES,
@@ -1637,7 +1659,11 @@ async function atualizarPacotePrincipal(
       .single();
 
     if (error) {
-      throw formatSupabaseError("Erro ao cadastrar pacote", error, PACKAGES_TABLE);
+      throw formatSupabaseError(
+        "Erro ao cadastrar pacote",
+        error,
+        PACKAGES_TABLE,
+      );
     }
 
     const createdPackage = data as PackageSummary;
@@ -1676,7 +1702,8 @@ async function atualizarPacotePrincipal(
       payment_status: paymentStatus,
       installments: Number(form.installments) || 1,
       start_date: form.plan_start_date,
-      expected_end_date: lessonDates[lessonDates.length - 1] ?? form.plan_start_date,
+      expected_end_date:
+        lessonDates[lessonDates.length - 1] ?? form.plan_start_date,
       fixed_weekdays: form.fixed_weekdays,
       fixed_time: form.fixed_time,
       lesson_duration_minutes: SESSION_DURATION_MINUTES,
@@ -1689,7 +1716,11 @@ async function atualizarPacotePrincipal(
     .single();
 
   if (error) {
-    throw formatSupabaseError("Erro ao atualizar pacote", error, PACKAGES_TABLE);
+    throw formatSupabaseError(
+      "Erro ao atualizar pacote",
+      error,
+      PACKAGES_TABLE,
+    );
   }
 
   await sincronizarParcelasPacote(
@@ -1786,7 +1817,10 @@ export async function repararAgendamentosPendentes(
   if (missingPackageAppointments.length > 0) {
     const { error: insertPackageAppointmentsError } = await supabase
       .from("appointments")
-      .insert(missingPackageAppointments);
+      .upsert(missingPackageAppointments, {
+        onConflict: "dedupe_key",
+        ignoreDuplicates: true,
+      });
 
     if (insertPackageAppointmentsError) {
       throw formatSupabaseError(
@@ -1873,8 +1907,10 @@ export async function repararAgendamentosPendentes(
 
     const { error: insertProcedureAppointmentsError } = await supabase
       .from("appointments")
-      .insert(missingAppointments);
-
+      .upsert(missingAppointments, {
+        onConflict: "dedupe_key",
+        ignoreDuplicates: true,
+      });
     if (insertProcedureAppointmentsError) {
       throw formatSupabaseError(
         "Erro ao recriar procedimentos pendentes na agenda",
@@ -1906,7 +1942,11 @@ export async function encerrarPaciente(patientId: string): Promise<void> {
     .eq("status", "ativo");
 
   if (packageError) {
-    throw formatSupabaseError("Erro ao encerrar pacote", packageError, PACKAGES_TABLE);
+    throw formatSupabaseError(
+      "Erro ao encerrar pacote",
+      packageError,
+      PACKAGES_TABLE,
+    );
   }
 }
 

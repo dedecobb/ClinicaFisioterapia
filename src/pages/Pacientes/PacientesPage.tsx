@@ -43,7 +43,15 @@ const STATUS_LABEL = {
   encerrado: "Encerrado",
 } as const;
 
-const WEEKDAY_LABEL = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
+const WEEKDAY_LABEL = [
+  "Domingo",
+  "Segunda",
+  "Terça",
+  "Quarta",
+  "Quinta",
+  "Sexta",
+  "Sábado",
+];
 
 const currencyFormatter = new Intl.NumberFormat("pt-BR", {
   style: "currency",
@@ -69,13 +77,18 @@ function getProcedureQuantity(procedure: PatientProcedure): number {
 }
 
 function getProcedureTotal(procedure: PatientProcedure): number {
-  return (Number(procedure.agreed_value) || 0) * getProcedureQuantity(procedure);
+  return (
+    (Number(procedure.agreed_value) || 0) * getProcedureQuantity(procedure)
+  );
 }
 
 function getPatientProcedureCredits(patient: Patient): PatientProcedure[] {
   const byType = new Map<string, PatientProcedure>();
 
-  [...(patient.procedures ?? []), ...(patient.lesson_packages?.[0]?.procedure_credits ?? [])]
+  [
+    ...(patient.procedures ?? []),
+    ...(patient.lesson_packages?.[0]?.procedure_credits ?? []),
+  ]
     .filter((procedure) => procedure.name?.trim())
     .forEach((procedure) => byType.set(procedure.type, procedure));
 
@@ -121,9 +134,13 @@ export const PacientesPage = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
   const [renewingPatient, setRenewingPatient] = useState<Patient | null>(null);
-  const [editingNotePatientId, setEditingNotePatientId] = useState<string | null>(null);
+  const [editingNotePatientId, setEditingNotePatientId] = useState<
+    string | null
+  >(null);
   const [noteDraft, setNoteDraft] = useState("");
-  const [noteSavingPatientId, setNoteSavingPatientId] = useState<string | null>(null);
+  const [noteSavingPatientId, setNoteSavingPatientId] = useState<string | null>(
+    null,
+  );
   const navigate = useNavigate();
   const isAdmin = profile?.role === "admin";
 
@@ -241,7 +258,9 @@ export const PacientesPage = () => {
     );
     const financialTotal = lessonsTotal + proceduresTotal;
 
-    if (form.procedures.some((procedure) => Number(procedure.agreed_value) <= 0)) {
+    if (
+      form.procedures.some((procedure) => Number(procedure.agreed_value) <= 0)
+    ) {
       return "Informe o valor unitário de todos os procedimentos selecionados.";
     }
 
@@ -298,7 +317,10 @@ export const PacientesPage = () => {
       return "Selecione pelo menos um dia fixo para as sessões.";
     }
 
-    if (hasLessons && form.fixed_weekdays.length > Number(form.contracted_lessons)) {
+    if (
+      hasLessons &&
+      form.fixed_weekdays.length > Number(form.contracted_lessons)
+    ) {
       return "A quantidade de dias fixos não pode ser maior que as sessões contratadas.";
     }
 
@@ -401,6 +423,7 @@ export const PacientesPage = () => {
   };
 
   const handleRepairAppointments = async () => {
+    if (repairingAppointments) return;
     if (!profile?.clinic_id) {
       setError("Não foi possível identificar a clínica para reparar a agenda.");
       return;
@@ -489,7 +512,9 @@ export const PacientesPage = () => {
       const updated = await atualizarObservacaoPaciente(patient.id, note);
       setPatients((current) =>
         current.map((item) =>
-          item.id === patient.id ? { ...item, quick_note: updated.quick_note } : item,
+          item.id === patient.id
+            ? { ...item, quick_note: updated.quick_note }
+            : item,
         ),
       );
       closeNoteEditor();
@@ -543,7 +568,9 @@ export const PacientesPage = () => {
           <div className="rounded-lg bg-white/70 p-3 font-mono text-xs text-amber-950">
             <div>user.id: {user?.id ?? "sem sessão"}</div>
             <div>profile.id: {profile?.id ?? "não carregado"}</div>
-            <div>profile.clinic_id: {profile?.clinic_id ?? "não carregado"}</div>
+            <div>
+              profile.clinic_id: {profile?.clinic_id ?? "não carregado"}
+            </div>
           </div>
           <Button variant="outline" size="sm" onClick={refreshProfile}>
             Recarregar perfil
@@ -571,7 +598,7 @@ export const PacientesPage = () => {
           />
           <input
             type="text"
-          placeholder="Buscar por nome, CPF ou WhatsApp..."
+            placeholder="Buscar por nome, CPF ou WhatsApp..."
             className="min-h-11 w-full pl-10 pr-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all"
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
@@ -772,7 +799,9 @@ export const PacientesPage = () => {
                           {getProcedureQuantity(procedure)}x {procedure.name}
                         </span>
                         <span className="shrink-0 font-semibold text-slate-900 dark:text-white">
-                          {currencyFormatter.format(getProcedureTotal(procedure))}
+                          {currencyFormatter.format(
+                            getProcedureTotal(procedure),
+                          )}
                         </span>
                       </div>
                     ))}
@@ -796,7 +825,9 @@ export const PacientesPage = () => {
                           {getProcedureQuantity(procedure)}x {procedure.name}
                         </span>
                         <span className="shrink-0 font-semibold text-slate-900 dark:text-white">
-                          {currencyFormatter.format(getProcedureTotal(procedure))}
+                          {currencyFormatter.format(
+                            getProcedureTotal(procedure),
+                          )}
                         </span>
                       </div>
                     ))}
@@ -823,7 +854,9 @@ export const PacientesPage = () => {
                         0,
                       )}{" "}
                       sessões · termina em{" "}
-                      {formatDateBr(patient.lesson_packages[0].expected_end_date)}
+                      {formatDateBr(
+                        patient.lesson_packages[0].expected_end_date,
+                      )}
                     </div>
                     <div className="text-xs text-slate-500">
                       {patient.lesson_packages[0].fixed_weekdays
@@ -844,9 +877,7 @@ export const PacientesPage = () => {
               {patient.lesson_packages?.[0] && (
                 <div className="mt-4 hidden rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/60 p-3 space-y-2 md:block">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="font-semibold text-slate-500">
-                      Pacote
-                    </span>
+                    <span className="font-semibold text-slate-500">Pacote</span>
                     <span className="font-bold text-slate-900 dark:text-white">
                       {patient.lesson_packages[0].completed_lessons}/
                       {patient.lesson_packages[0].total_lessons} sessões
@@ -894,7 +925,9 @@ export const PacientesPage = () => {
                   variant="outline"
                   size="sm"
                   className="min-w-[140px] flex-[2] gap-2"
-                  onClick={() => navigate(`/pacientes/${patient.id}/prontuario`)}
+                  onClick={() =>
+                    navigate(`/pacientes/${patient.id}/prontuario`)
+                  }
                 >
                   Prontuário
                 </Button>
