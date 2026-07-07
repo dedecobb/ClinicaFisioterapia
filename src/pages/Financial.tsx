@@ -9,11 +9,11 @@ import {
   DollarSign,
   Filter,
   Loader2,
-  MessageCircle,
   PlusCircle,
   Receipt,
   Search,
   TrendingUp,
+  Trash2,
   UserCheck,
   X,
 } from "lucide-react";
@@ -122,6 +122,7 @@ type TransactionStatus = TransactionRow["status"];
 
 type ReceivableFilter = "open" | "paid" | "all";
 type DueSort = "asc" | "desc";
+type ExpenseReminderTone = "overdue" | "today" | "soon";
 
 type ExpenseFormState = {
   amount: string;
@@ -196,6 +197,8 @@ const expenseCategories = [
   "Outros",
 ];
 
+const expenseReminderDays = 7;
+
 const initialExpenseForm = (): ExpenseFormState => ({
   amount: "",
   category: "Outros",
@@ -254,10 +257,6 @@ function listDateRange(startDate: string, endDate: string): string[] {
   );
 }
 
-function onlyDigits(value: string | null | undefined): string {
-  return (value ?? "").replace(/\D/g, "");
-}
-
 function formatDate(date: string): string {
   return new Date(`${date}T12:00:00`).toLocaleDateString("pt-BR");
 }
@@ -281,15 +280,13 @@ function getDefaultCommissionPeriod(): { startDate: string; endDate: string } {
   };
 }
 
-function openWhatsApp(phone: string | null | undefined, message: string) {
-  const digits = onlyDigits(phone);
-  if (!digits) return;
-  const number = digits.startsWith("55") ? digits : `55${digits}`;
-  window.open(
-    `https://wa.me/${number}?text=${encodeURIComponent(message)}`,
-    "_blank",
-    "noopener,noreferrer",
-  );
+function getDefaultExpensePeriod(): { startDate: string; endDate: string } {
+  const today = new Date();
+
+  return {
+    startDate: toDateInputValue(addDays(today, -29)),
+    endDate: toDateInputValue(today),
+  };
 }
 
 function statusFromPayment(total: number, paid: number): PaymentStatus {
@@ -342,18 +339,6 @@ function paymentStatusFromTransaction(
   return "pendente";
 }
 
-function getPackagePaymentStatus(packageItem: PackageRow): PaymentStatus {
-  const status = statusFromPayment(
-    money(packageItem.total_amount),
-    money(packageItem.amount_paid),
-  );
-
-  if (status === "pago") return "pago";
-  return packageItem.payment_status === "inadimplente"
-    ? "inadimplente"
-    : status;
-}
-
 function badgeVariantForPayment(status: PaymentStatus) {
   if (status === "pago") return "success";
   if (status === "inadimplente") return "danger";
@@ -365,6 +350,51 @@ function badgeVariantForTransaction(status: TransactionStatus) {
   if (status === "overdue") return "danger";
   if (status === "cancelled") return "neutral";
   return "warning";
+}
+
+function getEffectiveTransactionStatus(
+  transaction: TransactionRow,
+): TransactionStatus {
+  if (
+    transaction.type === "expense" &&
+    transaction.status === "pending" &&
+    transaction.due_date < todayDate()
+  ) {
+    return "overdue";
+  }
+
+  return transaction.status;
+}
+
+function getDaysUntil(date: string): number {
+  const today = parseDateInput(todayDate());
+  const target = parseDateInput(date);
+
+  return Math.ceil(
+    (target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
+  );
+}
+
+function getExpenseReminderTone(transaction: TransactionRow): ExpenseReminderTone {
+  const daysUntil = getDaysUntil(transaction.due_date);
+
+  if (daysUntil < 0 || transaction.status === "overdue") return "overdue";
+  if (daysUntil === 0) return "today";
+  return "soon";
+}
+
+function getExpenseReminderLabel(transaction: TransactionRow): string {
+  const daysUntil = getDaysUntil(transaction.due_date);
+
+  if (daysUntil < 0) {
+    const daysLate = Math.abs(daysUntil);
+    return `Vencida há ${daysLate} ${daysLate === 1 ? "dia" : "dias"}`;
+  }
+
+  if (daysUntil === 0) return "Vence hoje";
+  if (daysUntil === 1) return "Vence amanhã";
+
+  return `Vence em ${daysUntil} dias`;
 }
 
 function isStandaloneProcedureIncome(transaction: TransactionRow): boolean {
@@ -815,6 +845,18 @@ export const Financial = () => {
   const [error, setError] = useState<string | null>(null);
   const [reportStartDate, setReportStartDate] = useState("");
   const [reportEndDate, setReportEndDate] = useState("");
+  const [expenseStartDate, setExpenseStartDate] = useState(
+    () => getDefaultExpensePeriod().startDate,
+  );
+  const [expenseEndDate, setExpenseEndDate] = useState(
+    () => getDefaultExpensePeriod().endDate,
+  );
+  const [historyStartDate, setHistoryStartDate] = useState(
+    () => getDefaultExpensePeriod().startDate,
+  );
+  const [historyEndDate, setHistoryEndDate] = useState(
+    () => getDefaultExpensePeriod().endDate,
+  );
   const [expenseForm, setExpenseForm] = useState<ExpenseFormState>(() =>
     initialExpenseForm(),
   );
@@ -835,6 +877,18 @@ export const Financial = () => {
       behavior: "smooth",
       block: "start",
     });
+  };
+
+  const resetExpensePeriod = () => {
+    const defaultPeriod = getDefaultExpensePeriod();
+    setExpenseStartDate(defaultPeriod.startDate);
+    setExpenseEndDate(defaultPeriod.endDate);
+  };
+
+  const resetHistoryPeriod = () => {
+    const defaultPeriod = getDefaultExpensePeriod();
+    setHistoryStartDate(defaultPeriod.startDate);
+    setHistoryEndDate(defaultPeriod.endDate);
   };
 
   const getSelectedCommissionPeriod = () => {
@@ -1084,13 +1138,87 @@ export const Financial = () => {
     [patientSearchTerm, visibleTransactions],
   );
 
+  const filteredHistoryTransactions = useMemo(
+    () =>
+      filteredVisibleTransactions.filter((transaction) => {
+        if (historyStartDate && transaction.due_date < historyStartDate) {
+          return false;
+        }
+
+        if (historyEndDate && transaction.due_date > historyEndDate) {
+          return false;
+        }
+
+        return true;
+      }),
+    [filteredVisibleTransactions, historyEndDate, historyStartDate],
+  );
+
   const expenseTransactions = useMemo(
     () =>
       visibleTransactions
         .filter((transaction) => transaction.type === "expense")
-        .sort((a, b) => b.due_date.localeCompare(a.due_date)),
+        .sort((a, b) => {
+          const aStatus = getEffectiveTransactionStatus(a);
+          const bStatus = getEffectiveTransactionStatus(b);
+          const aOpen = aStatus !== "paid" && aStatus !== "cancelled";
+          const bOpen = bStatus !== "paid" && bStatus !== "cancelled";
+
+          if (aOpen !== bOpen) return aOpen ? -1 : 1;
+          return aOpen
+            ? a.due_date.localeCompare(b.due_date)
+            : b.due_date.localeCompare(a.due_date);
+        }),
     [visibleTransactions],
   );
+
+  const expenseReminders = useMemo(
+    () =>
+      expenseTransactions
+        .filter((transaction) => {
+          const effectiveStatus = getEffectiveTransactionStatus(transaction);
+          const daysUntil = getDaysUntil(transaction.due_date);
+
+          return (
+            effectiveStatus !== "paid" &&
+            effectiveStatus !== "cancelled" &&
+            daysUntil <= expenseReminderDays
+          );
+        })
+        .sort((a, b) => a.due_date.localeCompare(b.due_date)),
+    [expenseTransactions],
+  );
+
+  const filteredExpenseTransactions = useMemo(
+    () =>
+      expenseTransactions.filter((transaction) => {
+        if (expenseStartDate && transaction.due_date < expenseStartDate) {
+          return false;
+        }
+
+        if (expenseEndDate && transaction.due_date > expenseEndDate) {
+          return false;
+        }
+
+        return true;
+      }),
+    [expenseEndDate, expenseStartDate, expenseTransactions],
+  );
+
+  const expensePeriodTotals = useMemo(() => {
+    const paidExpenses = filteredExpenseTransactions
+      .filter((transaction) => transaction.status === "paid")
+      .reduce((total, item) => total + money(item.amount), 0);
+    const openExpenses = filteredExpenseTransactions
+      .filter((transaction) => {
+        const effectiveStatus = getEffectiveTransactionStatus(transaction);
+
+        return effectiveStatus === "pending" || effectiveStatus === "overdue";
+      })
+      .reduce((total, item) => total + money(item.amount), 0);
+
+    return { paidExpenses, openExpenses };
+  }, [filteredExpenseTransactions]);
 
   const rawCommissionReport = useMemo(
     () =>
@@ -1189,7 +1317,8 @@ export const Financial = () => {
       .filter(
         (transaction) =>
           transaction.type === "expense" &&
-          (transaction.status === "pending" || transaction.status === "overdue"),
+          (getEffectiveTransactionStatus(transaction) === "pending" ||
+            getEffectiveTransactionStatus(transaction) === "overdue"),
       )
       .reduce((total, item) => total + money(item.amount), 0);
     const net = paid - paidExpenses;
@@ -1545,6 +1674,59 @@ export const Financial = () => {
     await loadFinancialData();
   };
 
+  const handleMarkExpensePaid = async (transaction: TransactionRow) => {
+    if (transaction.type !== "expense") return;
+
+    setSaving(true);
+    setError(null);
+
+    const { error: updateError } = await supabase
+      .from("transactions")
+      .update({
+        status: "paid",
+        due_date: todayDate(),
+      })
+      .eq("id", transaction.id);
+
+    if (updateError) {
+      setError(updateError.message);
+      setSaving(false);
+      return;
+    }
+
+    setSaving(false);
+    await loadFinancialData();
+  };
+
+  const handleDeleteExpense = async (transaction: TransactionRow) => {
+    if (transaction.type !== "expense" || !profile?.clinic_id) return;
+
+    const confirmed = window.confirm(
+      `Excluir a despesa "${transaction.category}" no valor de ${currencyFormatter.format(money(transaction.amount))}?`,
+    );
+
+    if (!confirmed) return;
+
+    setSaving(true);
+    setError(null);
+
+    const { error: deleteError } = await supabase
+      .from("transactions")
+      .delete()
+      .eq("id", transaction.id)
+      .eq("clinic_id", profile.clinic_id)
+      .eq("type", "expense");
+
+    if (deleteError) {
+      setError(deleteError.message);
+      setSaving(false);
+      return;
+    }
+
+    setSaving(false);
+    await loadFinancialData();
+  };
+
   const printReceipt = (
     packageItem: PackageRow,
     installment?: InstallmentRow,
@@ -1863,232 +2045,6 @@ export const Financial = () => {
 
           {!isPhysio && (
             <Card className="p-0 overflow-hidden">
-              <div className="p-6 border-b border-slate-100 dark:border-slate-800">
-                <h3 className="text-lg font-bold text-slate-900 dark:text-white">
-                  Histórico de pacotes e parcelas
-                </h3>
-                {hasPatientSearch && (
-                  <p className="text-sm text-slate-500">
-                    Mostrando pacotes compatíveis com "{patientSearchTerm}".
-                  </p>
-                )}
-              </div>
-              <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                {filteredPackages.length === 0 ? (
-                  <div className="px-6 py-10 text-center text-sm text-slate-500">
-                    Nenhum pacote encontrado para este paciente.
-                  </div>
-                ) : (
-                  filteredPackages.map((packageItem) => {
-                  const installments = getInstallments(packageItem);
-                  const currentInstallment = getCurrentInstallment(packageItem);
-                  const packageOpen = Math.max(
-                    (cents(packageItem.total_amount) -
-                      cents(packageItem.amount_paid)) /
-                      100,
-                    0,
-                  );
-                  const packagePaymentStatus =
-                    getPackagePaymentStatus(packageItem);
-
-                  return (
-                    <div key={packageItem.id} className="p-6 space-y-4">
-                      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                        <div>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <h4 className="font-bold text-slate-900 dark:text-white">
-                              {packageItem.patients?.full_name ?? "Paciente"}
-                            </h4>
-                            <Badge
-                              variant={
-                                packageItem.status === "ativo"
-                                  ? "success"
-                                  : "neutral"
-                              }
-                            >
-                              {packageItem.status}
-                            </Badge>
-                            <Badge
-                              variant={
-                                packagePaymentStatus === "pago"
-                                  ? "success"
-                                  : packagePaymentStatus === "inadimplente"
-                                    ? "danger"
-                                    : "warning"
-                              }
-                            >
-                              {paymentLabel[packagePaymentStatus]}
-                            </Badge>
-                          </div>
-                          <p className="text-sm text-slate-500 mt-1">
-                            {packageItem.completed_lessons + packageItem.missed_lessons}/
-                            {packageItem.total_lessons} aulas consumidas · início em{" "}
-                            {formatDate(packageItem.start_date)}
-                          </p>
-                          {money(packageItem.procedure_amount) > 0 && (
-                            <p className="text-xs text-slate-500 mt-1">
-                              Inclui{" "}
-                              {currencyFormatter.format(
-                                money(packageItem.procedure_amount),
-                              )}{" "}
-                              em procedimentos.
-                            </p>
-                          )}
-                        </div>
-                        <div className="text-sm lg:text-right">
-                          <p className="font-semibold text-slate-900 dark:text-white">
-                            {currencyFormatter.format(
-                              money(packageItem.amount_paid),
-                            )}{" "}
-                            pago
-                          </p>
-                          <p className="text-slate-500">
-                            {currencyFormatter.format(packageOpen)} em aberto
-                          </p>
-                        </div>
-                      </div>
-
-                      {currentInstallment && (
-                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-bold text-amber-900">
-                              Parcela atual: #
-                              {currentInstallment.installment_number}
-                            </p>
-                            <p className="text-sm text-amber-800">
-                              Vence em {formatDate(currentInstallment.due_date)}{" "}
-                              ·{" "}
-                              {currencyFormatter.format(
-                                getRemainingInstallment(currentInstallment),
-                              )}
-                            </p>
-                          </div>
-                          <div className="flex gap-2">
-                            <Button
-                              size="sm"
-                              onClick={() =>
-                                openPaymentModal(
-                                  packageItem,
-                                  currentInstallment,
-                                )
-                              }
-                            >
-                              <Check size={14} /> Registrar pagamento
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() =>
-                                openWhatsApp(
-                                  packageItem.patients?.phone,
-                                  `Olá, ${packageItem.patients?.full_name ?? "tudo bem"}! A parcela ${currentInstallment.installment_number} do seu pacote vence em ${formatDate(currentInstallment.due_date)} no valor de ${currencyFormatter.format(getRemainingInstallment(currentInstallment))}. Posso te enviar os dados para pagamento?`,
-                                )
-                              }
-                              disabled={
-                                !onlyDigits(packageItem.patients?.phone)
-                              }
-                            >
-                              <MessageCircle size={14} />
-                            </Button>
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="mobile-card-table overflow-x-auto">
-                        <table className="w-full text-left">
-                          <thead>
-                            <tr className="text-xs font-bold uppercase text-slate-400">
-                              <th className="py-2 pr-4">Parcela</th>
-                              <th className="py-2 pr-4">Vencimento</th>
-                              <th className="py-2 pr-4">Valor</th>
-                              <th className="py-2 pr-4">Pago</th>
-                              <th className="py-2 pr-4">Status</th>
-                              <th className="py-2 pr-4">Ações</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {installments.map((installment) => {
-                              const installmentStatus =
-                                getInstallmentPaymentStatus(installment);
-                              const installmentRemaining =
-                                getRemainingInstallment(installment);
-
-                              return (
-                                <tr
-                                  key={installment.id}
-                                  className="border-t border-slate-100 dark:border-slate-800"
-                                >
-                                  <td className="py-3 pr-4 text-sm font-semibold" data-label="Parcela">
-                                    #{installment.installment_number}
-                                  </td>
-                                  <td className="py-3 pr-4 text-sm text-slate-500" data-label="Vencimento">
-                                    {formatDate(installment.due_date)}
-                                  </td>
-                                  <td className="py-3 pr-4 text-sm" data-label="Valor">
-                                    {currencyFormatter.format(
-                                      money(installment.amount),
-                                    )}
-                                  </td>
-                                  <td className="py-3 pr-4 text-sm text-emerald-600 font-semibold" data-label="Pago">
-                                    {currencyFormatter.format(
-                                      money(installment.amount_paid),
-                                    )}
-                                  </td>
-                                  <td className="py-3 pr-4" data-label="Status">
-                                    <Badge
-                                      variant={
-                                        installmentStatus === "pago"
-                                          ? "success"
-                                          : installmentStatus === "inadimplente"
-                                            ? "danger"
-                                            : "warning"
-                                      }
-                                    >
-                                      {paymentLabel[installmentStatus]}
-                                    </Badge>
-                                  </td>
-                                  <td className="py-3 pr-4" data-label="Ações">
-                                    <div className="flex gap-2">
-                                      {installmentRemaining > 0 && (
-                                        <Button
-                                          size="sm"
-                                          variant="outline"
-                                          onClick={() =>
-                                            openPaymentModal(
-                                              packageItem,
-                                              installment,
-                                            )
-                                          }
-                                        >
-                                          Registrar
-                                        </Button>
-                                      )}
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={() =>
-                                          printReceipt(packageItem, installment)
-                                        }
-                                      >
-                                        <Receipt size={14} />
-                                      </Button>
-                                    </div>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  );
-                }))}
-              </div>
-            </Card>
-          )}
-
-          {!isPhysio && (
-            <Card className="p-0 overflow-hidden">
               <div
                 ref={expenseSectionRef}
                 className="p-6 border-b border-slate-100 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4"
@@ -2098,24 +2054,110 @@ export const Financial = () => {
                     Despesas da clínica
                   </h3>
                   <p className="text-sm text-slate-500">
-                    Registre contas pagas ou pendentes para acompanhar o que sai.
+                    Registre contas pagas ou vencimentos pendentes para acompanhar o que sai.
                   </p>
                 </div>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
-                    <p className="text-slate-500">Pagas</p>
+                    <p className="text-slate-500">Pagas no período</p>
                     <p className="font-bold text-rose-600">
-                      {currencyFormatter.format(totals.paidExpenses)}
+                      {currencyFormatter.format(expensePeriodTotals.paidExpenses)}
                     </p>
                   </div>
                   <div>
-                    <p className="text-slate-500">Em aberto</p>
+                    <p className="text-slate-500">Em aberto no período</p>
                     <p className="font-bold text-amber-600">
-                      {currencyFormatter.format(totals.openExpenses)}
+                      {currencyFormatter.format(expensePeriodTotals.openExpenses)}
                     </p>
                   </div>
                 </div>
               </div>
+
+              <div className="border-b border-slate-100 p-4 dark:border-slate-800">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                      Histórico financeiro
+                    </h4>
+                    <p className="text-xs text-slate-500">
+                      Por padrão, mostrando despesas dos últimos 30 dias.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                    <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">
+                      De
+                      <input
+                        type="date"
+                        value={expenseStartDate}
+                        onChange={(event) =>
+                          setExpenseStartDate(event.target.value)
+                        }
+                        className="mt-1 min-h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500 dark:border-slate-800 dark:bg-slate-900"
+                      />
+                    </label>
+                    <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">
+                      Até
+                      <input
+                        type="date"
+                        value={expenseEndDate}
+                        onChange={(event) =>
+                          setExpenseEndDate(event.target.value)
+                        }
+                        className="mt-1 min-h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500 dark:border-slate-800 dark:bg-slate-900"
+                      />
+                    </label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="self-end"
+                      onClick={resetExpensePeriod}
+                    >
+                      Últimos 30 dias
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              {expenseReminders.length > 0 && (
+                <div className="border-b border-amber-100 bg-amber-50/70 p-4 dark:border-amber-900/40 dark:bg-amber-900/10">
+                  <div className="mb-3 flex items-center gap-2 text-sm font-bold text-amber-900 dark:text-amber-300">
+                    <AlertTriangle size={16} />
+                    Despesas para pagar nos próximos {expenseReminderDays} dias
+                  </div>
+                  <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                    {expenseReminders.slice(0, 6).map((transaction) => {
+                      const tone = getExpenseReminderTone(transaction);
+
+                      return (
+                        <div
+                          key={transaction.id}
+                          className={clsx(
+                            "rounded-lg border bg-white p-3 text-sm dark:bg-slate-950",
+                            tone === "overdue"
+                              ? "border-rose-200 text-rose-800 dark:border-rose-900/50 dark:text-rose-300"
+                              : "border-amber-200 text-amber-900 dark:border-amber-900/50 dark:text-amber-300",
+                          )}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate font-semibold">
+                                {transaction.category}
+                              </p>
+                              <p className="text-xs opacity-80">
+                                {getExpenseReminderLabel(transaction)} -{" "}
+                                {formatDate(transaction.due_date)}
+                              </p>
+                            </div>
+                            <p className="shrink-0 font-bold">
+                              {currencyFormatter.format(money(transaction.amount))}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-1 xl:grid-cols-[360px_minmax(0,1fr)] gap-0">
                 <form
@@ -2163,7 +2205,7 @@ export const Financial = () => {
                   <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-1 gap-4">
                     <div>
                       <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                        Data
+                        Data de pagamento ou vencimento
                       </label>
                       <input
                         type="date"
@@ -2229,44 +2271,79 @@ export const Financial = () => {
                         <th className="px-6 py-4">Status</th>
                         <th className="px-6 py-4">Descrição</th>
                         <th className="px-6 py-4">Valor</th>
+                        <th className="px-6 py-4">Ações</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                      {expenseTransactions.length === 0 ? (
+                      {filteredExpenseTransactions.length === 0 ? (
                         <tr>
                           <td
-                            colSpan={5}
+                            colSpan={6}
                             className="px-6 py-10 text-center text-sm text-slate-500"
                           >
-                            Nenhuma despesa lançada ainda.
+                            Nenhuma despesa encontrada neste período.
                           </td>
                         </tr>
                       ) : (
-                        expenseTransactions.map((transaction) => (
-                          <tr key={transaction.id}>
-                            <td className="px-6 py-4 text-sm text-slate-500" data-label="Data">
-                              {formatDate(transaction.due_date)}
-                            </td>
-                            <td className="px-6 py-4 text-sm font-semibold" data-label="Categoria">
-                              {transaction.category}
-                            </td>
-                            <td className="px-6 py-4" data-label="Status">
-                              <Badge
-                                variant={badgeVariantForTransaction(
-                                  transaction.status,
-                                )}
-                              >
-                                {transactionStatusLabel[transaction.status]}
-                              </Badge>
-                            </td>
-                            <td className="px-6 py-4 text-sm text-slate-500" data-label="Descrição">
-                              {transaction.description ?? "-"}
-                            </td>
-                            <td className="px-6 py-4 text-sm font-bold text-rose-600" data-label="Valor">
-                              -{currencyFormatter.format(money(transaction.amount))}
-                            </td>
-                          </tr>
-                        ))
+                        filteredExpenseTransactions.map((transaction) => {
+                          const effectiveStatus =
+                            getEffectiveTransactionStatus(transaction);
+
+                          return (
+                            <tr key={transaction.id}>
+                              <td className="px-6 py-4 text-sm text-slate-500" data-label="Data">
+                                {formatDate(transaction.due_date)}
+                              </td>
+                              <td className="px-6 py-4 text-sm font-semibold" data-label="Categoria">
+                                {transaction.category}
+                              </td>
+                              <td className="px-6 py-4" data-label="Status">
+                                <Badge
+                                  variant={badgeVariantForTransaction(
+                                    effectiveStatus,
+                                  )}
+                                >
+                                  {transactionStatusLabel[effectiveStatus]}
+                                </Badge>
+                              </td>
+                              <td className="px-6 py-4 text-sm text-slate-500" data-label="Descrição">
+                                {transaction.description ?? "-"}
+                              </td>
+                              <td className="px-6 py-4 text-sm font-bold text-rose-600" data-label="Valor">
+                                -{currencyFormatter.format(money(transaction.amount))}
+                              </td>
+                              <td className="px-6 py-4" data-label="Ações">
+                                <div className="flex flex-wrap gap-2">
+                                  {effectiveStatus !== "paid" &&
+                                    effectiveStatus !== "cancelled" && (
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() =>
+                                          handleMarkExpensePaid(transaction)
+                                        }
+                                        disabled={saving}
+                                      >
+                                        <Check size={14} />
+                                        Marcar pago
+                                      </Button>
+                                    )}
+                                  <Button
+                                    size="sm"
+                                    variant="danger"
+                                    onClick={() =>
+                                      handleDeleteExpense(transaction)
+                                    }
+                                    disabled={saving}
+                                  >
+                                    <Trash2 size={14} />
+                                    Excluir
+                                  </Button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })
                       )}
                     </tbody>
                   </table>
@@ -2399,18 +2476,53 @@ export const Financial = () => {
                 </tbody>
               </table>
             </div>
-            </Card>
+          </Card>
           </div>
-
           {!isPhysio && (
             <Card className="p-0 overflow-hidden">
               <div className="p-6 border-b border-slate-100 dark:border-slate-800">
-                <h3 className="text-lg font-bold text-slate-900 dark:text-white">
-                  Histórico financeiro
-                </h3>
-                <p className="text-sm text-slate-500">
-                  Entradas, pendências e comissões pagas ficam registradas aqui.
-                </p>
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+                      Histórico financeiro
+                    </h3>
+                    <p className="text-sm text-slate-500">
+                      Entradas, pendências e comissões pagas ficam registradas aqui.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                    <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">
+                      De
+                      <input
+                        type="date"
+                        value={historyStartDate}
+                        onChange={(event) =>
+                          setHistoryStartDate(event.target.value)
+                        }
+                        className="mt-1 min-h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500 dark:border-slate-800 dark:bg-slate-900"
+                      />
+                    </label>
+                    <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">
+                      Até
+                      <input
+                        type="date"
+                        value={historyEndDate}
+                        onChange={(event) =>
+                          setHistoryEndDate(event.target.value)
+                        }
+                        className="mt-1 min-h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500 dark:border-slate-800 dark:bg-slate-900"
+                      />
+                    </label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="self-end"
+                      onClick={resetHistoryPeriod}
+                    >
+                      Últimos 30 dias
+                    </Button>
+                  </div>
+                </div>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left">
@@ -2425,17 +2537,17 @@ export const Financial = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {filteredVisibleTransactions.length === 0 ? (
+                    {filteredHistoryTransactions.length === 0 ? (
                       <tr>
                         <td
                           colSpan={6}
                           className="px-6 py-10 text-center text-sm text-slate-500"
                         >
-                          Nenhum pagamento registrado ainda.
+                          Nenhum lançamento encontrado neste período.
                         </td>
                       </tr>
                     ) : (
-                      filteredVisibleTransactions.map((transaction) => (
+                      filteredHistoryTransactions.map((transaction) => (
                         <tr key={transaction.id}>
                           <td className="px-6 py-4 text-sm text-slate-500">
                             {formatDate(transaction.due_date)}
