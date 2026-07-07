@@ -122,6 +122,7 @@ type TransactionStatus = TransactionRow["status"];
 
 type ReceivableFilter = "open" | "paid" | "all";
 type DueSort = "asc" | "desc";
+type ExpenseViewFilter = "period" | "payable";
 type ExpenseReminderTone = "overdue" | "today" | "soon";
 
 type ExpenseFormState = {
@@ -198,6 +199,7 @@ const expenseCategories = [
 ];
 
 const expenseReminderDays = 7;
+const expensePayableWindowDays = 30;
 
 const initialExpenseForm = (): ExpenseFormState => ({
   amount: "",
@@ -839,6 +841,8 @@ export const Financial = () => {
   const [receivableFilter, setReceivableFilter] =
     useState<ReceivableFilter>("open");
   const [dueSort, setDueSort] = useState<DueSort>("asc");
+  const [expenseViewFilter, setExpenseViewFilter] =
+    useState<ExpenseViewFilter>("period");
   const [patientSearchTerm, setPatientSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -883,6 +887,7 @@ export const Financial = () => {
     const defaultPeriod = getDefaultExpensePeriod();
     setExpenseStartDate(defaultPeriod.startDate);
     setExpenseEndDate(defaultPeriod.endDate);
+    setExpenseViewFilter("period");
   };
 
   const resetHistoryPeriod = () => {
@@ -1082,7 +1087,7 @@ export const Financial = () => {
       packagesResult,
       appointmentsResult,
       transactionsResult,
-    ].find((result) => result.error);
+    ].find((result) => result?.error);
     if (failed?.error) {
       setError(failed.error.message);
       setLoading(false);
@@ -1092,7 +1097,7 @@ export const Financial = () => {
     setOwnerId((clinicResult.data as { owner_id: string | null }).owner_id);
     setPackages((packagesResult.data ?? []) as unknown as PackageRow[]);
     setAppointments(
-      (appointmentsResult.data ?? []) as unknown as CommissionAppointment[],
+      (appointmentsResult?.data ?? []) as unknown as CommissionAppointment[],
     );
     setTransactions(
       (transactionsResult.data ?? []) as unknown as TransactionRow[],
@@ -1192,6 +1197,17 @@ export const Financial = () => {
   const filteredExpenseTransactions = useMemo(
     () =>
       expenseTransactions.filter((transaction) => {
+        if (expenseViewFilter === "payable") {
+          const effectiveStatus = getEffectiveTransactionStatus(transaction);
+          const daysUntil = getDaysUntil(transaction.due_date);
+
+          return (
+            effectiveStatus !== "paid" &&
+            effectiveStatus !== "cancelled" &&
+            daysUntil <= expensePayableWindowDays
+          );
+        }
+
         if (expenseStartDate && transaction.due_date < expenseStartDate) {
           return false;
         }
@@ -1202,7 +1218,7 @@ export const Financial = () => {
 
         return true;
       }),
-    [expenseEndDate, expenseStartDate, expenseTransactions],
+    [expenseEndDate, expenseStartDate, expenseTransactions, expenseViewFilter],
   );
 
   const expensePeriodTotals = useMemo(() => {
@@ -2089,9 +2105,10 @@ export const Financial = () => {
                       <input
                         type="date"
                         value={expenseStartDate}
-                        onChange={(event) =>
-                          setExpenseStartDate(event.target.value)
-                        }
+                        onChange={(event) => {
+                          setExpenseStartDate(event.target.value);
+                          setExpenseViewFilter("period");
+                        }}
                         className="mt-1 min-h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500 dark:border-slate-800 dark:bg-slate-900"
                       />
                     </label>
@@ -2100,20 +2117,31 @@ export const Financial = () => {
                       <input
                         type="date"
                         value={expenseEndDate}
-                        onChange={(event) =>
-                          setExpenseEndDate(event.target.value)
-                        }
+                        onChange={(event) => {
+                          setExpenseEndDate(event.target.value);
+                          setExpenseViewFilter("period");
+                        }}
                         className="mt-1 min-h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500 dark:border-slate-800 dark:bg-slate-900"
                       />
                     </label>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="self-end"
-                      onClick={resetExpensePeriod}
-                    >
-                      Últimos 30 dias
-                    </Button>
+                    <div className="flex flex-col gap-2 self-end sm:flex-row">
+                      <Button
+                        type="button"
+                        variant={expenseViewFilter === "payable" ? "secondary" : "outline"}
+                        className="gap-2"
+                        onClick={() => setExpenseViewFilter("payable")}
+                      >
+                        <AlertTriangle size={16} />
+                        A pagar
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={expenseViewFilter === "period" ? "secondary" : "outline"}
+                        onClick={resetExpensePeriod}
+                      >
+                        Últimos 30 dias
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -2262,16 +2290,16 @@ export const Financial = () => {
                   </Button>
                 </form>
 
-                <div className="mobile-card-table overflow-x-auto">
+                <div className="mobile-card-table max-h-[520px] overflow-auto overscroll-contain xl:max-h-[640px]">
                   <table className="w-full text-left">
                     <thead>
                       <tr className="bg-slate-50 dark:bg-slate-900/50 text-slate-500 text-xs font-bold uppercase tracking-wider">
-                        <th className="px-6 py-4">Data</th>
-                        <th className="px-6 py-4">Categoria</th>
-                        <th className="px-6 py-4">Status</th>
-                        <th className="px-6 py-4">Descrição</th>
-                        <th className="px-6 py-4">Valor</th>
-                        <th className="px-6 py-4">Ações</th>
+                        <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 dark:bg-slate-900">Data</th>
+                        <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 dark:bg-slate-900">Categoria</th>
+                        <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 dark:bg-slate-900">Status</th>
+                        <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 dark:bg-slate-900">Descrição</th>
+                        <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 dark:bg-slate-900">Valor</th>
+                        <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 dark:bg-slate-900">Ações</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -2281,7 +2309,9 @@ export const Financial = () => {
                             colSpan={6}
                             className="px-6 py-10 text-center text-sm text-slate-500"
                           >
-                            Nenhuma despesa encontrada neste período.
+                            {expenseViewFilter === "payable"
+                              ? "Nenhuma despesa em aberto para pagar nos próximos dias."
+                              : "Nenhuma despesa encontrada neste período."}
                           </td>
                         </tr>
                       ) : (

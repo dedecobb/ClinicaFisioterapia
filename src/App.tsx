@@ -1,10 +1,12 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
   BrowserRouter as Router,
   Routes,
   Route,
   Navigate,
+  useLocation,
 } from "react-router-dom";
+import { ArrowUp } from "lucide-react";
 import { Sidebar } from "./components/layout/Sidebar";
 import { Dashboard } from "./pages/Dashboard";
 import { Agenda } from "./pages/Agenda";
@@ -22,6 +24,24 @@ import { AuthProvider, useAuth } from "./context/AuthContext";
 
 const ProtectedLayout = ({ children }: { children: React.ReactNode }) => {
   const { session, profile, loading } = useAuth();
+  const location = useLocation();
+  const [showBackToTop, setShowBackToTop] = useState(false);
+  const canShowBackToTop =
+    location.pathname === "/financeiro" || location.pathname === "/pacientes";
+
+  useEffect(() => {
+    if (!canShowBackToTop) {
+      setShowBackToTop(false);
+      return;
+    }
+
+    const handleScroll = () => setShowBackToTop(window.scrollY > 480);
+
+    handleScroll();
+    window.addEventListener("scroll", handleScroll, { passive: true });
+
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, [canShowBackToTop]);
 
   if (loading) {
     return (
@@ -45,6 +65,17 @@ const ProtectedLayout = ({ children }: { children: React.ReactNode }) => {
       <main className="min-w-0 flex-1 px-4 pb-28 pt-5 sm:px-6 lg:ml-64 lg:p-8">
         <div className="max-w-7xl mx-auto">{children}</div>
       </main>
+      {canShowBackToTop && showBackToTop && (
+        <button
+          type="button"
+          className="fixed bottom-6 right-4 z-40 inline-flex h-11 w-11 items-center justify-center rounded-full bg-brand-600 text-white shadow-lg shadow-brand-200 transition-all hover:bg-brand-700 active:scale-95 dark:shadow-none sm:bottom-8 sm:right-8"
+          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+          title="Voltar ao topo"
+          aria-label="Voltar ao topo"
+        >
+          <ArrowUp size={20} />
+        </button>
+      )}
     </div>
   );
 };
