@@ -30,7 +30,6 @@ import {
   criarPaciente,
   encerrarPaciente,
   listarPacientes,
-  repararAgendamentosPendentes,
   renovarPacotePaciente,
 } from "./PacientesService";
 import { NovoPacienteModal } from "./NovoPacienteModal";
@@ -127,9 +126,7 @@ export const PacientesPage = () => {
   const [fisioterapeutas, setFisioterapeutas] = useState<Fisioterapeuta[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [repairingAppointments, setRepairingAppointments] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [repairMessage, setRepairMessage] = useState<string | null>(null);
   const [modalError, setModalError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
@@ -422,44 +419,6 @@ export const PacientesPage = () => {
     setModalError(null);
   };
 
-  const handleRepairAppointments = async () => {
-    if (repairingAppointments) return;
-    if (!profile?.clinic_id) {
-      setError("Não foi possível identificar a clínica para reparar a agenda.");
-      return;
-    }
-
-    if (
-      !window.confirm(
-        "Deseja reparar automaticamente sessões e procedimentos que ficaram sem agendamento? A rotina só cria itens faltantes e não apaga agendamentos existentes.",
-      )
-    ) {
-      return;
-    }
-
-    setRepairingAppointments(true);
-    setError(null);
-    setRepairMessage(null);
-
-    try {
-      const result = await repararAgendamentosPendentes(profile.clinic_id);
-      const totalCreated =
-        result.packageAppointmentsCreated + result.procedureAppointmentsCreated;
-
-      setRepairMessage(
-        totalCreated > 0
-          ? `Agenda reparada: ${result.packageAppointmentsCreated} sessão(ões) de pacote e ${result.procedureAppointmentsCreated} procedimento(s) criados.`
-          : "Agenda verificada: nenhum agendamento pendente encontrado.",
-      );
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Erro ao reparar agendamentos.",
-      );
-    } finally {
-      setRepairingAppointments(false);
-    }
-  };
-
   const handleClosePatient = async (patient: Patient) => {
     if (
       !window.confirm(
@@ -576,11 +535,6 @@ export const PacientesPage = () => {
         </div>
       )}
 
-      {repairMessage && (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
-          {repairMessage}
-        </div>
-      )}
 
       <div className="flex flex-col md:flex-row gap-3 sm:gap-4">
         <div className="relative flex-1">

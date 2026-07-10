@@ -236,6 +236,10 @@ function parseCurrencyDigits(value: string): string {
   return `${integerPart || "0"}.${decimalPart}`;
 }
 
+function isCommissionableAppointment(status: string): boolean {
+  return status !== "cancelada" && status !== "cancelled";
+}
+
 function startOfMonth(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), 1);
 }
@@ -742,15 +746,13 @@ function buildCommissionReport(
 ): ProfessionalReport[] {
   const report = new Map<string, ProfessionalReport>();
 
-  let filtered = appointments.filter(
-    (appointment) =>
-      appointment.status === "presenca_registrada" ||
-      appointment.status === "falta",
+  let filtered = appointments.filter((appointment) =>
+    isCommissionableAppointment(appointment.status),
   );
 
   // Filter by date range if provided
   if (startDate) {
-    const start = new Date(startDate);
+    const start = parseDateInput(startDate);
     start.setHours(0, 0, 0, 0);
     filtered = filtered.filter((appointment) => {
       const appointmentDate = new Date(appointment.start_time);
@@ -759,7 +761,7 @@ function buildCommissionReport(
   }
 
   if (endDate) {
-    const end = new Date(endDate);
+    const end = parseDateInput(endDate);
     end.setHours(23, 59, 59, 999);
     filtered = filtered.filter((appointment) => {
       const appointmentDate = new Date(appointment.start_time);
@@ -812,11 +814,7 @@ function buildCommissionDetailReport(
   end.setHours(23, 59, 59, 999);
 
   appointments
-    .filter(
-      (appointment) =>
-        appointment.status === "presenca_registrada" ||
-        appointment.status === "falta",
-    )
+    .filter((appointment) => isCommissionableAppointment(appointment.status))
     .filter((appointment) => {
       const appointmentDate = new Date(appointment.start_time);
       return appointmentDate >= start && appointmentDate <= end;
@@ -1019,7 +1017,7 @@ export const Financial = () => {
   };
 
   const downloadCommissionReportExcel = () => {
-    if (!commissionReport.length) {
+    if (!commissionReport.length && !commissionDetailReport.length) {
       alert("Nenhum relatório para exportar");
       return;
     }
@@ -2505,7 +2503,7 @@ export const Financial = () => {
                         colSpan={isPhysio ? 6 : 7}
                         className="px-6 py-10 text-center text-sm text-slate-500"
                       >
-                        Nenhuma presença ou falta registrada neste mês.
+                        Nenhuma sessão não cancelada encontrada neste período.
                       </td>
                     </tr>
                   ) : (
