@@ -67,7 +67,10 @@ type CommissionAppointment = {
   start_time: string;
   status: string;
   class_price: number | string | null;
-  patients: { full_name: string } | null;
+  patients: {
+    full_name: string;
+    profiles?: { id: string; full_name: string } | null;
+  } | null;
   profiles: { id: string; full_name: string } | null;
   lesson_packages: {
     total_lessons: number;
@@ -215,6 +218,22 @@ function money(value: number | string | null | undefined): number {
 
 function cents(value: number | string | null | undefined): number {
   return Math.round(money(value) * 100);
+}
+
+function formatBRLValue(value: string | number | null | undefined): string {
+  if (value === null || value === undefined || value === "") return "";
+  const amount = Number(value);
+  if (Number.isNaN(amount)) return "";
+  return currencyFormatter.format(amount);
+}
+
+function parseCurrencyDigits(value: string): string {
+  const digits = value.replace(/\D/g, "");
+  if (!digits) return "";
+  const padded = digits.padStart(3, "0");
+  const integerPart = padded.slice(0, -2).replace(/^0+(?=\d)/, "");
+  const decimalPart = padded.slice(-2);
+  return `${integerPart || "0"}.${decimalPart}`;
 }
 
 function startOfMonth(date: Date): Date {
@@ -679,6 +698,24 @@ function getPatientProfessionalName(
   return patient?.profiles?.full_name ?? "Sem fisioterapeuta";
 }
 
+function getAppointmentResponsibleProfessional(
+  appointment: CommissionAppointment,
+): { id: string; full_name: string } {
+  const responsible = appointment.patients?.profiles;
+  if (responsible?.id || responsible?.full_name) {
+    return {
+      id: responsible.id ?? "sem-profissional",
+      full_name: responsible.full_name ?? "Sem profissional definido",
+    };
+  }
+
+  return {
+    id: appointment.profiles?.id ?? "sem-profissional",
+    full_name: appointment.profiles?.full_name ??
+      "Sem profissional definido",
+  };
+}
+
 function getCommissionClassValue(appointment: CommissionAppointment): number {
   const packageItem = appointment.lesson_packages;
 
@@ -731,15 +768,16 @@ function buildCommissionReport(
   }
 
   filtered.forEach((appointment) => {
-    const professionalId = appointment.profiles?.id ?? "sem-profissional";
+    const responsibleProfessional =
+      getAppointmentResponsibleProfessional(appointment);
+    const professionalId = responsibleProfessional.id;
     if (ownerId && professionalId === ownerId) return;
 
     const current =
       report.get(professionalId) ??
       ({
         professionalId,
-        professionalName:
-          appointment.profiles?.full_name ?? "Sem profissional definido",
+        professionalName: responsibleProfessional.full_name,
         heldClasses: 0,
         paidMisses: 0,
         gross: 0,
@@ -774,13 +812,19 @@ function buildCommissionDetailReport(
   end.setHours(23, 59, 59, 999);
 
   appointments
-    .filter((appointment) => appointment.status === "presenca_registrada")
+    .filter(
+      (appointment) =>
+        appointment.status === "presenca_registrada" ||
+        appointment.status === "falta",
+    )
     .filter((appointment) => {
       const appointmentDate = new Date(appointment.start_time);
       return appointmentDate >= start && appointmentDate <= end;
     })
     .forEach((appointment) => {
-      const professionalId = appointment.profiles?.id ?? "sem-profissional";
+      const responsibleProfessional =
+        getAppointmentResponsibleProfessional(appointment);
+      const professionalId = responsibleProfessional.id;
       if (ownerId && professionalId === ownerId) return;
 
       const appointmentDate = toDateInputValue(new Date(appointment.start_time));
@@ -801,8 +845,7 @@ function buildCommissionDetailReport(
         rows.get(rowKey) ??
         ({
           professionalId,
-          professionalName:
-            appointment.profiles?.full_name ?? "Sem profissional definido",
+          professionalName: responsibleProfessional.full_name,
           patientId,
           patientName: appointment.patients?.full_name ?? "Paciente não informado",
           packageId,
@@ -935,7 +978,10 @@ export const Financial = () => {
           start_time,
           status,
           class_price,
-          patients (full_name),
+          patients (
+            full_name,
+            profiles!patients_responsible_professional_id_fkey (id, full_name)
+          ),
           profiles (id, full_name),
           lesson_packages (
             total_lessons,
@@ -949,10 +995,6 @@ export const Financial = () => {
       .gte("start_time", start.toISOString())
       .lt("start_time", endExclusive.toISOString());
 
-    if (profile.role === "physio") {
-      appointmentsQuery = appointmentsQuery.eq("professional_id", profile.id);
-    }
-
     const appointmentsResult = await appointmentsQuery;
 
     if (appointmentsResult.error) {
@@ -960,9 +1002,19 @@ export const Financial = () => {
       return appointmentsResult;
     }
 
-    setAppointments(
-      (appointmentsResult.data ?? []) as unknown as CommissionAppointment[],
-    );
+    const fetchedAppointments =
+      (appointmentsResult.data ?? []) as unknown as CommissionAppointment[];
+
+    const appointmentsToSet =
+      profile.role === "physio"
+        ? fetchedAppointments.filter(
+            (appointment) =>
+              getAppointmentResponsibleProfessional(appointment).id ===
+              profile.id,
+          )
+        : fetchedAppointments;
+
+    setAppointments(appointmentsToSet);
     return appointmentsResult;
   };
 
@@ -2197,16 +2249,16 @@ export const Financial = () => {
                       Valor
                     </label>
                     <input
-                      type="number"
-                      min={0}
-                      step="0.01"
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
                       required
                       className="mt-2 w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none"
-                      value={expenseForm.amount}
+                      value={formatBRLValue(expenseForm.amount)}
                       onChange={(event) =>
                         setExpenseForm((current) => ({
                           ...current,
-                          amount: event.target.value,
+                          amount: parseCurrencyDigits(event.target.value),
                         }))
                       }
                     />
@@ -2664,13 +2716,15 @@ export const Financial = () => {
                     Valor recebido
                   </label>
                   <input
-                    type="number"
-                    min={0}
-                    step="0.01"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
                     required
                     className="mt-2 w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none"
-                    value={paymentAmount}
-                    onChange={(event) => setPaymentAmount(event.target.value)}
+                    value={formatBRLValue(paymentAmount)}
+                    onChange={(event) =>
+                      setPaymentAmount(parseCurrencyDigits(event.target.value))
+                    }
                   />
                 </div>
                 <div>

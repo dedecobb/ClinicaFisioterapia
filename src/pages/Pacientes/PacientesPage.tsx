@@ -544,14 +544,6 @@ export const PacientesPage = () => {
         </div>
         {isAdmin && (
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-            <Button
-              variant="outline"
-              className="w-full gap-2 sm:w-auto"
-              onClick={handleRepairAppointments}
-              isLoading={repairingAppointments}
-            >
-              <Wrench size={18} /> Reparar agenda
-            </Button>
             <Button className="w-full gap-2 sm:w-auto" onClick={openModal}>
               <Plus size={18} /> Novo Paciente
             </Button>
