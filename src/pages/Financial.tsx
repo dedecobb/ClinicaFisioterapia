@@ -229,12 +229,23 @@ function formatBRLValue(value: string | number | null | undefined): string {
   const digits = String(value).replace(/\D/g, "");
   if (!digits) return "";
 
-  const amount = Number(digits);
+  const normalized = digits.padStart(3, "0");
+  const integerPart = normalized.slice(0, -2);
+  const decimalPart = normalized.slice(-2);
+  const amount = Number(`${integerPart}.${decimalPart}`);
+
   return currencyFormatter.format(amount);
 }
 
 function parseCurrencyValue(value: string): string {
-  return value.replace(/\D/g, "");
+  const digits = value.replace(/\D/g, "");
+  if (!digits) return "";
+
+  if (digits.length <= 2) {
+    return digits;
+  }
+
+  return digits.slice(0, -2) + "." + digits.slice(-2);
 }
 
 async function uploadTransactionDocument(
