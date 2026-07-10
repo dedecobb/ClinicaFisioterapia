@@ -2318,12 +2318,12 @@ export const Financial = () => {
                     </label>
                     <input
                       type="text"
-                      inputMode="decimal"
+                      inputMode="numeric"
                       required
-                      placeholder="R$ 0,00"
+                      placeholder="Ex.: 1000"
                       autoComplete="off"
                       className="mt-2 w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none"
-                      value={formatBRLValue(expenseForm.amount)}
+                      value={expenseForm.amount}
                       onChange={(event) =>
                         setExpenseForm((current) => ({
                           ...current,
@@ -2331,6 +2331,9 @@ export const Financial = () => {
                         }))
                       }
                     />
+                    <p className="mt-2 text-sm text-slate-500">
+                      Valor mostrado: {formatBRLValue(expenseForm.amount) || "R$ 0,00"}
+                    </p>
                   </div>
                   <div>
                     <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
@@ -2829,16 +2832,19 @@ export const Financial = () => {
                   </label>
                   <input
                     type="text"
-                    inputMode="decimal"
+                    inputMode="numeric"
                     required
-                    placeholder="R$ 0,00"
+                    placeholder="Ex.: 1000"
                     autoComplete="off"
                     className="mt-2 w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none"
-                    value={formatBRLValue(paymentAmount)}
+                    value={paymentAmount}
                     onChange={(event) =>
                       setPaymentAmount(parseCurrencyValue(event.target.value))
                     }
                   />
+                  <p className="mt-2 text-sm text-slate-500">
+                    Valor mostrado: {formatBRLValue(paymentAmount) || "R$ 0,00"}
+                  </p>
                 </div>
                 <div>
                   <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
