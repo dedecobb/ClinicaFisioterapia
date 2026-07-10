@@ -856,10 +856,13 @@ function buildCommissionDetailReport(
           totalCommission: 0,
         } satisfies CommissionDetailRow);
 
-      current.presenceByDate[appointmentDate] =
-        (current.presenceByDate[appointmentDate] ?? 0) + 1;
-      current.presences += 1;
-      current.totalCommission += commissionClassValue;
+      if (appointment.status === "presenca_registrada") {
+        current.presenceByDate[appointmentDate] =
+          (current.presenceByDate[appointmentDate] ?? 0) + 1;
+        current.presences += 1;
+        current.totalCommission += commissionClassValue;
+      }
+
       rows.set(rowKey, current);
     });
 
