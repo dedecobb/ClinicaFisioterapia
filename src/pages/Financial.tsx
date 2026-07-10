@@ -226,45 +226,15 @@ function cents(value: number | string | null | undefined): number {
 function formatBRLValue(value: string | number | null | undefined): string {
   if (value === null || value === undefined || value === "") return "";
 
-  const sanitized = String(value).replace(/[^\d,.-]/g, "");
-  if (!sanitized) return "";
+  const digits = String(value).replace(/\D/g, "");
+  if (!digits) return "";
 
-  const normalized = sanitized.replace(/\./g, "").replace(",", ".");
-  const [integerPart, decimalPart = ""] = normalized.split(".");
-  const digitsInteger = integerPart.replace(/\D/g, "");
-  const digitsDecimal = decimalPart.replace(/\D/g, "").slice(0, 2);
-
-  const safeInteger = digitsInteger.replace(/^0+(?=\d)/, "") || "0";
-  const safeDecimal = digitsDecimal.padEnd(2, "0");
-  const formattedInteger = safeInteger.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-
-  return `R$ ${formattedInteger},${safeDecimal}`;
+  const amount = Number(digits);
+  return currencyFormatter.format(amount);
 }
 
 function parseCurrencyValue(value: string): string {
-  const sanitized = value.replace(/[^\d,.-]/g, "");
-  if (!sanitized) return "";
-
-  const normalized = sanitized.replace(/\./g, "").replace(",", ".");
-  const [integerPart, decimalPart = ""] = normalized.split(".");
-  const digitsInteger = integerPart.replace(/\D/g, "");
-  const digitsDecimal = decimalPart.replace(/\D/g, "").slice(0, 2);
-
-  const safeInteger = digitsInteger.replace(/^0+(?=\d)/, "") || "0";
-  const safeDecimal = digitsDecimal.padEnd(2, "0");
-
-  return digitsDecimal ? `${safeInteger}.${safeDecimal}` : safeInteger;
-}
-
-function getCaretPositionForFormattedValue(value: string, digitCount: number): number {
-  if (!value) return 0;
-
-  const digits = String(value).replace(/\D/g, "");
-  const digitsBeforeCaret = digits.slice(0, Math.min(digitCount, digits.length));
-  const safeInteger = digitsBeforeCaret.replace(/^0+(?=\d)/, "") || "0";
-  const formattedInteger = safeInteger.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-
-  return `R$ ${formattedInteger}`.length;
+  return value.replace(/\D/g, "");
 }
 
 async function uploadTransactionDocument(
@@ -939,8 +909,6 @@ export const Financial = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [supportsTransactionAttachments, setSupportsTransactionAttachments] = useState(true);
-  const expenseAmountInputRef = useRef<HTMLInputElement | null>(null);
-  const paymentAmountInputRef = useRef<HTMLInputElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reportStartDate, setReportStartDate] = useState("");
   const [reportEndDate, setReportEndDate] = useState("");
@@ -2349,7 +2317,6 @@ export const Financial = () => {
                       Valor
                     </label>
                     <input
-                      ref={expenseAmountInputRef}
                       type="text"
                       inputMode="decimal"
                       required
@@ -2357,31 +2324,12 @@ export const Financial = () => {
                       autoComplete="off"
                       className="mt-2 w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none"
                       value={formatBRLValue(expenseForm.amount)}
-                      onChange={(event) => {
-                        const caretPosition = event.target.selectionStart ?? event.target.value.length;
-                        const digitsBeforeCaret = event.target.value
-                          .slice(0, caretPosition)
-                          .replace(/\D/g, "").length;
-                        const nextValue = parseCurrencyValue(event.target.value);
-
+                      onChange={(event) =>
                         setExpenseForm((current) => ({
                           ...current,
-                          amount: nextValue,
-                        }));
-
-                        requestAnimationFrame(() => {
-                          if (expenseAmountInputRef.current) {
-                            const nextCaretPosition = getCaretPositionForFormattedValue(
-                              nextValue,
-                              digitsBeforeCaret,
-                            );
-                            expenseAmountInputRef.current.setSelectionRange(
-                              nextCaretPosition,
-                              nextCaretPosition,
-                            );
-                          }
-                        });
-                      }}
+                          amount: parseCurrencyValue(event.target.value),
+                        }))
+                      }
                     />
                   </div>
                   <div>
@@ -2880,7 +2828,6 @@ export const Financial = () => {
                     Valor recebido
                   </label>
                   <input
-                    ref={paymentAmountInputRef}
                     type="text"
                     inputMode="decimal"
                     required
@@ -2888,28 +2835,9 @@ export const Financial = () => {
                     autoComplete="off"
                     className="mt-2 w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none"
                     value={formatBRLValue(paymentAmount)}
-                    onChange={(event) => {
-                      const caretPosition = event.target.selectionStart ?? event.target.value.length;
-                      const digitsBeforeCaret = event.target.value
-                        .slice(0, caretPosition)
-                        .replace(/\D/g, "").length;
-                      const nextValue = parseCurrencyValue(event.target.value);
-
-                      setPaymentAmount(nextValue);
-
-                      requestAnimationFrame(() => {
-                        if (paymentAmountInputRef.current) {
-                          const nextCaretPosition = getCaretPositionForFormattedValue(
-                            nextValue,
-                            digitsBeforeCaret,
-                          );
-                          paymentAmountInputRef.current.setSelectionRange(
-                            nextCaretPosition,
-                            nextCaretPosition,
-                          );
-                        }
-                      });
-                    }}
+                    onChange={(event) =>
+                      setPaymentAmount(parseCurrencyValue(event.target.value))
+                    }
                   />
                 </div>
                 <div>
