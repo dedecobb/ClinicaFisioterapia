@@ -113,6 +113,7 @@ type TransactionRow = {
   category: string;
   status: "paid" | "pending" | "overdue" | "cancelled";
   description: string | null;
+  attachments?: string[] | null;
   due_date: string;
   created_at: string;
   patients: {
@@ -134,6 +135,7 @@ type ExpenseFormState = {
   description: string;
   dueDate: string;
   status: TransactionStatus;
+  document: File | null;
 };
 
 type ReceivableRow = {
@@ -234,6 +236,23 @@ function parseCurrencyDigits(value: string): string {
   const integerPart = padded.slice(0, -2).replace(/^0+(?=\d)/, "");
   const decimalPart = padded.slice(-2);
   return `${integerPart || "0"}.${decimalPart}`;
+}
+
+async function uploadTransactionDocument(
+  clinicId: string,
+  file: File,
+): Promise<string> {
+  const path = `transaction-docs/${clinicId}/${Date.now()}_${file.name}`;
+  const { error: uploadError } = await supabase.storage
+    .from("transaction-docs")
+    .upload(path, file, { upsert: false, contentType: file.type });
+
+  if (uploadError) {
+    throw new Error(`Erro no upload do documento: ${uploadError.message}`);
+  }
+
+  const { data } = supabase.storage.from("transaction-docs").getPublicUrl(path);
+  return data.publicUrl;
 }
 
 function isCommissionableAppointment(status: string): boolean {
@@ -1123,6 +1142,7 @@ export const Financial = () => {
             category,
             status,
             description,
+            attachments,
             due_date,
             created_at,
             patients (
@@ -1720,6 +1740,21 @@ export const Financial = () => {
     setSaving(true);
     setError(null);
 
+    let attachments: string[] | null = null;
+    if (expenseForm.document) {
+      try {
+        const documentUrl = await uploadTransactionDocument(
+          profile.clinic_id,
+          expenseForm.document,
+        );
+        attachments = [documentUrl];
+      } catch (uploadError) {
+        setError(uploadError instanceof Error ? uploadError.message : String(uploadError));
+        setSaving(false);
+        return;
+      }
+    }
+
     const { error: transactionError } = await supabase
       .from("transactions")
       .insert({
@@ -1729,6 +1764,7 @@ export const Financial = () => {
         category: expenseForm.category,
         status: expenseForm.status,
         description: expenseForm.description.trim() || null,
+        attachments,
         due_date: expenseForm.dueDate || todayDate(),
       });
 
