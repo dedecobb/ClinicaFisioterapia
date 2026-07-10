@@ -212,6 +212,7 @@ const initialExpenseForm = (): ExpenseFormState => ({
   description: "",
   dueDate: todayDate(),
   status: "paid",
+  document: null,
 });
 
 function money(value: number | string | null | undefined): number {
@@ -909,6 +910,7 @@ export const Financial = () => {
   const [patientSearchTerm, setPatientSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [supportsTransactionAttachments, setSupportsTransactionAttachments] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reportStartDate, setReportStartDate] = useState("");
   const [reportEndDate, setReportEndDate] = useState("");
@@ -1082,12 +1084,7 @@ export const Financial = () => {
     setLoading(true);
     setError(null);
 
-    const [
-      clinicResult,
-      packagesResult,
-      appointmentsResult,
-      transactionsResult,
-    ] = await Promise.all([
+    const [clinicResult, packagesResult, appointmentsResult, transactionsResult] = await Promise.all([
       supabase
         .from("clinics")
         .select("owner_id")
@@ -1155,11 +1152,42 @@ export const Financial = () => {
         .order("created_at", { ascending: false }),
     ]);
 
+    let finalTransactionsResult = transactionsResult;
+    if (
+      transactionsResult?.error?.message.includes(
+        "column transactions.attachments does not exist",
+      )
+    ) {
+      setSupportsTransactionAttachments(false);
+      const retryResult = await supabase
+        .from("transactions")
+        .select(
+          `
+            id,
+            patient_id,
+            amount,
+            type,
+            category,
+            status,
+            description,
+            due_date,
+            created_at,
+            patients (
+              full_name,
+              profiles!patients_responsible_professional_id_fkey (full_name)
+            )
+          `,
+        )
+        .eq("clinic_id", profile.clinic_id)
+        .order("created_at", { ascending: false });
+      finalTransactionsResult = retryResult;
+    }
+
     const failed = [
       clinicResult,
       packagesResult,
       appointmentsResult,
-      transactionsResult,
+      finalTransactionsResult,
     ].find((result) => result?.error);
     if (failed?.error) {
       setError(failed.error.message);
@@ -1173,7 +1201,7 @@ export const Financial = () => {
       (appointmentsResult?.data ?? []) as unknown as CommissionAppointment[],
     );
     setTransactions(
-      (transactionsResult.data ?? []) as unknown as TransactionRow[],
+      (finalTransactionsResult.data ?? []) as unknown as TransactionRow[],
     );
     setLoading(false);
   };
@@ -1741,7 +1769,7 @@ export const Financial = () => {
     setError(null);
 
     let attachments: string[] | null = null;
-    if (expenseForm.document) {
+    if (expenseForm.document && supportsTransactionAttachments) {
       try {
         const documentUrl = await uploadTransactionDocument(
           profile.clinic_id,
@@ -1755,18 +1783,23 @@ export const Financial = () => {
       }
     }
 
+    const dataToInsert: Record<string, unknown> = {
+      clinic_id: profile.clinic_id,
+      amount,
+      type: "expense",
+      category: expenseForm.category,
+      status: expenseForm.status,
+      description: expenseForm.description.trim() || null,
+      due_date: expenseForm.dueDate || todayDate(),
+    };
+
+    if (supportsTransactionAttachments && attachments) {
+      dataToInsert.attachments = attachments;
+    }
+
     const { error: transactionError } = await supabase
       .from("transactions")
-      .insert({
-        clinic_id: profile.clinic_id,
-        amount,
-        type: "expense",
-        category: expenseForm.category,
-        status: expenseForm.status,
-        description: expenseForm.description.trim() || null,
-        attachments,
-        due_date: expenseForm.dueDate || todayDate(),
-      });
+      .insert(dataToInsert);
 
     if (transactionError) {
       setError(transactionError.message);
@@ -2373,6 +2406,34 @@ export const Financial = () => {
                       }
                     />
                   </div>
+                  {supportsTransactionAttachments ? (
+                    <div>
+                      <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                        Documento
+                      </label>
+                      <input
+                        type="file"
+                        accept=".pdf,image/png,image/jpeg"
+                        className="mt-2 w-full text-sm text-slate-700 dark:text-slate-200"
+                        onChange={(event) =>
+                          setExpenseForm((current) => ({
+                            ...current,
+                            document:
+                              event.target.files?.[0] ?? null,
+                          }))
+                        }
+                      />
+                      {expenseForm.document && (
+                        <p className="mt-2 text-xs text-slate-500">
+                          Arquivo selecionado: {expenseForm.document.name}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                      O banco de dados ainda não suporta anexos para despesas.
+                    </div>
+                  )}
                   <Button type="submit" className="w-full gap-2" isLoading={saving}>
                     <PlusCircle size={16} />
                     Lançar despesa
@@ -2387,6 +2448,7 @@ export const Financial = () => {
                         <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 dark:bg-slate-900">Categoria</th>
                         <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 dark:bg-slate-900">Status</th>
                         <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 dark:bg-slate-900">Descrição</th>
+                        <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 dark:bg-slate-900">Documento</th>
                         <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 dark:bg-slate-900">Valor</th>
                         <th className="sticky top-0 z-10 bg-slate-50 px-6 py-4 dark:bg-slate-900">Ações</th>
                       </tr>
@@ -2395,7 +2457,7 @@ export const Financial = () => {
                       {filteredExpenseTransactions.length === 0 ? (
                         <tr>
                           <td
-                            colSpan={6}
+                            colSpan={7}
                             className="px-6 py-10 text-center text-sm text-slate-500"
                           >
                             {expenseViewFilter === "payable"
@@ -2427,6 +2489,20 @@ export const Financial = () => {
                               </td>
                               <td className="px-6 py-4 text-sm text-slate-500" data-label="Descrição">
                                 {transaction.description ?? "-"}
+                              </td>
+                              <td className="px-6 py-4 text-sm text-slate-500" data-label="Documento">
+                                {transaction.attachments?.[0] ? (
+                                  <a
+                                    href={transaction.attachments[0]}
+                                    target="_blank"
+                                    rel="noreferrer noopener"
+                                    className="text-brand-600 hover:underline"
+                                  >
+                                    Ver documento
+                                  </a>
+                                ) : (
+                                  "-"
+                                )}
                               </td>
                               <td className="px-6 py-4 text-sm font-bold text-rose-600" data-label="Valor">
                                 -{currencyFormatter.format(money(transaction.amount))}
