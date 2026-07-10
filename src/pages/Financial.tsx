@@ -230,13 +230,19 @@ function formatBRLValue(value: string | number | null | undefined): string {
   return currencyFormatter.format(amount);
 }
 
-function parseCurrencyDigits(value: string): string {
-  const digits = value.replace(/\D/g, "");
-  if (!digits) return "";
-  const padded = digits.padStart(3, "0");
-  const integerPart = padded.slice(0, -2).replace(/^0+(?=\d)/, "");
-  const decimalPart = padded.slice(-2);
-  return `${integerPart || "0"}.${decimalPart}`;
+function parseCurrencyValue(value: string): string {
+  const sanitized = value.replace(/[^\d,.-]/g, "");
+  if (!sanitized) return "";
+
+  const normalized = sanitized.replace(/\./g, "").replace(",", ".");
+  const [integerPart, decimalPart = ""] = normalized.split(".");
+  const digitsInteger = integerPart.replace(/\D/g, "");
+  const digitsDecimal = decimalPart.replace(/\D/g, "").slice(0, 2);
+
+  const safeInteger = digitsInteger.replace(/^0+(?=\d)/, "") || "0";
+  const safeDecimal = digitsDecimal.padEnd(2, "0");
+
+  return `${safeInteger}.${safeDecimal}`;
 }
 
 async function uploadTransactionDocument(
@@ -2320,15 +2326,16 @@ export const Financial = () => {
                     </label>
                     <input
                       type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
+                      inputMode="decimal"
                       required
+                      placeholder="R$ 0,00"
+                      autoComplete="off"
                       className="mt-2 w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none"
                       value={formatBRLValue(expenseForm.amount)}
                       onChange={(event) =>
                         setExpenseForm((current) => ({
                           ...current,
-                          amount: parseCurrencyDigits(event.target.value),
+                          amount: parseCurrencyValue(event.target.value),
                         }))
                       }
                     />
@@ -2830,13 +2837,14 @@ export const Financial = () => {
                   </label>
                   <input
                     type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
+                    inputMode="decimal"
                     required
+                    placeholder="R$ 0,00"
+                    autoComplete="off"
                     className="mt-2 w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none"
                     value={formatBRLValue(paymentAmount)}
                     onChange={(event) =>
-                      setPaymentAmount(parseCurrencyDigits(event.target.value))
+                      setPaymentAmount(parseCurrencyValue(event.target.value))
                     }
                   />
                 </div>
