@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { clsx } from "clsx";
 import {
@@ -920,6 +920,8 @@ export const Financial = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [supportsTransactionAttachments, setSupportsTransactionAttachments] = useState(true);
+  const [attachmentTarget, setAttachmentTarget] = useState<TransactionRow | null>(null);
+  const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reportStartDate, setReportStartDate] = useState("");
   const [reportEndDate, setReportEndDate] = useState("");
@@ -1821,6 +1823,52 @@ export const Financial = () => {
     await loadFinancialData();
   };
 
+  const handleOpenAttachmentUploader = (transaction: TransactionRow) => {
+    if (!supportsTransactionAttachments) return;
+    setAttachmentTarget(transaction);
+    attachmentInputRef.current?.click();
+  };
+
+  const handleAttachExpenseDocument = async (
+    event: ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file || !profile?.clinic_id || !attachmentTarget) return;
+
+    setSaving(true);
+    setError(null);
+
+    try {
+      const documentUrl = await uploadTransactionDocument(
+        profile.clinic_id,
+        file,
+      );
+      const updatedAttachments = [
+        ...(attachmentTarget.attachments ?? []),
+        documentUrl,
+      ];
+
+      const { error: updateError } = await supabase
+        .from("transactions")
+        .update({ attachments: updatedAttachments })
+        .eq("id", attachmentTarget.id);
+
+      if (updateError) {
+        setError(updateError.message);
+        setSaving(false);
+        return;
+      }
+
+      setAttachmentTarget(null);
+      event.target.value = "";
+      await loadFinancialData();
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : String(uploadError));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleMarkExpensePaid = async (transaction: TransactionRow) => {
     if (transaction.type !== "expense") return;
 
@@ -1980,7 +2028,7 @@ export const Financial = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 min-[380px]:grid-cols-2 md:grid-cols-2 xl:grid-cols-6 gap-3 sm:gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-6">
             {!isPhysio && (
               <>
                 <FinancialCard
@@ -2318,11 +2366,18 @@ export const Financial = () => {
                 </div>
               )}
 
-              <div className="grid grid-cols-1 xl:grid-cols-[360px_minmax(0,1fr)] gap-0">
+              <div className="grid grid-cols-1 lg:grid-cols-[360px_minmax(0,1fr)] gap-0">
                 <form
                   onSubmit={handleRegisterExpense}
                   className="p-6 border-b xl:border-b-0 xl:border-r border-slate-100 dark:border-slate-800 space-y-4"
                 >
+                  <input
+                    type="file"
+                    ref={attachmentInputRef}
+                    className="hidden"
+                    accept=".pdf,image/png,image/jpeg"
+                    onChange={handleAttachExpenseDocument}
+                  />
                   <div>
                     <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
                       Valor
@@ -2536,6 +2591,18 @@ export const Financial = () => {
                                         Marcar pago
                                       </Button>
                                     )}
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() =>
+                                      handleOpenAttachmentUploader(transaction)
+                                    }
+                                    disabled={saving || !supportsTransactionAttachments}
+                                  >
+                                    {transaction.attachments?.[0]
+                                      ? "Alterar anexo"
+                                      : "Anexar documento"}
+                                  </Button>
                                   <Button
                                     size="sm"
                                     variant="danger"
