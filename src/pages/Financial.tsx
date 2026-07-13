@@ -2808,6 +2808,7 @@ export const Financial = () => {
                       <th className="px-6 py-4">Categoria</th>
                       <th className="px-6 py-4">Status</th>
                       <th className="px-6 py-4">Descrição</th>
+                      <th className="px-6 py-4">Documento</th>
                       <th className="px-6 py-4">Valor</th>
                     </tr>
                   </thead>
@@ -2856,6 +2857,20 @@ export const Financial = () => {
                             {transaction.description ??
                               transaction.patients?.full_name ??
                               "-"}
+                          </td>
+                          <td className="px-6 py-4 text-sm text-slate-500" data-label="Documento">
+                            {transaction.attachments?.[0] ? (
+                              <a
+                                href={transaction.attachments[0]}
+                                target="_blank"
+                                rel="noreferrer noopener"
+                                className="text-brand-600 hover:underline"
+                              >
+                                Ver documento
+                              </a>
+                            ) : (
+                              "-"
+                            )}
                           </td>
                           <td
                             className={clsx(
