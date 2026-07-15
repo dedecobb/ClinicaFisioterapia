@@ -33,6 +33,7 @@ import {
   renovarPacotePaciente,
 } from "./PacientesService";
 import { NovoPacienteModal } from "./NovoPacienteModal";
+import RegisterReceiptModal from "../../components/modals/RegisterReceiptModal";
 import { NewPatientForm, Patient, PatientProcedure } from "./types";
 
 const STATUS_LABEL = {
@@ -131,6 +132,10 @@ export const PacientesPage = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
   const [renewingPatient, setRenewingPatient] = useState<Patient | null>(null);
+  const [registerReceiptPatient, setRegisterReceiptPatient] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
   const [editingNotePatientId, setEditingNotePatientId] = useState<
     string | null
   >(null);
@@ -889,6 +894,17 @@ export const PacientesPage = () => {
                     Renovar Pacote
                   </Button>
                 )}
+                {isAdmin && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="min-w-[140px] flex-1 gap-2"
+                    onClick={() => setRegisterReceiptPatient({ id: patient.id, name: patient.full_name })}
+                    title="Registrar recebimento"
+                  >
+                    Registrar recebimento
+                  </Button>
+                )}
                 <Button
                   variant="secondary"
                   size="sm"
@@ -919,6 +935,14 @@ export const PacientesPage = () => {
         onClose={closeModal}
         onSubmit={handleSubmitPatient}
       />
+      {registerReceiptPatient && (
+        <RegisterReceiptModal
+          isOpen={Boolean(registerReceiptPatient)}
+          onClose={() => setRegisterReceiptPatient(null)}
+          patientId={registerReceiptPatient.id}
+          patientName={registerReceiptPatient.name}
+        />
+      )}
     </div>
   );
 };
