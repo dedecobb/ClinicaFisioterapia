@@ -22,6 +22,11 @@ import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { useAuth } from "../context/AuthContext";
+import {
+  buildCommissionDetailReport,
+  buildCommissionReport,
+  isCommissionableAppointment,
+} from "../lib/commission";
 import { supabase } from "../lib/supabase";
 
 type PaymentStatus = "pago" | "pendente" | "parcial" | "inadimplente";
@@ -263,10 +268,6 @@ async function uploadTransactionDocument(
 
   const { data } = supabase.storage.from("transaction-docs").getPublicUrl(path);
   return data.publicUrl;
-}
-
-function isCommissionableAppointment(status: string): boolean {
-  return status !== "cancelada" && status !== "cancelled";
 }
 
 function startOfMonth(date: Date): Date {
@@ -749,154 +750,6 @@ function getAppointmentResponsibleProfessional(
   };
 }
 
-function getCommissionClassValue(appointment: CommissionAppointment): number {
-  const packageItem = appointment.lesson_packages;
-
-  if (!packageItem) return money(appointment.class_price);
-
-  const totalLessons = Number(packageItem.total_lessons) || 0;
-  const lessonsAmount = Math.max(
-    money(packageItem.total_amount) - money(packageItem.procedure_amount),
-    0,
-  );
-
-  if (totalLessons > 0 && lessonsAmount > 0) {
-    return lessonsAmount / totalLessons;
-  }
-
-  return money(packageItem.lesson_value) || money(appointment.class_price);
-}
-
-function buildCommissionReport(
-  appointments: CommissionAppointment[],
-  ownerId: string | null,
-  startDate?: string,
-  endDate?: string,
-): ProfessionalReport[] {
-  const report = new Map<string, ProfessionalReport>();
-
-  let filtered = appointments.filter((appointment) =>
-    isCommissionableAppointment(appointment.status),
-  );
-
-  // Filter by date range if provided
-  if (startDate) {
-    const start = parseDateInput(startDate);
-    start.setHours(0, 0, 0, 0);
-    filtered = filtered.filter((appointment) => {
-      const appointmentDate = new Date(appointment.start_time);
-      return appointmentDate >= start;
-    });
-  }
-
-  if (endDate) {
-    const end = parseDateInput(endDate);
-    end.setHours(23, 59, 59, 999);
-    filtered = filtered.filter((appointment) => {
-      const appointmentDate = new Date(appointment.start_time);
-      return appointmentDate <= end;
-    });
-  }
-
-  filtered.forEach((appointment) => {
-    const responsibleProfessional =
-      getAppointmentResponsibleProfessional(appointment);
-    const professionalId = responsibleProfessional.id;
-    if (ownerId && professionalId === ownerId) return;
-
-    const current =
-      report.get(professionalId) ??
-      ({
-        professionalId,
-        professionalName: responsibleProfessional.full_name,
-        heldClasses: 0,
-        paidMisses: 0,
-        gross: 0,
-        professionalShare: 0,
-        commissionPaid: 0,
-      } satisfies ProfessionalReport);
-
-    const classValue = getCommissionClassValue(appointment);
-    current.gross += classValue;
-    current.professionalShare += classValue * 0.4;
-    if (appointment.status === "falta") current.paidMisses += 1;
-    if (appointment.status === "presenca_registrada") current.heldClasses += 1;
-    report.set(professionalId, current);
-  });
-
-  return [...report.values()].sort((a, b) =>
-    a.professionalName.localeCompare(b.professionalName),
-  );
-}
-
-function buildCommissionDetailReport(
-  appointments: CommissionAppointment[],
-  ownerId: string | null,
-  startDate: string,
-  endDate: string,
-): CommissionDetailRow[] {
-  const dateColumns = new Set(listDateRange(startDate, endDate));
-  const rows = new Map<string, CommissionDetailRow>();
-  const start = parseDateInput(startDate);
-  start.setHours(0, 0, 0, 0);
-  const end = parseDateInput(endDate);
-  end.setHours(23, 59, 59, 999);
-
-  appointments
-    .filter((appointment) => isCommissionableAppointment(appointment.status))
-    .filter((appointment) => {
-      const appointmentDate = new Date(appointment.start_time);
-      return appointmentDate >= start && appointmentDate <= end;
-    })
-    .forEach((appointment) => {
-      const responsibleProfessional =
-        getAppointmentResponsibleProfessional(appointment);
-      const professionalId = responsibleProfessional.id;
-      if (ownerId && professionalId === ownerId) return;
-
-      const appointmentDate = toDateInputValue(new Date(appointment.start_time));
-      if (!dateColumns.has(appointmentDate)) return;
-
-      const grossClassValue = getCommissionClassValue(appointment);
-      const commissionClassValue = grossClassValue * 0.4;
-      const patientId = appointment.patient_id ?? "sem-paciente";
-      const packageId = appointment.package_id ?? "sem-pacote";
-      const rowKey = [
-        professionalId,
-        patientId,
-        packageId,
-        commissionClassValue.toFixed(2),
-      ].join(":");
-
-      const current =
-        rows.get(rowKey) ??
-        ({
-          professionalId,
-          professionalName: responsibleProfessional.full_name,
-          patientId,
-          patientName: appointment.patients?.full_name ?? "Paciente não informado",
-          packageId,
-          packageAmount: money(appointment.lesson_packages?.total_amount),
-          grossClassValue,
-          commissionClassValue,
-          contractedLessons: appointment.lesson_packages?.total_lessons ?? 0,
-          presenceByDate: {},
-          presences: 0,
-          totalCommission: 0,
-        } satisfies CommissionDetailRow);
-
-      if (appointment.status === "presenca_registrada") {
-        current.presenceByDate[appointmentDate] =
-          (current.presenceByDate[appointmentDate] ?? 0) + 1;
-        current.presences += 1;
-        current.totalCommission += commissionClassValue;
-      }
-
-      rows.set(rowKey, current);
-    });
-
-  return [...rows.values()];
-}
 
 export const Financial = () => {
   const { profile } = useAuth();
