@@ -48,8 +48,22 @@ interface PackageAppointmentInput {
 
 function buildMissingAppointmentsForPackage(
   packageItem: PackageAppointmentInput,
-  existingAppointments: Array<{ package_lesson_number: number | null; start_time: string | null }>,
+  existingAppointments: Array<{
+    package_lesson_number: number | null;
+    start_time: string | null;
+  }>,
 ) {
+  console.log("==================================");
+  console.log("Pacote:", packageItem.id);
+  console.log("Total de aulas:", packageItem.total_lessons);
+  console.log("Data inicial:", packageItem.start_date);
+  console.log("Dias da semana:", packageItem.fixed_weekdays);
+  console.log("Horário:", packageItem.fixed_time);
+  console.log(
+    "Aulas existentes:",
+    existingAppointments.map(a => a.package_lesson_number)
+  );
+
   if (!packageItem.fixed_time) return [];
 
   const lessonDates = generateLessonDates(
@@ -57,6 +71,10 @@ function buildMissingAppointmentsForPackage(
     packageItem.fixed_weekdays ?? [],
     packageItem.total_lessons,
   );
+
+  console.log("Datas geradas:", lessonDates);
+
+
   const existingLessonNumbers = new Set(
     existingAppointments
       .map((appointment) => appointment.package_lesson_number)
@@ -72,30 +90,41 @@ function buildMissingAppointmentsForPackage(
     packageItem.fixed_time,
     packageItem.lesson_duration_minutes || DEFAULT_SESSION_DURATION_MINUTES,
   );
+  
+  console.log("Quantidade de datas:", lessonDates.length);
 
   return lessonDates.flatMap((lessonDate, index) => {
-    const lessonNumber = index + 1;
-    const startTime = toDateTime(lessonDate, packageItem.fixed_time);
+  const lessonNumber = index + 1;
+  const startTime = toDateTime(lessonDate, packageItem.fixed_time);
 
-    if (existingLessonNumbers.has(lessonNumber)) return [];
-    if (existingStartTimes.has(startTime)) return [];
-
-    return [
-      {
-        clinic_id: packageItem.clinic_id ?? null,
-        patient_id: packageItem.patient_id,
-        professional_id: packageItem.professional_id ?? null,
-        package_id: packageItem.id,
-        package_lesson_number: lessonNumber,
-        class_price: Number(packageItem.lesson_value) || 0,
-        start_time: startTime,
-        end_time: toDateTime(lessonDate, endTime),
-        type: "Fisioterapia",
-        status: "agendada",
-        notes: `Aula ${lessonNumber}/${packageItem.total_lessons} do pacote.`,
-      },
-    ];
+  console.log(`Processando aula ${lessonNumber}`, {
+    lessonDate,
+    startTime,
+    jaExisteNumero: existingLessonNumbers.has(lessonNumber),
+    jaExisteStartTime: existingStartTimes.has(startTime),
   });
+
+  if (existingLessonNumbers.has(lessonNumber)) return [];
+  if (existingStartTimes.has(startTime)) return [];
+
+  console.log(`Criando aula ${lessonNumber}`);
+
+  return [
+    {
+      clinic_id: packageItem.clinic_id ?? null,
+      patient_id: packageItem.patient_id,
+      professional_id: packageItem.professional_id ?? null,
+      package_id: packageItem.id,
+      package_lesson_number: lessonNumber,
+      class_price: Number(packageItem.lesson_value) || 0,
+      start_time: startTime,
+      end_time: toDateTime(lessonDate, endTime),
+      type: "Fisioterapia",
+      status: "agendada",
+      notes: `Aula ${lessonNumber}/${packageItem.total_lessons} do pacote.`,
+    },
+  ];
+});
 }
 
 export async function ensureMissingPackageAppointmentsForPatient(
@@ -201,3 +230,5 @@ export async function ensureMissingPackageAppointmentsForActivePackages(): Promi
 
   return createdCount;
 }
+
+
