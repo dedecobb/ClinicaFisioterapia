@@ -514,22 +514,36 @@ export const ClinicalHub = () => {
 
   const idade = calcularIdade(patient.birth_date);
   const appointmentSummary = (() => {
-    const presencas = appointments.filter(
+    // Os indicadores de aulas consideram todos os pacotes do paciente,
+    // inclusive os renovados. Procedimentos avulsos não consomem aulas.
+    const lessonAppointments = appointments.filter(
+      (item) => item.package_id && item.lesson_packages,
+    );
+    const packages = new Map<string, number>();
+    lessonAppointments.forEach((item) => {
+      if (!item.package_id || !item.lesson_packages) return;
+      packages.set(item.package_id, item.lesson_packages.total_lessons);
+    });
+
+    const presencas = lessonAppointments.filter(
       (item) => item.status === "presenca_registrada",
     ).length;
-    const faltas = appointments.filter((item) => item.status === "falta").length;
-    const justificadas = appointments.filter(
+    const faltas = lessonAppointments.filter(
+      (item) => item.status === "falta",
+    ).length;
+    const justificadas = lessonAppointments.filter(
       (item) => item.status === "ausencia_justificada",
     ).length;
-    const reposicoes = appointments.filter(
+    const reposicoes = lessonAppointments.filter(
       (item) => item.status === "reposicao",
     ).length;
-    const canceladas = appointments.filter(
+    const canceladas = lessonAppointments.filter(
       (item) => item.status === "cancelada",
     ).length;
-    const totalContratado =
-      appointments.find((item) => item.lesson_packages?.total_lessons)
-        ?.lesson_packages?.total_lessons ?? 0;
+    const totalContratado = Array.from(packages.values()).reduce(
+      (total, lessons) => total + lessons,
+      0,
+    );
     const consumidas = presencas + faltas;
 
     return {

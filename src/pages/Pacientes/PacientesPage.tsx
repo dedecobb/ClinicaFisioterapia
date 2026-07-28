@@ -890,6 +890,18 @@ export const PacientesPage = () => {
                     variant="outline"
                     size="sm"
                     className="min-w-[140px] flex-1 gap-2"
+                    onClick={() => openEditModal(patient)}
+                    title="Editar cadastro"
+                  >
+                    <Edit3 size={16} />
+                    Editar paciente
+                  </Button>
+                )}
+                {isAdmin && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="min-w-[140px] flex-1 gap-2"
                     onClick={() => openRenewModal(patient)}
                     title="Renovar pacote"
                   >
