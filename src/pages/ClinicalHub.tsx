@@ -38,6 +38,12 @@ import { useAuth } from "../context/AuthContext";
 import { messages } from "../i18n";
 import { UploadExameModal } from "../components/modals/UploadExameModal";
 import { ProtocolosModal } from "../components/modals/ProtocolosModal";
+import { atualizarAgendamento } from "./Agenda/Agendamentoservice";
+import type {
+  NovoAgendamentoForm,
+  StatusAgendamento,
+  TipoSessao,
+} from "./Agenda/types";
 import {
   Documento,
   Evolution,
@@ -162,6 +168,23 @@ function formatPatientAddress(
     .join(" · ");
 }
 
+function toDateInputValue(iso: string): string {
+  const date = new Date(iso);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function toTimeInputValue(iso: string): string {
+  const date = new Date(iso);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+type AppointmentEditForm = Pick<
+  NovoAgendamentoForm,
+  "data" | "horaInicio" | "horaFim" | "status" | "observacoes"
+>;
+
 // ── Ícone por extensão de arquivo ─────────────────────────────────────────────
 function IconeArquivo({ url, size = 18 }: { url: string; size?: number }) {
   const ext = url.split(".").pop()?.toLowerCase() ?? "";
@@ -202,6 +225,14 @@ export const ClinicalHub = () => {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [editingAppointment, setEditingAppointment] =
+    useState<PatientAppointment | null>(null);
+  const [appointmentEditForm, setAppointmentEditForm] =
+    useState<AppointmentEditForm | null>(null);
+  const [savingAppointment, setSavingAppointment] = useState(false);
+  const [appointmentEditError, setAppointmentEditError] = useState<
+    string | null
+  >(null);
 
   // ── Edição inline ────────────────────────────────────────────────────────────
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -247,6 +278,70 @@ export const ClinicalHub = () => {
       setLoadingPage(false);
     }
   }, [patientId, session, profile]);
+
+  const openAppointmentEditor = (appointment: PatientAppointment) => {
+    setEditingAppointment(appointment);
+    setAppointmentEditForm({
+      data: toDateInputValue(appointment.start_time),
+      horaInicio: toTimeInputValue(appointment.start_time),
+      horaFim: toTimeInputValue(appointment.end_time),
+      status: appointment.status as StatusAgendamento,
+      observacoes: appointment.notes ?? "",
+    });
+    setAppointmentEditError(null);
+  };
+
+  const closeAppointmentEditor = () => {
+    if (savingAppointment) return;
+    setEditingAppointment(null);
+    setAppointmentEditForm(null);
+    setAppointmentEditError(null);
+  };
+
+  const saveAppointmentFromHistory = async () => {
+    if (!editingAppointment || !appointmentEditForm || !patientId) return;
+
+    if (!editingAppointment.professional_id) {
+      setAppointmentEditError(
+        "Este agendamento não possui fisioterapeuta responsável.",
+      );
+      return;
+    }
+
+    setSavingAppointment(true);
+    setAppointmentEditError(null);
+
+    try {
+      await atualizarAgendamento(editingAppointment.id, {
+        pacienteId: editingAppointment.patient_id,
+        fisioterapeutaId: editingAppointment.professional_id,
+        data: appointmentEditForm.data,
+        horaInicio: appointmentEditForm.horaInicio,
+        horaFim: appointmentEditForm.horaFim,
+        tipoSessao: editingAppointment.type as TipoSessao,
+        status: appointmentEditForm.status,
+        observacoes: appointmentEditForm.observacoes,
+        sessaoNumero: editingAppointment.package_lesson_number ?? 1,
+        totalSessoes:
+          editingAppointment.lesson_packages?.total_lessons ??
+          editingAppointment.package_lesson_number ??
+          1,
+        pacoteId: editingAppointment.package_id ?? undefined,
+        valorAula: Number(editingAppointment.class_price) || 0,
+      });
+
+      setAppointments(await getAppointmentsByPatient(patientId));
+      setEditingAppointment(null);
+      setAppointmentEditForm(null);
+      setAppointmentEditError(null);
+    } catch (err) {
+      setAppointmentEditError(
+        err instanceof Error ? err.message : "Erro ao atualizar agendamento.",
+      );
+    } finally {
+      setSavingAppointment(false);
+    }
+  };
 
   useEffect(() => {
     loadData();
@@ -463,6 +558,160 @@ export const ClinicalHub = () => {
         onFechar={() => setProtocolosAberto(false)}
         onInserir={handleInserirProtocolo}
       />
+      <AnimatePresence>
+        {editingAppointment && appointmentEditForm && (
+          <motion.div
+            className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={closeAppointmentEditor}
+          >
+            <motion.div
+              className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl dark:bg-slate-900"
+              initial={{ opacity: 0, scale: 0.96, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 12 }}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mb-5 flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+                    Editar aula ou procedimento
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    A alteração será refletida automaticamente na Agenda.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeAppointmentEditor}
+                  disabled={savingAppointment}
+                  className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                  aria-label="Fechar edição"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <label className="space-y-1.5 text-sm font-medium text-slate-700 dark:text-slate-200">
+                  Data
+                  <input
+                    type="date"
+                    value={appointmentEditForm.data}
+                    disabled={savingAppointment}
+                    onChange={(event) =>
+                      setAppointmentEditForm((current) =>
+                        current ? { ...current, data: event.target.value } : current,
+                      )
+                    }
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-500 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950"
+                  />
+                </label>
+                <label className="space-y-1.5 text-sm font-medium text-slate-700 dark:text-slate-200">
+                  Presença / status
+                  <select
+                    value={appointmentEditForm.status}
+                    disabled={savingAppointment}
+                    onChange={(event) =>
+                      setAppointmentEditForm((current) =>
+                        current
+                          ? {
+                              ...current,
+                              status: event.target.value as StatusAgendamento,
+                            }
+                          : current,
+                      )
+                    }
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-500 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950"
+                  >
+                    {Object.entries(APPOINTMENT_STATUS_LABEL).map(
+                      ([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ),
+                    )}
+                  </select>
+                </label>
+                <label className="space-y-1.5 text-sm font-medium text-slate-700 dark:text-slate-200">
+                  Horário de início
+                  <input
+                    type="time"
+                    value={appointmentEditForm.horaInicio}
+                    disabled={savingAppointment}
+                    onChange={(event) =>
+                      setAppointmentEditForm((current) =>
+                        current
+                          ? { ...current, horaInicio: event.target.value }
+                          : current,
+                      )
+                    }
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-500 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950"
+                  />
+                </label>
+                <label className="space-y-1.5 text-sm font-medium text-slate-700 dark:text-slate-200">
+                  Horário de término
+                  <input
+                    type="time"
+                    value={appointmentEditForm.horaFim}
+                    disabled={savingAppointment}
+                    onChange={(event) =>
+                      setAppointmentEditForm((current) =>
+                        current ? { ...current, horaFim: event.target.value } : current,
+                      )
+                    }
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-500 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950"
+                  />
+                </label>
+              </div>
+
+              <label className="mt-4 block space-y-1.5 text-sm font-medium text-slate-700 dark:text-slate-200">
+                Observação
+                <textarea
+                  rows={3}
+                  value={appointmentEditForm.observacoes}
+                  disabled={savingAppointment}
+                  onChange={(event) =>
+                    setAppointmentEditForm((current) =>
+                      current
+                        ? { ...current, observacoes: event.target.value }
+                        : current,
+                    )
+                  }
+                  className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none focus:ring-2 focus:ring-brand-500 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950"
+                />
+              </label>
+
+              {appointmentEditError && (
+                <p className="mt-4 rounded-xl bg-rose-50 p-3 text-sm text-rose-700 dark:bg-rose-950/30 dark:text-rose-200">
+                  {appointmentEditError}
+                </p>
+              )}
+
+              <div className="mt-6 flex justify-end gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={closeAppointmentEditor}
+                  disabled={savingAppointment}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="button"
+                  onClick={saveAppointmentFromHistory}
+                  isLoading={savingAppointment}
+                  className="gap-2"
+                >
+                  <Save size={16} /> Salvar na agenda
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="space-y-6 animate-in fade-in duration-500 pb-20">
         {/* ── Cabeçalho ── */}
@@ -910,6 +1159,14 @@ export const ClinicalHub = () => {
                                   </p>
                                 )}
                               </div>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="shrink-0 gap-2"
+                                onClick={() => openAppointmentEditor(appointment)}
+                              >
+                                <Edit3 size={15} /> Editar aula
+                              </Button>
                             </div>
                           );
                         })}

@@ -613,7 +613,18 @@ function generateCommissionReportExcel(
     ...dateColumns.map(formatShortDate),
     "Presenças",
     "Valor total aulas",
+    "Comissão total a pagar",
   ];
+  const firstDateColumn = 5;
+  const presencesColumn = firstDateColumn + dateColumns.length;
+  const totalClassesColumn = presencesColumn + 1;
+  const totalCommissionColumn = totalClassesColumn + 1;
+  const detailFormulaRows: number[] = [];
+  const professionalTotalRows: Array<{
+    totalRow: number;
+    firstDetailRow: number;
+    lastDetailRow: number;
+  }> = [];
 
   const rowsByProfessional = detailRows.reduce((acc, row) => {
     const rows = acc.get(row.professionalId) ?? [];
@@ -628,10 +639,13 @@ function generateCommissionReportExcel(
       const professionalName = professionalRows[0].professionalName;
       detailWsData.push([professionalName]);
       detailWsData.push(detailHeader);
+      const firstDetailRow = detailWsData.length + 1;
 
       professionalRows
         .sort((a, b) => a.patientName.localeCompare(b.patientName))
         .forEach((row) => {
+          const worksheetRow = detailWsData.length + 1;
+          detailFormulaRows.push(worksheetRow);
           detailWsData.push([
             row.patientName,
             row.packageAmount,
@@ -642,10 +656,17 @@ function generateCommissionReportExcel(
               row.presenceByDate[date] ? "PRESENÇA" : "",
             ),
             row.presences,
+            row.presences * row.grossClassValue,
             row.totalCommission,
           ]);
-        });
+      });
 
+      const totalRow = detailWsData.length + 1;
+      professionalTotalRows.push({
+        totalRow,
+        firstDetailRow,
+        lastDetailRow: detailWsData.length,
+      });
       detailWsData.push([
         `TOTAL ${professionalName}`,
         "",
@@ -654,6 +675,10 @@ function generateCommissionReportExcel(
         "",
         ...dateColumns.map(() => ""),
         professionalRows.reduce((total, row) => total + row.presences, 0),
+        professionalRows.reduce(
+          (total, row) => total + row.presences * row.grossClassValue,
+          0,
+        ),
         professionalRows.reduce(
           (total, row) => total + row.totalCommission,
           0,
@@ -670,10 +695,74 @@ function generateCommissionReportExcel(
     "",
     ...dateColumns.map(() => ""),
     detailRows.reduce((total, row) => total + row.presences, 0),
+    detailRows.reduce(
+      (total, row) => total + row.presences * row.grossClassValue,
+      0,
+    ),
     detailRows.reduce((total, row) => total + row.totalCommission, 0),
   ]);
 
   const detailWs = XLSX.utils.aoa_to_sheet(detailWsData);
+  const lastDetailRow = detailWsData.length;
+  const columnName = (column: number) => XLSX.utils.encode_col(column);
+
+  detailFormulaRows.forEach((row) => {
+    const startDateCell = `${columnName(firstDateColumn)}${row}`;
+    const endDateCell = `${columnName(presencesColumn - 1)}${row}`;
+    const presencesCell = `${columnName(presencesColumn)}${row}`;
+    const packageAmountCell = `${columnName(1)}${row}`;
+    const grossClassValueCell = `${columnName(2)}${row}`;
+    const commissionClassValueCell = `${columnName(3)}${row}`;
+    const contractedLessonsCell = `${columnName(4)}${row}`;
+    const totalClassesCell = `${columnName(totalClassesColumn)}${row}`;
+    const totalCommissionCell = `${columnName(totalCommissionColumn)}${row}`;
+
+    detailWs[grossClassValueCell] = {
+      f: `IFERROR(${packageAmountCell}/${contractedLessonsCell},0)`,
+      t: "n",
+    };
+    detailWs[commissionClassValueCell] = {
+      f: `${grossClassValueCell}*40%`,
+      t: "n",
+    };
+    detailWs[presencesCell] = {
+      f: `COUNTIF(${startDateCell}:${endDateCell},"PRESENÇA")`,
+      t: "n",
+    };
+    detailWs[totalClassesCell] = {
+      f: `${presencesCell}*${grossClassValueCell}`,
+      t: "n",
+    };
+    detailWs[totalCommissionCell] = {
+      f: `${presencesCell}*${commissionClassValueCell}`,
+      t: "n",
+    };
+  });
+
+  professionalTotalRows.forEach(
+    ({ totalRow, firstDetailRow, lastDetailRow }) => {
+      [presencesColumn, totalClassesColumn, totalCommissionColumn].forEach(
+        (column) => {
+          const cell = `${columnName(column)}${totalRow}`;
+          detailWs[cell] = {
+            f: `SUM(${columnName(column)}${firstDetailRow}:${columnName(column)}${lastDetailRow})`,
+            t: "n",
+          };
+        },
+      );
+    },
+  );
+
+  [presencesColumn, totalClassesColumn, totalCommissionColumn].forEach(
+    (column) => {
+      detailWs[`${columnName(column)}${lastDetailRow}`] = {
+        f: `SUM(${professionalTotalRows
+          .map(({ totalRow }) => `${columnName(column)}${totalRow}`)
+          .join(",")})`,
+        t: "n",
+      };
+    },
+  );
   detailWs["!cols"] = [
     { wch: 30 },
     { wch: 14 },
@@ -683,9 +772,10 @@ function generateCommissionReportExcel(
     ...dateColumns.map(() => ({ wch: 8 })),
     { wch: 12 },
     { wch: 18 },
+    { wch: 24 },
   ];
 
-  const moneyColumns = [1, 2, 3, detailHeader.length - 1];
+  const moneyColumns = [1, 2, 3, totalClassesColumn, totalCommissionColumn];
   for (let row = 1; row <= detailWsData.length; row++) {
     moneyColumns.forEach((col) => {
       const cellAddress = XLSX.utils.encode_col(col) + row;
@@ -696,6 +786,9 @@ function generateCommissionReportExcel(
   }
 
   XLSX.utils.book_append_sheet(wb, detailWs, "Detalhado");
+  wb.Workbook = {
+    CalcPr: { calcMode: "auto", fullCalcOnLoad: true, forceFullCalc: true },
+  };
 
   // Gerar arquivo em buffer
   const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });

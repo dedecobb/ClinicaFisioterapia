@@ -16,7 +16,6 @@ import {
   Trash2,
   User,
   UserCheck,
-  Wrench,
   X,
 } from "lucide-react";
 import { Button } from "../../components/ui/Button";
@@ -367,7 +366,11 @@ export const PacientesPage = () => {
         const patient = await atualizarPaciente(editingPatient.id, form);
         setPatients((current) =>
           (current.some((item) => item.id === patient.id)
-            ? current.map((item) => (item.id === patient.id ? patient : item))
+            ? current.map((item) =>
+                item.id === patient.id
+                  ? { ...patient, lesson_packages: item.lesson_packages }
+                  : item,
+              )
             : [...current, patient]
           )
             .filter(matchesProfessionalFilter)

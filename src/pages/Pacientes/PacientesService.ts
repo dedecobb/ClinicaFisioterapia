@@ -1476,17 +1476,7 @@ export async function atualizarPaciente(
   patientId: string,
   form: NewPatientForm,
 ): Promise<Patient> {
-  const withLessons = hasLessonPackage(form);
-  const totalAmount = getFinancialTotalAmount(form);
-  const procedures = normalizeProcedures(form);
-  const amountPaid = Number(form.amount_paid) || 0;
-  const patientPlanFields = getPatientPlanFields(form);
   const address = normalizeAddress(form);
-  validatePaymentAmount(form, totalAmount);
-
-  if (!withLessons && procedures.length > 0) {
-    validateStandaloneProcedureFields(form);
-  }
 
   const clinicId = await getPatientClinicId(patientId);
   await assertPatientIsNotDuplicate(clinicId, form, patientId);
@@ -1503,9 +1493,6 @@ export async function atualizarPaciente(
       quick_note: emptyToNull(form.quick_note),
       address,
       status: form.status,
-      ...patientPlanFields,
-      responsible_professional_id: form.responsible_professional_id,
-      procedures,
     })
     .eq("id", patientId)
     .select(
@@ -1517,41 +1504,13 @@ export async function atualizarPaciente(
     throw formatSupabaseError("Erro ao atualizar paciente", error);
   }
 
-  const patient = data as Patient;
-  const activePackage = await atualizarPacotePrincipal(
-    patientId,
-    form,
-    totalAmount,
-    clinicId,
-  );
-
-  if (!withLessons && procedures.length > 0) {
-    await criarAgendamentosProcedimentosAvulsos({
-      clinicId: patient.clinic_id,
-      patientId,
-      professionalId: form.responsible_professional_id,
-      form,
-      procedures,
-      replaceExisting: true,
-    });
-
-    await registrarFinanceiroProcedimentosAvulsos({
-      clinicId: patient.clinic_id,
-      patientId,
-      patientName: patient.full_name,
-      totalAmount,
-      amountPaid,
-      paymentMethod: form.payment_method,
-      replaceExisting: true,
-    });
-  }
-
-  return {
-    ...patient,
-    lesson_packages: activePackage ? [activePackage] : [],
-  };
+  // Cadastro do paciente não altera pacote, financeiro nem agendamentos.
+  // Novas sessões devem ser criadas exclusivamente no fluxo de renovação.
+  return data as Patient;
 }
 
+// Mantido para compatibilidade com rotinas internas legadas; não é usado pela edição cadastral.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function atualizarPacotePrincipal(
   patientId: string,
   form: NewPatientForm,

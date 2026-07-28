@@ -933,7 +933,7 @@ export const NovoPacienteModal = ({
                   {isRenewing
                     ? "Adicione novos créditos e gere as próximas sessões, se houver."
                     : isEditing
-                    ? "Atualize dados cadastrais, procedimentos, pacote e financeiro."
+                      ? "Atualize dados pessoais, contato, observação, endereço e status. Agendamentos são alterados somente pela agenda."
                     : "Cadastre cliente, procedimentos e sessões fixas quando contratadas."}
                 </p>
               </div>
@@ -1304,7 +1304,7 @@ export const NovoPacienteModal = ({
                     </div>
                   </div>
                 </div>
-
+                {!isEditing && (
                 <div className="space-y-4">
                   <div className="flex items-center gap-2">
                     <ClipboardList size={16} className="text-slate-400" />
@@ -1759,7 +1759,9 @@ export const NovoPacienteModal = ({
                     </div>
                   )}
                 </div>
+                )}
 
+                {!isEditing && (
                 <div className="space-y-4">
                   <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">
                     Agenda e sessões contratadas
@@ -1918,7 +1920,9 @@ export const NovoPacienteModal = ({
                     </div>
                   </div>
                 </div>
+                )}
 
+                {!isEditing && (
                 <div className="space-y-4">
                   <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">
                     Financeiro
@@ -2117,6 +2121,7 @@ export const NovoPacienteModal = ({
                     </div>
                   </div>
                 </div>
+                )}
 
                 <div className="space-y-4 rounded-2xl border border-slate-100 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-900/50">
                   {error && (
