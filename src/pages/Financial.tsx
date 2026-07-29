@@ -2283,6 +2283,76 @@ export const Financial = () => {
     await loadFinancialData();
   };
 
+  const handleDeletePackageInstallment = async (
+    packageItem: PackageRow,
+    installment: InstallmentRow,
+  ) => {
+    if (!isAdmin || !profile?.clinic_id) return;
+
+    const confirmed = window.confirm(
+      `Excluir a parcela #${installment.installment_number} de ${currencyFormatter.format(money(installment.amount))}? Ela será removida dos Recebíveis e esta ação não poderá ser desfeita.`,
+    );
+    if (!confirmed) return;
+
+    setSaving(true);
+    setError(null);
+
+    const nextTotal = Math.max(
+      money(packageItem.total_amount) - money(installment.amount),
+      0,
+    );
+    const nextPaid = Math.max(
+      money(packageItem.amount_paid) - money(installment.amount_paid),
+      0,
+    );
+    const { error: packageUpdateError } = await supabase
+      .from("lesson_packages")
+      .update({
+        total_amount: nextTotal,
+        amount_paid: nextPaid,
+        payment_status: statusFromPayment(nextTotal, nextPaid),
+      })
+      .eq("id", packageItem.id)
+      .eq("clinic_id", profile.clinic_id);
+
+    if (packageUpdateError) {
+      setError(packageUpdateError.message);
+      setSaving(false);
+      return;
+    }
+
+    const { error: installmentDeleteError } = await supabase
+      .from("package_installments")
+      .delete()
+      .eq("id", installment.id)
+      .eq("clinic_id", profile.clinic_id);
+
+    if (installmentDeleteError) {
+      setError(installmentDeleteError.message);
+      setSaving(false);
+      return;
+    }
+
+    // New receipts carry the installment number, so their history entry can be
+    // removed without risking another payment from the same patient.
+    const { error: receiptDeleteError } = await supabase
+      .from("transactions")
+      .delete()
+      .eq("clinic_id", profile.clinic_id)
+      .eq("patient_id", packageItem.patient_id)
+      .eq("category", "Recebimento de pacote")
+      .ilike("description", `%parcela #${installment.installment_number}%`);
+
+    if (receiptDeleteError) {
+      setError(receiptDeleteError.message);
+      setSaving(false);
+      return;
+    }
+
+    setSaving(false);
+    await loadFinancialData();
+  };
+
   const printReceipt = (
     packageItem: PackageRow,
     installment?: InstallmentRow,
@@ -2575,18 +2645,37 @@ export const Financial = () => {
                                 </Button>
                               )}
                               {row.kind === "package" && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() =>
-                                    printReceipt(
-                                      row.packageItem,
-                                      row.installment,
-                                    )
-                                  }
-                                >
-                                  <Receipt size={14} />
-                                </Button>
+                                <>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() =>
+                                      printReceipt(
+                                        row.packageItem,
+                                        row.installment,
+                                      )
+                                    }
+                                  >
+                                    <Receipt size={14} />
+                                  </Button>
+                                  {isAdmin && (
+                                    <Button
+                                      size="sm"
+                                      variant="danger"
+                                      onClick={() =>
+                                        handleDeletePackageInstallment(
+                                          row.packageItem,
+                                          row.installment,
+                                        )
+                                      }
+                                      disabled={saving}
+                                      title="Excluir parcela"
+                                    >
+                                      <Trash2 size={14} />
+                                      Excluir
+                                    </Button>
+                                  )}
+                                </>
                               )}
                               {isAdmin && row.kind === "procedure" && (
                                 <Button
