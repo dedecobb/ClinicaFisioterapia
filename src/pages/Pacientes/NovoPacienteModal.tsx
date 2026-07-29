@@ -1,4 +1,5 @@
 import { type FormEvent, type WheelEvent, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   AlertCircle,
@@ -37,6 +38,7 @@ interface NovoPacienteModalProps {
   fisioterapeutas: Fisioterapeuta[];
   patient?: Patient | null;
   mode?: "create" | "edit" | "renew";
+  canSetInactiveStatus?: boolean;
 }
 
 const emptyForm: NewPatientForm = {
@@ -44,6 +46,8 @@ const emptyForm: NewPatientForm = {
   cpf: "",
   email: "",
   phone: "",
+  emergency_contact_name: "",
+  emergency_contact_phone: "",
   birth_date: "",
   gender: "other",
   quick_note: "",
@@ -425,6 +429,8 @@ function formFromPatient(
       cpf: patient.cpf ?? "",
       email: patient.email ?? "",
       phone: patient.phone ?? "",
+      emergency_contact_name: patient.emergency_contact_name ?? "",
+      emergency_contact_phone: patient.emergency_contact_phone ?? "",
       birth_date: patient.birth_date ?? "",
       gender: patient.gender ?? "other",
       quick_note: patient.quick_note ?? "",
@@ -443,6 +449,8 @@ function formFromPatient(
     cpf: patient.cpf ?? "",
     email: patient.email ?? "",
     phone: patient.phone ?? "",
+    emergency_contact_name: patient.emergency_contact_name ?? "",
+    emergency_contact_phone: patient.emergency_contact_phone ?? "",
     birth_date: patient.birth_date ?? "",
     gender: patient.gender ?? "other",
     quick_note: patient.quick_note ?? "",
@@ -484,6 +492,7 @@ export const NovoPacienteModal = ({
   fisioterapeutas,
   patient,
   mode = "create",
+  canSetInactiveStatus = false,
 }: NovoPacienteModalProps) => {
   const [formData, setFormData] = useState<NewPatientForm>(emptyForm);
   const [cepLoading, setCepLoading] = useState(false);
@@ -591,7 +600,10 @@ export const NovoPacienteModal = ({
 
     if (field === "cpf" && typeof value === "string") {
       formattedValue = formatCpf(value) as NewPatientForm[K];
-    } else if (field === "phone" && typeof value === "string") {
+    } else if (
+      (field === "phone" || field === "emergency_contact_phone") &&
+      typeof value === "string"
+    ) {
       formattedValue = formatPhone(value) as NewPatientForm[K];
     } else if (field === "quick_note" && typeof value === "string") {
       formattedValue = value.slice(0, 180) as NewPatientForm[K];
@@ -909,7 +921,18 @@ export const NovoPacienteModal = ({
     });
   }, [financialTotal]);
 
-  return (
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isOpen]);
+
+  return createPortal(
     <AnimatePresence>
       {isOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-end bg-slate-900/40 backdrop-blur-sm">
@@ -1052,6 +1075,57 @@ export const NovoPacienteModal = ({
                     </div>
                   </div>
 
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                        Nome do contato de emergência
+                      </label>
+                      <div className="relative">
+                        <User
+                          className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                          size={18}
+                        />
+                        <input
+                          disabled={loading || isRenewing}
+                          className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
+                          placeholder="Ex: Maria da Silva"
+                          value={formData.emergency_contact_name}
+                          onChange={(event) =>
+                            updateField(
+                              "emergency_contact_name",
+                              event.target.value,
+                            )
+                          }
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                        Telefone do contato de emergência
+                      </label>
+                      <div className="relative">
+                        <Phone
+                          className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                          size={18}
+                        />
+                        <input
+                          type="tel"
+                          disabled={loading || isRenewing}
+                          className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
+                          placeholder="(00) 00000-0000"
+                          value={formData.emergency_contact_phone}
+                          onChange={(event) =>
+                            updateField(
+                              "emergency_contact_phone",
+                              event.target.value,
+                            )
+                          }
+                        />
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
                       Status do cliente
@@ -1070,6 +1144,9 @@ export const NovoPacienteModal = ({
                       <option value="ativo">Ativo</option>
                       <option value="pausado">Pausado</option>
                       <option value="inadimplente">Inadimplente</option>
+                      <option value="inativo" disabled={!canSetInactiveStatus}>
+                        Inativo
+                      </option>
                       <option value="encerrado">Encerrado</option>
                     </select>
                   </div>
@@ -2172,6 +2249,7 @@ export const NovoPacienteModal = ({
           </motion.div>
         </div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   );
 };

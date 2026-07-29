@@ -351,6 +351,8 @@ export async function listarPacientes(
       cpf,
       email,
       phone,
+      emergency_contact_name,
+      emergency_contact_phone,
       birth_date,
       gender,
       quick_note,
@@ -389,8 +391,9 @@ export async function listarPacientes(
     .eq("clinic_id", clinicId)
     .order("full_name", { ascending: true });
 
-  if (access?.role === "physio") {
+  if (access && access.role !== "admin") {
     query = query.eq("responsible_professional_id", access.id);
+    query = query.neq("status", "inativo");
   } else if (responsibleProfessionalId) {
     query = query.eq("responsible_professional_id", responsibleProfessionalId);
   }
@@ -1207,6 +1210,8 @@ export async function criarPaciente(
       cpf: emptyToNull(form.cpf),
       email: emptyToNull(form.email),
       phone: emptyToNull(form.phone),
+      emergency_contact_name: emptyToNull(form.emergency_contact_name),
+      emergency_contact_phone: emptyToNull(form.emergency_contact_phone),
       birth_date: emptyToNull(form.birth_date),
       gender: emptyToNull(form.gender),
       quick_note: emptyToNull(form.quick_note),
@@ -1217,7 +1222,7 @@ export async function criarPaciente(
       procedures,
     })
     .select(
-      "id, clinic_id, full_name, cpf, email, phone, birth_date, gender, quick_note, address, status, plan_start_date, contracted_lessons, fixed_weekdays, fixed_time, responsible_professional_id, procedures, created_at",
+      "id, clinic_id, full_name, cpf, email, phone, emergency_contact_name, emergency_contact_phone, birth_date, gender, quick_note, address, status, plan_start_date, contracted_lessons, fixed_weekdays, fixed_time, responsible_professional_id, procedures, created_at",
     )
     .single();
 
@@ -1366,7 +1371,7 @@ export async function renovarPacotePaciente(
     })
     .eq("id", patientId)
     .select(
-      "id, clinic_id, full_name, cpf, email, phone, birth_date, gender, quick_note, address, status, plan_start_date, contracted_lessons, fixed_weekdays, fixed_time, responsible_professional_id, procedures, created_at",
+      "id, clinic_id, full_name, cpf, email, phone, emergency_contact_name, emergency_contact_phone, birth_date, gender, quick_note, address, status, plan_start_date, contracted_lessons, fixed_weekdays, fixed_time, responsible_professional_id, procedures, created_at",
     )
     .single();
 
@@ -1488,15 +1493,20 @@ export async function atualizarPaciente(
       cpf: emptyToNull(form.cpf),
       email: emptyToNull(form.email),
       phone: emptyToNull(form.phone),
+      emergency_contact_name: emptyToNull(form.emergency_contact_name),
+      emergency_contact_phone: emptyToNull(form.emergency_contact_phone),
       birth_date: emptyToNull(form.birth_date),
       gender: emptyToNull(form.gender),
       quick_note: emptyToNull(form.quick_note),
       address,
       status: form.status,
+      responsible_professional_id: emptyToNull(
+        form.responsible_professional_id,
+      ),
     })
     .eq("id", patientId)
     .select(
-      "id, clinic_id, full_name, cpf, email, phone, birth_date, gender, quick_note, address, status, plan_start_date, contracted_lessons, fixed_weekdays, fixed_time, responsible_professional_id, procedures, created_at",
+      "id, clinic_id, full_name, cpf, email, phone, emergency_contact_name, emergency_contact_phone, birth_date, gender, quick_note, address, status, plan_start_date, contracted_lessons, fixed_weekdays, fixed_time, responsible_professional_id, procedures, created_at",
     )
     .single();
 

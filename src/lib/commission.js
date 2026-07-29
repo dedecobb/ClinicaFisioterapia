@@ -42,9 +42,12 @@ function getAppointmentResponsibleProfessional(appointment) {
 }
 
 function getCommissionClassValue(appointment) {
+  const appointmentClassValue = money(appointment.class_price);
+  if (appointmentClassValue > 0) return appointmentClassValue;
+
   const packageItem = appointment.lesson_packages;
 
-  if (!packageItem) return money(appointment.class_price);
+  if (!packageItem) return appointmentClassValue;
 
   const totalLessons = Number(packageItem.total_lessons) || 0;
   const lessonsAmount = Math.max(
@@ -57,6 +60,13 @@ function getCommissionClassValue(appointment) {
   }
 
   return money(packageItem.lesson_value) || money(appointment.class_price);
+}
+
+function getCommissionAmount(appointment, classValue) {
+  const configuredAmount = Number(appointment.commission_amount);
+  return Number.isFinite(configuredAmount) && configuredAmount > 0
+    ? configuredAmount
+    : classValue * 0.4;
 }
 
 export function isCommissionableAppointment(status) {
@@ -103,11 +113,15 @@ export function buildCommissionReport(appointments, ownerId = null, startDate, e
       };
 
     const classValue = getCommissionClassValue(appointment);
+    const commissionAmount = getCommissionAmount(appointment, classValue);
     if (appointment.status === "presenca_registrada") {
       current.gross += classValue;
-      current.professionalShare += classValue * 0.4;
+      current.professionalShare += commissionAmount;
       current.heldClasses += 1;
     } else if (appointment.status === "falta") {
+      // Falta também é uma aula paga à fisioterapeuta.
+      current.gross += classValue;
+      current.professionalShare += commissionAmount;
       current.paidMisses += 1;
     }
 
@@ -140,10 +154,14 @@ export function buildCommissionDetailReport(appointments, ownerId, startDate, en
       if (!dateColumns.has(appointmentDate)) return;
 
       const grossClassValue = getCommissionClassValue(appointment);
-      const commissionClassValue = grossClassValue * 0.4;
+      const commissionClassValue = getCommissionAmount(
+        appointment,
+        grossClassValue,
+      );
       const patientId = appointment.patient_id ?? "sem-paciente";
-      const packageId = appointment.package_id ?? "sem-pacote";
-      const rowKey = [professionalId, patientId, packageId, commissionClassValue.toFixed(2)].join(":");
+      // A renovação cria um novo pacote, mas não deve criar outra linha para
+      // o mesmo paciente na planilha da mesma fisioterapeuta.
+      const rowKey = [professionalId, patientId].join(":");
 
       const current =
         rows.get(rowKey) ?? {
@@ -151,24 +169,41 @@ export function buildCommissionDetailReport(appointments, ownerId, startDate, en
           professionalName: responsibleProfessional.full_name,
           patientId,
           patientName: appointment.patients?.full_name ?? "Paciente não informado",
-          packageId,
+          packageId: appointment.package_id ?? "sem-pacote",
           packageAmount: money(appointment.lesson_packages?.total_amount),
           grossClassValue,
           commissionClassValue,
           contractedLessons: appointment.lesson_packages?.total_lessons ?? 0,
-          presenceByDate: {},
-          presences: 0,
+          attendanceByDate: {},
+          paidClasses: 0,
+          grossTotal: 0,
           totalCommission: 0,
         };
 
-      if (appointment.status === "presenca_registrada") {
-        current.presenceByDate[appointmentDate] = (current.presenceByDate[appointmentDate] ?? 0) + 1;
-        current.presences += 1;
+      if (
+        appointment.status === "presenca_registrada" ||
+        appointment.status === "falta"
+      ) {
+        const attendanceLabel =
+          appointment.status === "falta" ? "FALTA" : "PRESENÇA";
+        const attendances = current.attendanceByDate[appointmentDate] ?? [];
+        attendances.push(attendanceLabel);
+        current.attendanceByDate[appointmentDate] = attendances;
+        current.paidClasses += 1;
+        current.grossTotal += grossClassValue;
         current.totalCommission += commissionClassValue;
       }
 
       rows.set(rowKey, current);
     });
 
-  return [...rows.values()];
+  return [...rows.values()].map((row) => ({
+    ...row,
+    // Um paciente renovado pode ter valores diferentes entre os pacotes.
+    // A média mantém a única linha e preserva o total devido no período.
+    grossClassValue: row.paidClasses ? row.grossTotal / row.paidClasses : 0,
+    commissionClassValue: row.paidClasses
+      ? row.totalCommission / row.paidClasses
+      : 0,
+  }));
 }

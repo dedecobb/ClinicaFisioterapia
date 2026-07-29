@@ -39,6 +39,7 @@ const STATUS_LABEL = {
   ativo: "Ativo",
   pausado: "Pausado",
   inadimplente: "Inadimplente",
+  inativo: "Inativo",
   encerrado: "Encerrado",
 } as const;
 
@@ -947,6 +948,7 @@ export const PacientesPage = () => {
         fisioterapeutas={fisioterapeutas}
         patient={editingPatient ?? renewingPatient}
         mode={renewingPatient ? "renew" : editingPatient ? "edit" : "create"}
+        canSetInactiveStatus={isAdmin}
         onClose={closeModal}
         onSubmit={handleSubmitPatient}
       />

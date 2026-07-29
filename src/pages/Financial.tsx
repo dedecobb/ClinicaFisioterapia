@@ -25,9 +25,10 @@ import { useAuth } from "../context/AuthContext";
 import {
   buildCommissionDetailReport,
   buildCommissionReport,
-  isCommissionableAppointment,
 } from "../lib/commission";
 import { supabase } from "../lib/supabase";
+import { atualizarStatusAgendamento } from "./Agenda/Agendamentoservice";
+import { StatusAgendamento } from "./Agenda/types";
 
 type PaymentStatus = "pago" | "pendente" | "parcial" | "inadimplente";
 
@@ -60,6 +61,7 @@ type PackageRow = {
   patients: {
     full_name: string;
     phone: string | null;
+    status: string;
     profiles: { full_name: string } | null;
   } | null;
   package_installments: InstallmentRow[];
@@ -72,8 +74,10 @@ type CommissionAppointment = {
   start_time: string;
   status: string;
   class_price: number | string | null;
+  commission_amount: number | string | null;
   patients: {
     full_name: string;
+    status: string;
     profiles?: { id: string; full_name: string } | null;
   } | null;
   profiles: { id: string; full_name: string } | null;
@@ -105,8 +109,9 @@ type CommissionDetailRow = {
   grossClassValue: number;
   commissionClassValue: number;
   contractedLessons: number;
-  presenceByDate: Record<string, number>;
-  presences: number;
+  attendanceByDate: Record<string, string[]>;
+  paidClasses: number;
+  grossTotal: number;
   totalCommission: number;
 };
 
@@ -123,6 +128,7 @@ type TransactionRow = {
   created_at: string;
   patients: {
     full_name: string;
+    status: string;
     profiles: { full_name: string } | null;
   } | null;
 };
@@ -192,6 +198,16 @@ const transactionStatusLabel: Record<TransactionStatus, string> = {
   pending: "Pendente",
   overdue: "Vencido",
   cancelled: "Cancelado",
+};
+
+const attendanceStatusLabel: Record<StatusAgendamento, string> = {
+  agendada: "Agendada",
+  confirmada: "Confirmada",
+  presenca_registrada: "Presença registrada",
+  ausencia_justificada: "Ausência justificada",
+  falta: "Falta",
+  reposicao: "Reposição",
+  cancelada: "Cancelada",
 };
 
 const expenseCategories = [
@@ -491,12 +507,16 @@ function generateCommissionReportExcel(
   detailRows: CommissionDetailRow[],
   startDate: string,
   endDate: string,
+  mode: "commission" | "admin_production" = "commission",
 ): Blob {
+  const isAdminProduction = mode === "admin_production";
   // Preparar dados para a planilha
   const wsData: unknown[][] = [];
 
   // Título e período
-  wsData.push(["Relatório de Comissão"]);
+  wsData.push([
+    isAdminProduction ? "Relatório de Produção da Administradora" : "Relatório de Comissão",
+  ]);
   wsData.push([`Período: ${startDate} a ${endDate}`]);
   wsData.push([]); // Linha vazia para separação
 
@@ -506,8 +526,8 @@ function generateCommissionReportExcel(
     "Aulas Realizadas",
     "Faltas Pagas",
     "Valor Bruto",
-    "Já Pagou",
-    "A Receber (40%)",
+    isAdminProduction ? "Comissão" : "Já Pagou",
+    isAdminProduction ? "Sem comissão" : "A Receber (40%)",
   ]);
 
   // Dados dos profissionais
@@ -595,12 +615,20 @@ function generateCommissionReportExcel(
   }
 
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Comissões");
+  XLSX.utils.book_append_sheet(
+    wb,
+    ws,
+    isAdminProduction ? "Produção ADM" : "Comissões",
+  );
 
   const dateColumns = listDateRange(startDate, endDate);
   const detailWsData: unknown[][] = [];
 
-  detailWsData.push(["Relatório Detalhado de Comissão"]);
+  detailWsData.push([
+    isAdminProduction
+      ? "Relatório Detalhado de Produção da Administradora"
+      : "Relatório Detalhado de Comissão",
+  ]);
   detailWsData.push([`Período: ${startDate} a ${endDate}`]);
   detailWsData.push([]);
 
@@ -608,12 +636,12 @@ function generateCommissionReportExcel(
     "Paciente",
     "Valor pacote",
     "Valor bruto aula",
-    "Comissão por aula (40%)",
+    isAdminProduction ? "Sem comissão" : "Comissão por aula (40%)",
     "Aulas contratadas",
     ...dateColumns.map(formatShortDate),
-    "Presenças",
+    "Aulas pagas",
     "Valor total aulas",
-    "Comissão total a pagar",
+    isAdminProduction ? "Sem comissão" : "Comissão total a pagar",
   ];
   const firstDateColumn = 5;
   const presencesColumn = firstDateColumn + dateColumns.length;
@@ -653,10 +681,10 @@ function generateCommissionReportExcel(
             row.commissionClassValue,
             row.contractedLessons,
             ...dateColumns.map((date) =>
-              row.presenceByDate[date] ? "PRESENÇA" : "",
-            ),
-            row.presences,
-            row.presences * row.grossClassValue,
+            row.attendanceByDate[date]?.join(" / ") ?? "",
+          ),
+            row.paidClasses,
+            row.grossTotal,
             row.totalCommission,
           ]);
       });
@@ -674,9 +702,9 @@ function generateCommissionReportExcel(
         "",
         "",
         ...dateColumns.map(() => ""),
-        professionalRows.reduce((total, row) => total + row.presences, 0),
+        professionalRows.reduce((total, row) => total + row.paidClasses, 0),
         professionalRows.reduce(
-          (total, row) => total + row.presences * row.grossClassValue,
+          (total, row) => total + row.grossTotal,
           0,
         ),
         professionalRows.reduce(
@@ -694,9 +722,9 @@ function generateCommissionReportExcel(
     "",
     "",
     ...dateColumns.map(() => ""),
-    detailRows.reduce((total, row) => total + row.presences, 0),
+    detailRows.reduce((total, row) => total + row.paidClasses, 0),
     detailRows.reduce(
-      (total, row) => total + row.presences * row.grossClassValue,
+      (total, row) => total + row.grossTotal,
       0,
     ),
     detailRows.reduce((total, row) => total + row.totalCommission, 0),
@@ -710,33 +738,23 @@ function generateCommissionReportExcel(
     const startDateCell = `${columnName(firstDateColumn)}${row}`;
     const endDateCell = `${columnName(presencesColumn - 1)}${row}`;
     const presencesCell = `${columnName(presencesColumn)}${row}`;
-    const packageAmountCell = `${columnName(1)}${row}`;
     const grossClassValueCell = `${columnName(2)}${row}`;
     const commissionClassValueCell = `${columnName(3)}${row}`;
-    const contractedLessonsCell = `${columnName(4)}${row}`;
     const totalClassesCell = `${columnName(totalClassesColumn)}${row}`;
     const totalCommissionCell = `${columnName(totalCommissionColumn)}${row}`;
 
-    detailWs[grossClassValueCell] = {
-      f: `IFERROR(${packageAmountCell}/${contractedLessonsCell},0)`,
-      t: "n",
-    };
-    detailWs[commissionClassValueCell] = {
-      f: `${grossClassValueCell}*40%`,
-      t: "n",
-    };
+    // PRESENÇA e FALTA contam como aulas pagas na fórmula da planilha.
     detailWs[presencesCell] = {
-      f: `COUNTIF(${startDateCell}:${endDateCell},"PRESENÇA")`,
+      f: `COUNTIF(${startDateCell}:${endDateCell},"*PRESENÇA*")+COUNTIF(${startDateCell}:${endDateCell},"*FALTA*")`,
       t: "n",
     };
     detailWs[totalClassesCell] = {
       f: `${presencesCell}*${grossClassValueCell}`,
       t: "n",
     };
-    detailWs[totalCommissionCell] = {
-      f: `${presencesCell}*${commissionClassValueCell}`,
-      t: "n",
-    };
+    detailWs[totalCommissionCell] = isAdminProduction
+      ? { v: 0, t: "n" }
+      : { f: `${presencesCell}*${commissionClassValueCell}`, t: "n" };
   });
 
   professionalTotalRows.forEach(
@@ -889,6 +907,7 @@ export const Financial = () => {
   const commissionSectionRef = useRef<HTMLDivElement | null>(null);
   const expenseSectionRef = useRef<HTMLDivElement | null>(null);
   const isPhysio = profile?.role === "physio";
+  const isAdmin = profile?.role === "admin";
   const hasPatientSearch = Boolean(normalizeSearchText(patientSearchTerm));
 
   const scrollToExpense = () => {
@@ -926,6 +945,11 @@ export const Financial = () => {
     };
   };
 
+  const selectedCommissionPeriod = useMemo(
+    () => getSelectedCommissionPeriod(),
+    [reportEndDate, reportStartDate],
+  );
+
   const commissionPeriodLabel = useMemo(() => {
     const defaultPeriod = getDefaultCommissionPeriod();
     const startDate = reportStartDate || defaultPeriod.startDate;
@@ -947,7 +971,7 @@ export const Financial = () => {
     const endExclusive = addDays(parseDateInput(endDate), 1);
     endExclusive.setHours(0, 0, 0, 0);
 
-    let appointmentsQuery = supabase
+    const appointmentsQuery = supabase
       .from("appointments")
       .select(
         `
@@ -957,8 +981,10 @@ export const Financial = () => {
           start_time,
           status,
           class_price,
+          commission_amount,
           patients (
             full_name,
+            status,
             profiles!patients_responsible_professional_id_fkey (id, full_name)
           ),
           profiles (id, full_name),
@@ -988,10 +1014,15 @@ export const Financial = () => {
       profile.role === "physio"
         ? fetchedAppointments.filter(
             (appointment) =>
-              getAppointmentResponsibleProfessional(appointment).id ===
-              profile.id,
+              appointment.patients?.status !== undefined &&
+              appointment.patients.status !== "inativo" &&
+              getAppointmentResponsibleProfessional(appointment).id === profile.id,
           )
-        : fetchedAppointments;
+        : fetchedAppointments.filter(
+            (appointment) =>
+              appointment.patients?.status !== undefined &&
+              appointment.patients.status !== "inativo",
+          );
 
     setAppointments(appointmentsToSet);
     return appointmentsResult;
@@ -1032,6 +1063,31 @@ export const Financial = () => {
     document.body.removeChild(link);
   };
 
+  const downloadAdminProductionExcel = () => {
+    if (!adminProductionReport.length && !adminProductionDetailReport.length) {
+      alert("Nenhum atendimento da administradora encontrado no período.");
+      return;
+    }
+
+    const blob = generateCommissionReportExcel(
+      adminProductionReport,
+      adminProductionDetailReport,
+      selectedCommissionPeriod.startDate,
+      selectedCommissionPeriod.endDate,
+      "admin_production",
+    );
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+
+    link.href = url;
+    link.download = `producao_administradora_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const loadFinancialData = async () => {
     if (!profile?.clinic_id) {
       setLoading(false);
@@ -1068,6 +1124,7 @@ export const Financial = () => {
             patients (
               full_name,
               phone,
+              status,
               profiles!patients_responsible_professional_id_fkey (full_name)
             ),
             package_installments (
@@ -1101,6 +1158,7 @@ export const Financial = () => {
             created_at,
             patients (
               full_name,
+              status,
               profiles!patients_responsible_professional_id_fkey (full_name)
             )
           `,
@@ -1131,6 +1189,7 @@ export const Financial = () => {
             created_at,
             patients (
               full_name,
+              status,
               profiles!patients_responsible_professional_id_fkey (full_name)
             )
           `,
@@ -1154,8 +1213,22 @@ export const Financial = () => {
 
     setOwnerId((clinicResult.data as { owner_id: string | null }).owner_id);
     setPackages((packagesResult.data ?? []) as unknown as PackageRow[]);
+    const loadedAppointments =
+      (appointmentsResult?.data ?? []) as unknown as CommissionAppointment[];
     setAppointments(
-      (appointmentsResult?.data ?? []) as unknown as CommissionAppointment[],
+      loadedAppointments.filter((appointment) => {
+        if (
+          appointment.patients?.status === undefined ||
+          appointment.patients.status === "inativo"
+        ) {
+          return false;
+        }
+
+        return (
+          profile.role !== "physio" ||
+          getAppointmentResponsibleProfessional(appointment).id === profile.id
+        );
+      }),
     );
     setTransactions(
       (finalTransactionsResult.data ?? []) as unknown as TransactionRow[],
@@ -1174,22 +1247,34 @@ export const Financial = () => {
 
   const filteredAppointments = useMemo(
     () =>
-      appointments.filter((appointment) =>
-        matchesPatientSearch(appointment.patients?.full_name, patientSearchTerm),
+      appointments.filter(
+        (appointment) =>
+          appointment.patients?.status !== undefined &&
+          appointment.patients.status !== "inativo" &&
+          matchesPatientSearch(appointment.patients?.full_name, patientSearchTerm),
       ),
     [appointments, patientSearchTerm],
   );
 
   const filteredPackages = useMemo(
     () =>
-      packages.filter((packageItem) =>
-        matchesPatientSearch(packageItem.patients?.full_name, patientSearchTerm),
+      packages.filter(
+        (packageItem) =>
+          packageItem.patients?.status !== undefined &&
+          packageItem.patients.status !== "inativo" &&
+          matchesPatientSearch(packageItem.patients?.full_name, patientSearchTerm),
       ),
     [packages, patientSearchTerm],
   );
 
   const visibleTransactions = useMemo(
-    () => dedupeProcedureTransactions(transactions),
+    () =>
+      dedupeProcedureTransactions(transactions).filter(
+        (transaction) =>
+          !transaction.patient_id ||
+          (transaction.patients?.status !== undefined &&
+            transaction.patients.status !== "inativo"),
+      ),
     [transactions],
   );
 
@@ -1299,10 +1384,10 @@ export const Financial = () => {
       buildCommissionReport(
         filteredAppointments,
         ownerId,
-        reportStartDate,
-        reportEndDate,
+        selectedCommissionPeriod.startDate,
+        selectedCommissionPeriod.endDate,
       ),
-    [filteredAppointments, ownerId, reportStartDate, reportEndDate],
+    [filteredAppointments, ownerId, selectedCommissionPeriod],
   );
 
   const commissionReport = useMemo(
@@ -1316,6 +1401,8 @@ export const Financial = () => {
                   transaction.type === "expense" &&
                   transaction.status === "paid" &&
                   transaction.category === "Comissão fisioterapeuta" &&
+                  transaction.due_date >= selectedCommissionPeriod.startDate &&
+                  transaction.due_date <= selectedCommissionPeriod.endDate &&
                   (transaction.description?.includes(item.professionalId) ||
                     transaction.description?.includes(item.professionalName)),
               )
@@ -1333,18 +1420,64 @@ export const Financial = () => {
           ),
         };
       }),
-    [hasPatientSearch, rawCommissionReport, transactions],
+    [
+      hasPatientSearch,
+      rawCommissionReport,
+      selectedCommissionPeriod,
+      transactions,
+    ],
   );
 
   const commissionDetailReport = useMemo(() => {
-    const defaultPeriod = getDefaultCommissionPeriod();
     return buildCommissionDetailReport(
       filteredAppointments,
       ownerId,
-      reportStartDate || defaultPeriod.startDate,
-      reportEndDate || defaultPeriod.endDate,
+      selectedCommissionPeriod.startDate,
+      selectedCommissionPeriod.endDate,
     );
-  }, [filteredAppointments, ownerId, reportStartDate, reportEndDate]);
+  }, [filteredAppointments, ownerId, selectedCommissionPeriod]);
+
+  const adminProductionAppointments = useMemo(
+    () =>
+      isAdmin && profile
+        ? filteredAppointments.filter(
+            (appointment) =>
+              getAppointmentResponsibleProfessional(appointment).id ===
+              profile.id,
+          )
+        : [],
+    [filteredAppointments, isAdmin, profile],
+  );
+
+  const adminProductionReport = useMemo(
+    () =>
+      buildCommissionReport(
+        adminProductionAppointments,
+        null,
+        selectedCommissionPeriod.startDate,
+        selectedCommissionPeriod.endDate,
+      ).map((item) => ({
+        ...item,
+        commissionPaid: 0,
+        professionalShare: 0,
+      })),
+    [adminProductionAppointments, selectedCommissionPeriod],
+  );
+
+  const adminProductionDetailReport = useMemo(
+    () =>
+      buildCommissionDetailReport(
+        adminProductionAppointments,
+        null,
+        selectedCommissionPeriod.startDate,
+        selectedCommissionPeriod.endDate,
+      ).map((item) => ({
+        ...item,
+        commissionClassValue: 0,
+        totalCommission: 0,
+      })),
+    [adminProductionAppointments, selectedCommissionPeriod],
+  );
 
   const totals = useMemo(() => {
     const standaloneProcedures = filteredVisibleTransactions.filter(
@@ -1712,6 +1845,33 @@ export const Financial = () => {
     await loadFinancialData();
   };
 
+  const handleAdminAttendanceChange = async (
+    appointmentId: string,
+    status: StatusAgendamento,
+  ) => {
+    if (!isAdmin) return;
+
+    setSaving(true);
+    setError(null);
+
+    try {
+      await atualizarStatusAgendamento(appointmentId, status);
+      setAppointments((current) =>
+        current.map((appointment) =>
+          appointment.id === appointmentId ? { ...appointment, status } : appointment,
+        ),
+      );
+    } catch (updateError) {
+      setError(
+        updateError instanceof Error
+          ? updateError.message
+          : "Erro ao atualizar presença.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleRegisterExpense = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!profile?.clinic_id) return;
@@ -2008,7 +2168,7 @@ export const Financial = () => {
               </>
             )}
             <FinancialCard
-              label={isPhysio ? "Minha produção" : "Comissão a pagar"}
+              label={isPhysio ? "A receber" : "Comissão a pagar"}
               value={totals.professionalShare}
               icon={UserCheck}
             />
@@ -2699,6 +2859,89 @@ export const Financial = () => {
             </div>
           </Card>
           </div>
+          {isAdmin && (
+            <Card className="p-0 overflow-hidden">
+              <div className="flex flex-col gap-4 border-b border-slate-100 p-6 dark:border-slate-800 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+                    Produção da fisioterapeuta administradora
+                  </h3>
+                  <p className="text-sm text-slate-500">
+                    Planilha exclusiva da ADM. Registre ou corrija a presença de cada atendimento abaixo; não há comissão a pagar para estas aulas.
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={downloadAdminProductionExcel}
+                >
+                  Exportar planilha ADM
+                </Button>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="bg-slate-50 text-xs font-bold uppercase tracking-wider text-slate-500 dark:bg-slate-900/50">
+                      <th className="px-6 py-4">Data</th>
+                      <th className="px-6 py-4">Horário</th>
+                      <th className="px-6 py-4">Paciente</th>
+                      <th className="px-6 py-4">Status de presença</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {adminProductionAppointments.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="px-6 py-10 text-center text-sm text-slate-500">
+                          Nenhum atendimento da administradora encontrado neste período.
+                        </td>
+                      </tr>
+                    ) : (
+                      adminProductionAppointments
+                        .slice()
+                        .sort((a, b) => a.start_time.localeCompare(b.start_time))
+                        .map((appointment) => (
+                          <tr key={appointment.id}>
+                            <td className="px-6 py-4 text-sm text-slate-500">
+                              {formatDate(appointment.start_time.slice(0, 10))}
+                            </td>
+                            <td className="px-6 py-4 text-sm text-slate-500">
+                              {new Intl.DateTimeFormat("pt-BR", {
+                                timeZone: "America/Sao_Paulo",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              }).format(new Date(appointment.start_time))}
+                            </td>
+                            <td className="px-6 py-4 text-sm font-semibold text-slate-900 dark:text-white">
+                              {appointment.patients?.full_name ?? "Paciente não informado"}
+                            </td>
+                            <td className="px-6 py-4">
+                              <select
+                                className="min-h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500 dark:border-slate-800 dark:bg-slate-900"
+                                value={appointment.status as StatusAgendamento}
+                                disabled={saving}
+                                onChange={(event) =>
+                                  handleAdminAttendanceChange(
+                                    appointment.id,
+                                    event.target.value as StatusAgendamento,
+                                  )
+                                }
+                              >
+                                {Object.entries(attendanceStatusLabel).map(
+                                  ([value, label]) => (
+                                    <option key={value} value={value}>
+                                      {label}
+                                    </option>
+                                  ),
+                                )}
+                              </select>
+                            </td>
+                          </tr>
+                        ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
           {!isPhysio && (
             <Card className="p-0 overflow-hidden">
               <div className="p-6 border-b border-slate-100 dark:border-slate-800">

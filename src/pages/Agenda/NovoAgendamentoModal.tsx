@@ -55,6 +55,8 @@ const formVazio: NovoAgendamentoForm = {
   totalSessoes: 8,
   pacoteId: undefined,
   valorAula: undefined,
+  valorComissao: undefined,
+  manualCorrection: false,
 };
 
 function addMinutesToTime(time: string, minutes: number): string {
@@ -109,6 +111,9 @@ function applyPatientPackage(
       sessaoNumero: 1,
       totalSessoes: totalProcedureCredits,
       valorAula: Number(primaryProcedure?.agreed_value) || undefined,
+      valorComissao: Number(primaryProcedure?.agreed_value)
+        ? Number(primaryProcedure.agreed_value) * 0.4
+        : undefined,
       observacoes:
         current.observacoes ||
         (primaryProcedure
@@ -135,6 +140,7 @@ function applyPatientPackage(
     totalSessoes: pacote.totalAulas,
     pacoteId: pacote.id,
     valorAula: pacote.valorAula,
+    valorComissao: pacote.valorAula ? pacote.valorAula * 0.4 : undefined,
     observacoes: current.observacoes || `Pacote ativo: sessão ${getNextSessionNumber(patient)}/${pacote.totalAulas}.`,
   };
 }
@@ -152,6 +158,10 @@ export const NovoAgendamentoModal: React.FC<Props> = ({
 }) => {
   const [form, setForm] = useState<NovoAgendamentoForm>(formVazio);
   const selectedPatient = pacientes.find((p) => p.id === form.pacienteId);
+  const selectedProfessional = fisioterapeutas.find(
+    (professional) => professional.id === form.fisioterapeutaId,
+  );
+  const isCommissionedPhysio = selectedProfessional?.role === "physio";
   const tipoOptions = selectedPatient?.pacoteAtivo
     ? ["Pilates"]
     : (selectedPatient?.procedimentos ?? [])
@@ -184,6 +194,10 @@ export const NovoAgendamentoModal: React.FC<Props> = ({
         totalSessoes,
         pacoteId: agendamento.pacoteId,
         valorAula: agendamento.valorAula,
+        valorComissao:
+          agendamento.valorComissao ??
+          (agendamento.valorAula ? agendamento.valorAula * 0.4 : undefined),
+        manualCorrection: agendamento.manualCorrection ?? false,
       });
     } else {
       const initialPatient = pacientes.find((p) => p.id === pacienteInicialId);
@@ -229,6 +243,7 @@ export const NovoAgendamentoModal: React.FC<Props> = ({
         {
           ...current,
           pacienteId: patientId,
+          manualCorrection: false,
           observacoes: "",
         },
         patient,
@@ -247,6 +262,9 @@ export const NovoAgendamentoModal: React.FC<Props> = ({
       valorAula: procedure
         ? Number(procedure.agreed_value) || undefined
         : current.valorAula,
+      valorComissao: procedure
+        ? Number(procedure.agreed_value) * 0.4 || undefined
+        : current.valorComissao,
       totalSessoes: procedure
         ? Number(procedure.quantity) || 1
         : current.totalSessoes,
@@ -334,6 +352,49 @@ export const NovoAgendamentoModal: React.FC<Props> = ({
               </div>
             )}
 
+            {!agendamento && selectedPatient?.pacoteAtivo && (
+              <label className="session-credit-box flex cursor-pointer items-start gap-3">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={form.manualCorrection ?? false}
+                  onChange={(event) =>
+                    setForm((current) => {
+                      if (!event.target.checked) {
+                        return applyPatientPackage(
+                          { ...current, manualCorrection: false },
+                          selectedPatient,
+                        );
+                      }
+
+                      const classValue =
+                        current.valorAula ?? selectedPatient.pacoteAtivo?.valorAula;
+                      return {
+                        ...current,
+                        manualCorrection: true,
+                        pacoteId: undefined,
+                        sessaoNumero: 1,
+                        totalSessoes: 1,
+                        valorAula: classValue,
+                        valorComissao:
+                          current.valorComissao ??
+                          (classValue ? classValue * 0.4 : undefined),
+                        observacoes:
+                          current.observacoes ||
+                          "Atendimento avulso para correção de aula não registrada.",
+                      };
+                    })
+                  }
+                />
+                <span>
+                  <strong>Atendimento avulso de correção</strong>
+                  <span className="block">
+                    Não altera nem consome aulas do pacote e não gera nova cobrança.
+                  </span>
+                </span>
+              </label>
+            )}
+
             <div className="session-credit-box session-rule-box">
               <strong>Sessões de 1 hora</strong>
               <span>
@@ -344,7 +405,7 @@ export const NovoAgendamentoModal: React.FC<Props> = ({
 
             {/* Fisioterapeuta */}
             <div className="form-group">
-              <label className="form-label">Fisioterapeuta *</label>
+              <label className="form-label">Fisioterapeuta responsável por esta aula *</label>
               <select
                 className="form-select"
                 value={form.fisioterapeutaId}
@@ -445,7 +506,7 @@ export const NovoAgendamentoModal: React.FC<Props> = ({
             </div>
 
             <div className="form-group">
-              <label className="form-label">Valor do atendimento</label>
+              <label className="form-label">Valor bruto da aula</label>
               <input
                 type="number"
                 min={0}
@@ -460,6 +521,28 @@ export const NovoAgendamentoModal: React.FC<Props> = ({
                 }
               />
             </div>
+
+            {isCommissionedPhysio && (
+              <div className="form-group">
+                <label className="form-label">Valor a receber pela fisioterapeuta</label>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  className="form-input"
+                  value={form.valorComissao ?? ""}
+                  onChange={(e) =>
+                    campo(
+                      "valorComissao",
+                      e.target.value ? Number(e.target.value) : undefined,
+                    )
+                  }
+                />
+                <span className="form-help">
+                  Comissão desta aula específica. Sugestão padrão: 40% do valor bruto.
+                </span>
+              </div>
+            )}
 
             {/* Observações */}
             <div className="form-group">

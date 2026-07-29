@@ -74,6 +74,7 @@ type AppointmentDB = {
   package_id: string | null;
   package_lesson_number: number | null;
   class_price: number | string | null;
+  commission_amount: number | string | null;
   patients: PatientDB | null;
   profiles: ProfessionalDB | null;
   lesson_packages: {
@@ -202,24 +203,31 @@ function toMonthBoundary(year: number, month: number): string {
 }
 
 function normalizePackageNotes(db: AppointmentDB): string | null {
+  const notes =
+    db.notes?.replace(/\[CORREÇÃO AVULSA\]\s*/g, "").trim() || null;
+
   if (
     !db.package_id ||
     !db.package_lesson_number ||
     !db.lesson_packages?.total_lessons ||
-    !db.notes
+    !notes
   ) {
-    return db.notes;
+    return notes;
   }
 
-  if (/^Aula \d+\/\d+ do pacote\.$/.test(db.notes)) {
+  if (/^Aula \d+\/\d+ do pacote\.$/.test(notes)) {
     return `Aula ${db.package_lesson_number}/${db.lesson_packages.total_lessons} do pacote.`;
   }
 
-  if (/^Renovação: aula \d+\/\d+ do novo pacote\.$/.test(db.notes)) {
+  if (/^Renovação: aula \d+\/\d+ do novo pacote\.$/.test(notes)) {
     return `Renovação: aula ${db.package_lesson_number}/${db.lesson_packages.total_lessons} do novo pacote.`;
   }
 
-  return db.notes;
+  return notes;
+}
+
+function isManualCorrection(notes: string | null | undefined): boolean {
+  return notes?.includes("[CORREÇÃO AVULSA]") ?? false;
 }
 
 function toTipoSessao(value: string): TipoSessao {
@@ -439,6 +447,7 @@ function toFisioterapeuta(
     nome: db.full_name,
     especialidade: db.role === "physio" ? "Fisioterapia" : db.role ?? "",
     cor: PROFESSIONAL_COLORS[index % PROFESSIONAL_COLORS.length],
+    role: db.role,
   };
 }
 
@@ -484,6 +493,8 @@ function toAgendamento(db: AppointmentDB): Agendamento {
     sessaoNumero: db.package_lesson_number ?? undefined,
     totalSessoes: db.lesson_packages?.total_lessons,
     valorAula: Number(db.class_price) || undefined,
+    valorComissao: Number(db.commission_amount) || undefined,
+    manualCorrection: isManualCorrection(db.notes),
     procedimentos: (() => {
       const procedure = standaloneProcedure ?? syntheticStandaloneProcedure;
       return procedure ? [procedure] : allProcedures;
@@ -579,6 +590,7 @@ export async function getAgendamentos(): Promise<Agendamento[]> {
       package_id,
       package_lesson_number,
       class_price,
+      commission_amount,
       patients (id, full_name, phone, email, birth_date, procedures),
       profiles (id, full_name, role),
       lesson_packages (total_lessons, procedure_credits)
@@ -616,6 +628,7 @@ export async function getAgendamentosPorMes(
       package_id,
       package_lesson_number,
       class_price,
+      commission_amount,
       patients (id, full_name, phone, email, birth_date, procedures),
       profiles (id, full_name, role),
       lesson_packages (total_lessons, procedure_credits)
@@ -658,10 +671,16 @@ export async function criarAgendamento(
       end_time: endTime,
       type: normalizedForm.tipoSessao,
       status: statusToDb[normalizedForm.status],
-      notes: normalizedForm.observacoes || null,
+      notes: [
+        normalizedForm.manualCorrection ? "[CORREÇÃO AVULSA]" : "",
+        normalizedForm.observacoes,
+      ]
+        .filter(Boolean)
+        .join("\n") || null,
       package_id: normalizedForm.pacoteId || null,
       package_lesson_number: normalizedForm.sessaoNumero || null,
       class_price: normalizedForm.valorAula || 0,
+      commission_amount: normalizedForm.valorComissao || 0,
     })
     .select(
       `
@@ -676,6 +695,7 @@ export async function criarAgendamento(
       package_id,
       package_lesson_number,
       class_price,
+      commission_amount,
       patients (id, full_name, phone, email, birth_date, procedures),
       profiles (id, full_name, role),
       lesson_packages (total_lessons, procedure_credits)
@@ -691,7 +711,7 @@ export async function criarAgendamento(
 
   if (normalizedForm.pacoteId) {
     await atualizarResumoPacote(normalizedForm.pacoteId);
-  } else {
+  } else if (!normalizedForm.manualCorrection) {
     await syncStandaloneProcedureReceivable(createdAppointment.id, {
       clinic_id: clinicId,
       patient_id: normalizedForm.pacienteId,
@@ -738,7 +758,11 @@ export async function atualizarAgendamento(
   const remarcacaoNote = changedSchedule
     ? `Remarcação: de ${formatDateBr(toDate(oldStart))} ${toTime(oldStart)}-${toTime(oldEnd)} para ${formatDateBr(normalizedForm.data)} ${normalizedForm.horaInicio}-${normalizedForm.horaFim}.`
     : "";
-  const notes = [normalizedForm.observacoes || oldNotes || "", remarcacaoNote]
+  const notes = [
+    normalizedForm.manualCorrection ? "[CORREÇÃO AVULSA]" : "",
+    normalizedForm.observacoes || oldNotes || "",
+    remarcacaoNote,
+  ]
     .filter(Boolean)
     .join("\n");
 
@@ -755,6 +779,7 @@ export async function atualizarAgendamento(
       package_id: normalizedForm.pacoteId || null,
       package_lesson_number: normalizedForm.sessaoNumero || null,
       class_price: normalizedForm.valorAula || 0,
+      commission_amount: normalizedForm.valorComissao || 0,
     })
     .eq("id", id)
     .select(
@@ -770,6 +795,7 @@ export async function atualizarAgendamento(
       package_id,
       package_lesson_number,
       class_price,
+      commission_amount,
       patients (id, full_name, phone, email, birth_date, procedures),
       profiles (id, full_name, role),
       lesson_packages (total_lessons, procedure_credits)
@@ -784,7 +810,7 @@ export async function atualizarAgendamento(
   if (normalizedForm.pacoteId) {
     await atualizarResumoPacote(normalizedForm.pacoteId);
     await deletePendingProcedureReceivable(id);
-  } else {
+  } else if (!normalizedForm.manualCorrection) {
     await syncStandaloneProcedureReceivable(id, {
       clinic_id: clinicId,
       patient_id: normalizedForm.pacienteId,
@@ -824,6 +850,7 @@ export async function atualizarStatusAgendamento(
       type,
       package_id,
       class_price,
+      notes,
       patients (full_name)
     `,
     )
@@ -881,7 +908,7 @@ export async function atualizarStatusAgendamento(
 
   if (packageId) {
     await atualizarResumoPacote(packageId);
-  } else {
+  } else if (!isManualCorrection((appointment as { notes?: string | null }).notes)) {
     await syncStandaloneProcedureReceivable(id, {
       ...(appointment as unknown as Omit<AppointmentFinanceDB, "status">),
       status: statusToDb[finalStatus],

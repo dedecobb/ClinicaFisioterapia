@@ -59,6 +59,7 @@ export interface Fisioterapeuta {
   nome: string;
   especialidade: string;
   cor: string; // hex color for calendar identification
+  role?: "admin" | "physio" | "receptionist" | null;
 }
 
 export interface Agendamento {
@@ -77,6 +78,8 @@ export interface Agendamento {
   totalSessoes?: number;
   pacoteId?: string;
   valorAula?: number;
+  valorComissao?: number;
+  manualCorrection?: boolean;
   procedimentos?: PatientProcedure[];
 }
 
@@ -99,4 +102,6 @@ export interface NovoAgendamentoForm {
   totalSessoes: number;
   pacoteId?: string;
   valorAula?: number;
+  valorComissao?: number;
+  manualCorrection?: boolean;
 }

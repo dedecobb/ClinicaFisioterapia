@@ -1,4 +1,9 @@
-export type PatientStatus = "ativo" | "pausado" | "inadimplente" | "encerrado";
+export type PatientStatus =
+  | "ativo"
+  | "pausado"
+  | "inadimplente"
+  | "inativo"
+  | "encerrado";
 
 export type PaymentStatus = "pago" | "pendente" | "parcial" | "inadimplente";
 
@@ -88,6 +93,8 @@ export interface Patient {
   cpf: string | null;
   email: string | null;
   phone: string | null;
+  emergency_contact_name: string | null;
+  emergency_contact_phone: string | null;
   birth_date: string | null;
   gender: string | null;
   quick_note: string | null;
@@ -108,6 +115,8 @@ export interface NewPatientForm {
   cpf: string;
   email: string;
   phone: string;
+  emergency_contact_name: string;
+  emergency_contact_phone: string;
   birth_date: string;
   gender: string;
   quick_note: string;
