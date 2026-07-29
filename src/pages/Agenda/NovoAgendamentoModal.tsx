@@ -92,6 +92,10 @@ function getPrimaryProcedure(patient: Paciente | undefined) {
   return patient?.procedimentos?.[0];
 }
 
+function roundCurrency(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
 function applyPatientPackage(
   current: NovoAgendamentoForm,
   patient: Paciente | undefined,
@@ -112,7 +116,7 @@ function applyPatientPackage(
       totalSessoes: totalProcedureCredits,
       valorAula: Number(primaryProcedure?.agreed_value) || undefined,
       valorComissao: Number(primaryProcedure?.agreed_value)
-        ? Number(primaryProcedure.agreed_value) * 0.4
+        ? roundCurrency(Number(primaryProcedure.agreed_value) * 0.4)
         : undefined,
       observacoes:
         current.observacoes ||
@@ -140,7 +144,9 @@ function applyPatientPackage(
     totalSessoes: pacote.totalAulas,
     pacoteId: pacote.id,
     valorAula: pacote.valorAula,
-    valorComissao: pacote.valorAula ? pacote.valorAula * 0.4 : undefined,
+    valorComissao: pacote.valorAula
+      ? roundCurrency(pacote.valorAula * 0.4)
+      : undefined,
     observacoes: current.observacoes || `Pacote ativo: sessão ${getNextSessionNumber(patient)}/${pacote.totalAulas}.`,
   };
 }
@@ -195,8 +201,11 @@ export const NovoAgendamentoModal: React.FC<Props> = ({
         pacoteId: agendamento.pacoteId,
         valorAula: agendamento.valorAula,
         valorComissao:
-          agendamento.valorComissao ??
-          (agendamento.valorAula ? agendamento.valorAula * 0.4 : undefined),
+          agendamento.valorComissao !== undefined
+            ? roundCurrency(agendamento.valorComissao)
+            : agendamento.valorAula
+              ? roundCurrency(agendamento.valorAula * 0.4)
+              : undefined,
         manualCorrection: agendamento.manualCorrection ?? false,
       });
     } else {
@@ -263,7 +272,7 @@ export const NovoAgendamentoModal: React.FC<Props> = ({
         ? Number(procedure.agreed_value) || undefined
         : current.valorAula,
       valorComissao: procedure
-        ? Number(procedure.agreed_value) * 0.4 || undefined
+        ? roundCurrency(Number(procedure.agreed_value) * 0.4) || undefined
         : current.valorComissao,
       totalSessoes: procedure
         ? Number(procedure.quantity) || 1
@@ -534,7 +543,9 @@ export const NovoAgendamentoModal: React.FC<Props> = ({
                   onChange={(e) =>
                     campo(
                       "valorComissao",
-                      e.target.value ? Number(e.target.value) : undefined,
+                      e.target.value
+                        ? roundCurrency(Number(e.target.value))
+                        : undefined,
                     )
                   }
                 />

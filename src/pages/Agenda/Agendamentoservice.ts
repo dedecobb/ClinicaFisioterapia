@@ -191,6 +191,14 @@ function normalizeSessionForm(form: NovoAgendamentoForm): NovoAgendamentoForm {
   return {
     ...form,
     horaFim: addMinutesToTime(form.horaInicio, SESSION_DURATION_MINUTES),
+    valorAula:
+      form.valorAula === undefined
+        ? undefined
+        : Math.round((form.valorAula + Number.EPSILON) * 100) / 100,
+    valorComissao:
+      form.valorComissao === undefined
+        ? undefined
+        : Math.round((form.valorComissao + Number.EPSILON) * 100) / 100,
   };
 }
 
