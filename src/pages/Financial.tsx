@@ -1449,7 +1449,10 @@ export const Financial = () => {
 
   const filteredHistoryTransactions = useMemo(
     () =>
-      filteredVisibleTransactions.filter((transaction) => {
+      transactions.filter((transaction) => {
+        if (!matchesPatientSearch(transaction.patients?.full_name, patientSearchTerm)) {
+          return false;
+        }
         if (historyStartDate && transaction.due_date < historyStartDate) {
           return false;
         }
@@ -1460,7 +1463,7 @@ export const Financial = () => {
 
         return true;
       }),
-    [filteredVisibleTransactions, historyEndDate, historyStartDate],
+    [historyEndDate, historyStartDate, patientSearchTerm, transactions],
   );
 
   const expenseTransactions = useMemo(
@@ -2162,6 +2165,32 @@ export const Financial = () => {
     await loadFinancialData();
   };
 
+  const handleDeleteTransaction = async (transaction: TransactionRow) => {
+    if (!isAdmin || !profile?.clinic_id) return;
+
+    const confirmed = window.confirm(
+      `Excluir o lançamento "${transaction.category}" no valor de ${currencyFormatter.format(money(transaction.amount))}? Esta ação não pode ser desfeita.`,
+    );
+    if (!confirmed) return;
+
+    setSaving(true);
+    setError(null);
+    const { error: deleteError } = await supabase
+      .from("transactions")
+      .delete()
+      .eq("id", transaction.id)
+      .eq("clinic_id", profile.clinic_id);
+
+    if (deleteError) {
+      setError(deleteError.message);
+      setSaving(false);
+      return;
+    }
+
+    setSaving(false);
+    await loadFinancialData();
+  };
+
   const printReceipt = (
     packageItem: PackageRow,
     installment?: InstallmentRow,
@@ -2465,6 +2494,18 @@ export const Financial = () => {
                                   }
                                 >
                                   <Receipt size={14} />
+                                </Button>
+                              )}
+                              {isAdmin && row.kind === "procedure" && (
+                                <Button
+                                  size="sm"
+                                  variant="danger"
+                                  onClick={() => handleDeleteTransaction(row.transaction)}
+                                  disabled={saving}
+                                  title="Excluir recebível"
+                                >
+                                  <Trash2 size={14} />
+                                  Excluir
                                 </Button>
                               )}
                             </div>
@@ -3070,13 +3111,14 @@ export const Financial = () => {
                       <th className="px-6 py-4">Descrição</th>
                       <th className="px-6 py-4">Documento</th>
                       <th className="px-6 py-4">Valor</th>
+                      {isAdmin && <th className="px-6 py-4">Ações</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {filteredHistoryTransactions.length === 0 ? (
                       <tr>
                         <td
-                          colSpan={6}
+                          colSpan={isAdmin ? 8 : 7}
                           className="px-6 py-10 text-center text-sm text-slate-500"
                         >
                           Nenhum lançamento encontrado neste período.
@@ -3145,6 +3187,19 @@ export const Financial = () => {
                               money(transaction.amount),
                             )}
                           </td>
+                          {isAdmin && (
+                            <td className="px-6 py-4" data-label="Ações">
+                              <Button
+                                size="sm"
+                                variant="danger"
+                                onClick={() => handleDeleteTransaction(transaction)}
+                                disabled={saving}
+                              >
+                                <Trash2 size={14} />
+                                Excluir
+                              </Button>
+                            </td>
+                          )}
                         </tr>
                       ))
                     )}
