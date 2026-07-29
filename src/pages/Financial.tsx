@@ -1958,16 +1958,16 @@ export const Financial = () => {
 
     const { error: transactionError } = await supabase
       .from("transactions")
-      .insert({
-        clinic_id: profile?.clinic_id,
-        patient_id: paymentTarget.packageItem.patient_id,
-        amount,
-        type: "income",
-        category: "Recebimento de pacote",
-        status: "paid",
-        description: `Recebimento de ${paymentTarget.packageItem.patients?.full_name ?? "paciente"} - pacote ${paymentTarget.packageItem.total_lessons} aulas e procedimentos (${paymentMethod})`,
-        due_date: todayDate(),
-      });
+          .insert({
+            clinic_id: profile?.clinic_id,
+            patient_id: paymentTarget.packageItem.patient_id,
+            amount,
+            type: "income",
+            category: "Recebimento de pacote",
+            status: "paid",
+            description: `Recebimento de ${paymentTarget.packageItem.patients?.full_name ?? "paciente"} - pacote · parcela #${paymentTarget.installment.installment_number} (${paymentMethod})`,
+            due_date: todayDate(),
+          });
 
     if (transactionError) {
       setError(transactionError.message);
@@ -2175,6 +2175,98 @@ export const Financial = () => {
 
     setSaving(true);
     setError(null);
+
+    // A payment for a package is stored in the history as a transaction and in
+    // Receivables as an installment. Remove the paired installment as well.
+    if (
+      transaction.category === "Recebimento de pacote" &&
+      transaction.patient_id
+    ) {
+      const installmentNumber = Number(
+        transaction.description?.match(/parcela\s*#(\d+)/i)?.[1],
+      );
+      let installmentsQuery = supabase
+        .from("package_installments")
+        .select("id, package_id, installment_number, amount, amount_paid")
+        .eq("clinic_id", profile.clinic_id)
+        .eq("patient_id", transaction.patient_id)
+        .eq("status", "pago");
+
+      if (installmentNumber) {
+        installmentsQuery = installmentsQuery.eq(
+          "installment_number",
+          installmentNumber,
+        );
+      }
+
+      const { data: candidates, error: installmentsError } =
+        await installmentsQuery;
+      if (installmentsError) {
+        setError(installmentsError.message);
+        setSaving(false);
+        return;
+      }
+
+      const matchingInstallments = (candidates ?? []).filter(
+        (installment) =>
+          installmentNumber ||
+          Math.abs(money(installment.amount_paid) - money(transaction.amount)) <
+            0.005,
+      );
+
+      // For older records that did not store the installment number, only use
+      // an automatic match when it is unambiguous.
+      if (matchingInstallments.length === 1) {
+        const installment = matchingInstallments[0];
+        const { data: packageItem, error: packageReadError } = await supabase
+          .from("lesson_packages")
+          .select("total_amount, amount_paid")
+          .eq("id", installment.package_id)
+          .eq("clinic_id", profile.clinic_id)
+          .single();
+
+        if (packageReadError) {
+          setError(packageReadError.message);
+          setSaving(false);
+          return;
+        }
+
+        const remainingTotal = Math.max(
+          money(packageItem.total_amount) - money(installment.amount),
+          0,
+        );
+        const remainingPaid = Math.max(
+          money(packageItem.amount_paid) - money(installment.amount_paid),
+          0,
+        );
+        const { error: packageUpdateError } = await supabase
+          .from("lesson_packages")
+          .update({
+            total_amount: remainingTotal,
+            amount_paid: remainingPaid,
+            payment_status: statusFromPayment(remainingTotal, remainingPaid),
+          })
+          .eq("id", installment.package_id)
+          .eq("clinic_id", profile.clinic_id);
+        if (packageUpdateError) {
+          setError(packageUpdateError.message);
+          setSaving(false);
+          return;
+        }
+
+        const { error: installmentDeleteError } = await supabase
+          .from("package_installments")
+          .delete()
+          .eq("id", installment.id)
+          .eq("clinic_id", profile.clinic_id);
+        if (installmentDeleteError) {
+          setError(installmentDeleteError.message);
+          setSaving(false);
+          return;
+        }
+      }
+    }
+
     const { error: deleteError } = await supabase
       .from("transactions")
       .delete()
