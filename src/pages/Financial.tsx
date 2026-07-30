@@ -1036,6 +1036,8 @@ export const Financial = () => {
     useState<ProfessionalReport | null>(null);
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("Pix");
+  const [paymentReceivedDate, setPaymentReceivedDate] = useState(todayDate);
+  const [paymentNotes, setPaymentNotes] = useState("");
   const [receivableFilter, setReceivableFilter] =
     useState<ReceivableFilter>("open");
   const [dueSort, setDueSort] = useState<DueSort>("asc");
@@ -1767,12 +1769,16 @@ export const Financial = () => {
     setPaymentMethod(
       installment.payment_method ?? packageItem.payment_method ?? "Pix",
     );
+    setPaymentReceivedDate(todayDate());
+    setPaymentNotes("");
   };
 
   const openProcedurePaymentModal = (transaction: TransactionRow) => {
     setPaymentTarget({ kind: "procedure", transaction });
     setPaymentAmount(String(money(transaction.amount) || ""));
     setPaymentMethod("Pix");
+    setPaymentReceivedDate(todayDate());
+    setPaymentNotes("");
   };
 
   const handleRegisterPayment = async (event: FormEvent<HTMLFormElement>) => {
@@ -1799,7 +1805,8 @@ export const Financial = () => {
         return;
       }
 
-      const paymentDate = todayDate();
+      const paymentDate = paymentReceivedDate;
+      const receiptNotes = paymentNotes.trim();
       const remainingAmount = Math.max(openAmount - amount, 0);
       const baseDescription =
         paymentTarget.transaction.description ?? "Recebimento de procedimentos";
@@ -1811,7 +1818,7 @@ export const Financial = () => {
           .update({
             status: "paid",
             due_date: paymentDate,
-            description: `${paidDescription} (${paymentMethod})`,
+            description: `${paidDescription} (${paymentMethod})${receiptNotes ? ` - ${receiptNotes}` : ""}`,
           })
           .eq("id", paymentTarget.transaction.id);
 
@@ -1845,7 +1852,7 @@ export const Financial = () => {
             type: "income",
             category: "Recebimento de procedimentos",
             status: "paid",
-            description: `${paidDescription} - recebido (${paymentMethod})`,
+            description: `${paidDescription} - recebido (${paymentMethod})${receiptNotes ? ` - ${receiptNotes}` : ""}`,
             due_date: paymentDate,
           });
 
@@ -1886,7 +1893,8 @@ export const Financial = () => {
     ].filter((item) => getRemainingInstallment(item) > 0);
 
     let remainingAmount = amount;
-    const paymentDate = new Date().toISOString();
+    const paymentDate = `${paymentReceivedDate}T12:00:00`;
+    const receiptNotes = paymentNotes.trim();
     const updates: Promise<{ error: Error | null }>[] = [];
 
     for (const installment of orderedInstallments) {
@@ -1965,8 +1973,8 @@ export const Financial = () => {
             type: "income",
             category: "Recebimento de pacote",
             status: "paid",
-            description: `Recebimento de ${paymentTarget.packageItem.patients?.full_name ?? "paciente"} - pacote · parcela #${paymentTarget.installment.installment_number} (${paymentMethod})`,
-            due_date: todayDate(),
+            description: `Recebimento de ${paymentTarget.packageItem.patients?.full_name ?? "paciente"} - pacote · parcela #${paymentTarget.installment.installment_number} (${paymentMethod})${receiptNotes ? ` - ${receiptNotes}` : ""}`,
+            due_date: paymentReceivedDate,
           });
 
     if (transactionError) {
@@ -3450,6 +3458,29 @@ export const Financial = () => {
                     <option>Dinheiro</option>
                     <option>Transferência</option>
                   </select>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                    Data do recebimento
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    className="mt-2 w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none"
+                    value={paymentReceivedDate}
+                    onChange={(event) => setPaymentReceivedDate(event.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                    Observação <span className="text-slate-400">(opcional)</span>
+                  </label>
+                  <textarea
+                    rows={3}
+                    className="mt-2 w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none"
+                    value={paymentNotes}
+                    onChange={(event) => setPaymentNotes(event.target.value)}
+                  />
                 </div>
                 <div className="flex gap-3 pt-2">
                   <Button

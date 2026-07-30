@@ -200,3 +200,42 @@ export async function registerReceiptForOpenReceivable(params: {
   });
   if (transactionError) throw new Error(transactionError.message);
 }
+
+/**
+ * Registra um recebível avulso que já foi recebido. O mesmo lançamento fica
+ * disponível no Financeiro e no histórico financeiro do paciente.
+ */
+export async function createAndRegisterStandaloneReceipt(params: {
+  clinicId: string;
+  patientId: string;
+  amount: number;
+  date: string;
+  paymentMethod: string;
+  notes?: string | null;
+}): Promise<void> {
+  const { clinicId, patientId, amount, date, paymentMethod, notes } = params;
+
+  if (amount <= 0) {
+    throw new Error("O valor informado deve ser maior que zero.");
+  }
+
+  const description = [
+    `Recebível avulso recebido (${paymentMethod})`,
+    notes?.trim() || null,
+  ]
+    .filter(Boolean)
+    .join(" - ");
+
+  const { error } = await supabase.from("transactions").insert({
+    clinic_id: clinicId,
+    patient_id: patientId,
+    amount,
+    type: "income",
+    category: "Recebimento avulso",
+    status: "paid",
+    description,
+    due_date: date,
+  });
+
+  if (error) throw new Error(error.message);
+}

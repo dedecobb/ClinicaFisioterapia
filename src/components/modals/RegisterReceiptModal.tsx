@@ -6,6 +6,7 @@ import {
   getPatientOpenReceivables,
   OpenReceivable,
   registerReceiptForOpenReceivable,
+  createAndRegisterStandaloneReceipt,
 } from "../../services/financialService";
 import { useAuth } from "../../context/AuthContext";
 
@@ -70,28 +71,35 @@ export const RegisterReceiptModal = ({ isOpen, onClose, patientId, patientName, 
       return;
     }
 
-    const receivable = receivables.find((item) => item.id === selectedReceivableId);
-    if (!receivable) {
-      setError("Não há recebíveis em aberto para este paciente.");
-      return;
-    }
-
-    if (value > receivable.remaining) {
-      setError("O valor não pode ser maior que o saldo do recebível selecionado.");
-      return;
-    }
-
     setSaving(true);
     try {
-      await registerReceiptForOpenReceivable({
-        clinicId: profile.clinic_id,
-        patientId,
-        receivable,
-        amount: value,
-        date,
-        paymentMethod,
-        notes: notes || null,
-      });
+      const receivable = receivables.find((item) => item.id === selectedReceivableId);
+
+      if (receivable) {
+        if (value > receivable.remaining) {
+          setError("O valor não pode ser maior que o saldo do recebível selecionado.");
+          return;
+        }
+
+        await registerReceiptForOpenReceivable({
+          clinicId: profile.clinic_id,
+          patientId,
+          receivable,
+          amount: value,
+          date,
+          paymentMethod,
+          notes: notes || null,
+        });
+      } else {
+        await createAndRegisterStandaloneReceipt({
+          clinicId: profile.clinic_id,
+          patientId,
+          amount: value,
+          date,
+          paymentMethod,
+          notes: notes || null,
+        });
+      }
 
       onSaved?.();
       onClose();
@@ -119,26 +127,28 @@ export const RegisterReceiptModal = ({ isOpen, onClose, patientId, patientName, 
           </div>
         ) : (
           <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
-            Não há recebíveis em aberto para este paciente.
+            Não há recebíveis em aberto para este paciente. Informe os dados abaixo para criar um recebível avulso e já registrar o recebimento.
           </div>
         )}
 
         <form className="mt-4 space-y-3" onSubmit={handleSubmit}>
-          <div>
-            <label className="text-sm font-medium">Recebível em aberto</label>
-            <select
-              value={selectedReceivableId}
-              onChange={(e) => setSelectedReceivableId(e.target.value)}
-              disabled={loadingOpen || receivables.length === 0}
-              className="w-full rounded-lg border px-3 py-2 mt-1 disabled:cursor-not-allowed disabled:bg-slate-100"
-            >
-              {receivables.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.label} · vence em {new Date(`${item.dueDate}T12:00:00`).toLocaleDateString("pt-BR")} · saldo {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(item.remaining)}
-                </option>
-              ))}
-            </select>
-          </div>
+          {receivables.length > 0 && (
+            <div>
+              <label className="text-sm font-medium">Recebível em aberto</label>
+              <select
+                value={selectedReceivableId}
+                onChange={(e) => setSelectedReceivableId(e.target.value)}
+                disabled={loadingOpen}
+                className="w-full rounded-lg border px-3 py-2 mt-1 disabled:cursor-not-allowed disabled:bg-slate-100"
+              >
+                {receivables.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.label} · vence em {new Date(`${item.dueDate}T12:00:00`).toLocaleDateString("pt-BR")} · saldo {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(item.remaining)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div>
             <label className="text-sm font-medium">Valor</label>
@@ -176,8 +186,8 @@ export const RegisterReceiptModal = ({ isOpen, onClose, patientId, patientName, 
 
           <div className="flex justify-end gap-2 mt-2">
             <Button variant="outline" onClick={onClose} type="button">Cancelar</Button>
-            <Button type="submit" className="gap-2" disabled={saving || loadingOpen || receivables.length === 0}>
-              {saving ? <Loader2 className="animate-spin" /> : "Registrar"}
+            <Button type="submit" className="gap-2" disabled={saving || loadingOpen}>
+              {saving ? <Loader2 className="animate-spin" /> : receivables.length > 0 ? "Registrar" : "Criar e registrar"}
             </Button>
           </div>
         </form>
