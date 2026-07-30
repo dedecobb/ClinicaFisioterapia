@@ -2592,7 +2592,7 @@ export const Financial = () => {
                             </p>
                             <p className="text-xs text-slate-500">
                               {row.kind === "package"
-                                ? `Pacote de ${row.packageItem.total_lessons} aulas`
+                                ? `Pacote de ${row.packageItem.total_lessons} aulas · total ${currencyFormatter.format(money(row.packageItem.total_amount))} · saldo do pacote ${currencyFormatter.format(Math.max(money(row.packageItem.total_amount) - money(row.packageItem.amount_paid), 0))}`
                                 : "Procedimentos avulsos"}
                             </p>
                           </td>

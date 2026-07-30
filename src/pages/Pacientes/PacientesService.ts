@@ -955,6 +955,34 @@ function buildInstallments(
   });
 }
 
+function assertInstallmentsMatchPackageTotal(
+  installments: Array<{ amount: number; amount_paid: number }>,
+  totalAmount: number,
+  amountPaid: number,
+) {
+  const toCents = (value: number) => Math.round(value * 100);
+  const generatedTotal = installments.reduce(
+    (total, installment) => total + toCents(installment.amount),
+    0,
+  );
+  const generatedPaid = installments.reduce(
+    (total, installment) => total + toCents(installment.amount_paid),
+    0,
+  );
+
+  if (generatedTotal !== toCents(totalAmount)) {
+    throw new Error(
+      "As parcelas geradas não correspondem ao valor total informado para o pacote.",
+    );
+  }
+
+  if (generatedPaid !== toCents(amountPaid)) {
+    throw new Error(
+      "As parcelas geradas não correspondem ao valor pago informado para o pacote.",
+    );
+  }
+}
+
 async function criarParcelasPacote(
   clinicId: string,
   packageId: string,
@@ -968,6 +996,11 @@ async function criarParcelasPacote(
     patientId,
     form,
     totalAmount,
+  );
+  assertInstallmentsMatchPackageTotal(
+    installments,
+    totalAmount,
+    Number(form.amount_paid) || 0,
   );
 
   const { error } = await supabase
@@ -1138,6 +1171,11 @@ async function sincronizarParcelasPacote(
     patientId,
     form,
     totalAmount,
+  );
+  assertInstallmentsMatchPackageTotal(
+    installments,
+    totalAmount,
+    Number(form.amount_paid) || 0,
   );
 
   const { error: upsertError } = await supabase
