@@ -655,7 +655,15 @@ export const PacientesPage = () => {
               <h3 className="font-bold text-slate-900 dark:text-white truncate">
                 {patient.full_name}
               </h3>
-              <p className="text-xs text-slate-500 mt-1">
+              <p
+                className={`mt-1 text-xs ${
+                  patient.status === "ativo"
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : patient.status === "inativo"
+                      ? "text-rose-600 dark:text-rose-400"
+                      : "text-slate-500"
+                }`}
+              >
                 {STATUS_LABEL[patient.status] ?? patient.status}
               </p>
               <div className="mt-3 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
@@ -839,7 +847,7 @@ export const PacientesPage = () => {
                         .join(", ")}{" "}
                       às {patient.lesson_packages[0].fixed_time.slice(0, 5)}
                     </div>
-                    {patient.open_receivables && (
+                    {patient.status !== "inativo" && patient.open_receivables && (
                       <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">
                         {currencyFormatter.format(patient.open_receivables.amount)} ·{" "}
                         {patient.open_receivables.status}
@@ -875,7 +883,7 @@ export const PacientesPage = () => {
                       .join(", ")}{" "}
                     às {patient.lesson_packages[0].fixed_time.slice(0, 5)}
                   </div>
-                  {patient.open_receivables && (
+                  {patient.status !== "inativo" && patient.open_receivables && (
                     <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">
                       {currencyFormatter.format(patient.open_receivables.amount)} ·{" "}
                       {patient.open_receivables.status}
