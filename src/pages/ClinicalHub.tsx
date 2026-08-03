@@ -38,6 +38,7 @@ import { useAuth } from "../context/AuthContext";
 import { messages } from "../i18n";
 import { UploadExameModal } from "../components/modals/UploadExameModal";
 import { ProtocolosModal } from "../components/modals/ProtocolosModal";
+import { PilatesAssessments } from "../components/clinical/PilatesAssessments";
 import { atualizarAgendamento } from "./Agenda/Agendamentoservice";
 import type {
   NovoAgendamentoForm,
@@ -67,7 +68,7 @@ import {
 } from "../services/evolutionService";
 
 // ── Tipos de aba ──────────────────────────────────────────────────────────────
-type Tab = "timeline" | "agenda" | "details" | "files";
+type Tab = "timeline" | "agenda" | "details" | "files" | "assessments";
 
 type SpeechRecognitionEventLike = {
   results: ArrayLike<ArrayLike<{ transcript: string }>>;
@@ -898,6 +899,11 @@ export const ClinicalHub = () => {
                     label: `Documentos${documentos.length > 0 ? ` (${documentos.length})` : ""}`,
                     icon: Paperclip,
                   },
+                  {
+                    id: "assessments",
+                    label: "Avaliações Fisioterapêuticas",
+                    icon: ClipboardList,
+                  },
                 ] as { id: Tab; label: string; icon: React.ElementType }[]
               ).map((tab) => (
                 <button
@@ -1304,6 +1310,22 @@ export const ClinicalHub = () => {
                       )}
                     </div>
                   </Card>
+                </motion.div>
+              )}
+
+              {activeTab === "assessments" && (
+                <motion.div
+                  key="assessments"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <PilatesAssessments
+                    patient={patient}
+                    profiles={profiles}
+                    currentProfessionalId={session?.user?.id}
+                  />
                 </motion.div>
               )}
 
