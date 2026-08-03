@@ -518,9 +518,7 @@ export async function getFisioterapeutas(
     .select("id, full_name, role")
     .order("full_name", { ascending: true });
 
-  if (profile?.role === "physio") {
-    query = query.eq("id", profile.id);
-  } else if (profile?.clinic_id) {
+  if (profile?.clinic_id) {
     query = query.eq("clinic_id", profile.clinic_id);
   }
 
@@ -646,9 +644,7 @@ export async function getAgendamentosPorMes(
     .lt("start_time", fim)
     .order("start_time", { ascending: true });
 
-  if (profile?.role === "physio") {
-    query = query.eq("professional_id", profile.id);
-  } else if (profile?.clinic_id) {
+  if (profile?.clinic_id) {
     query = query.eq("clinic_id", profile.clinic_id);
   }
 

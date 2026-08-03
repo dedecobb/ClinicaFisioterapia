@@ -313,19 +313,18 @@ export const AgendamentoPage: React.FC = () => {
       .sort((a, b) => a.paciente.nome.localeCompare(b.paciente.nome));
   }, [agendamentos, dataSelecionada, sessaoSelecionada]);
 
-  // ── totais do mês ───────────────────────────────────────────────────────────
+  // ── totais do dia selecionado ───────────────────────────────────────────────
 
-  const totaisMes = useMemo(() => {
-    const prefix = `${ano}-${String(mes + 1).padStart(2, "0")}`;
-    const doMes = agendamentos.filter((a) => a.data.startsWith(prefix));
+  const totaisDia = useMemo(() => {
+    const doDia = agendamentos.filter((a) => a.data === dataSelecionada);
     return {
-      total: doMes.length,
-      presencas: doMes.filter((a) => a.status === "presenca_registrada")
+      total: doDia.length,
+      presencas: doDia.filter((a) => a.status === "presenca_registrada")
         .length,
-      pendentes: doMes.filter((a) => a.status === "agendada").length,
-      cancelados: doMes.filter((a) => a.status === "cancelada").length,
+      pendentes: doDia.filter((a) => a.status === "agendada").length,
+      cancelados: doDia.filter((a) => a.status === "cancelada").length,
     };
-  }, [agendamentos, ano, mes]);
+  }, [agendamentos, dataSelecionada]);
 
   // ── CRUD ────────────────────────────────────────────────────────────────────
 
@@ -480,20 +479,20 @@ export const AgendamentoPage: React.FC = () => {
       {/* ── Cards de Resumo ── */}
       <div className="resumo-grid">
         <div className="resumo-card">
-          <span className="resumo-label">Total no mês</span>
-          <span className="resumo-valor">{totaisMes.total}</span>
+          <span className="resumo-label">Total no dia</span>
+          <span className="resumo-valor">{totaisDia.total}</span>
         </div>
         <div className="resumo-card resumo-confirmado">
-          <span className="resumo-label">Presenças</span>
-          <span className="resumo-valor">{totaisMes.presencas}</span>
+          <span className="resumo-label">Presenças no dia</span>
+          <span className="resumo-valor">{totaisDia.presencas}</span>
         </div>
         <div className="resumo-card resumo-pendente">
-          <span className="resumo-label">Agendadas</span>
-          <span className="resumo-valor">{totaisMes.pendentes}</span>
+          <span className="resumo-label">Agendadas no dia</span>
+          <span className="resumo-valor">{totaisDia.pendentes}</span>
         </div>
         <div className="resumo-card resumo-cancelado">
-          <span className="resumo-label">Canceladas</span>
-          <span className="resumo-valor">{totaisMes.cancelados}</span>
+          <span className="resumo-label">Canceladas no dia</span>
+          <span className="resumo-valor">{totaisDia.cancelados}</span>
         </div>
       </div>
 
