@@ -200,6 +200,7 @@ export const ClinicalHub = () => {
   const { id: patientId } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { session, profile } = useAuth();
+  const canEditAppointments = profile?.role === "admin";
 
   // ── Dados ────────────────────────────────────────────────────────────────────
   const [patient, setPatient] = useState<Patient | null>(null);
@@ -281,6 +282,8 @@ export const ClinicalHub = () => {
   }, [patientId, session, profile]);
 
   const openAppointmentEditor = (appointment: PatientAppointment) => {
+    if (!canEditAppointments) return;
+
     setEditingAppointment(appointment);
     setAppointmentEditForm({
       data: toDateInputValue(appointment.start_time),
@@ -300,6 +303,7 @@ export const ClinicalHub = () => {
   };
 
   const saveAppointmentFromHistory = async () => {
+    if (!canEditAppointments) return;
     if (!editingAppointment || !appointmentEditForm || !patientId) return;
 
     if (!editingAppointment.professional_id) {
@@ -1179,14 +1183,16 @@ export const ClinicalHub = () => {
                                   </p>
                                 )}
                               </div>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                className="shrink-0 gap-2"
-                                onClick={() => openAppointmentEditor(appointment)}
-                              >
-                                <Edit3 size={15} /> Editar aula
-                              </Button>
+                              {canEditAppointments && (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className="shrink-0 gap-2"
+                                  onClick={() => openAppointmentEditor(appointment)}
+                                >
+                                  <Edit3 size={15} /> Editar aula
+                                </Button>
+                              )}
                             </div>
                           );
                         })}

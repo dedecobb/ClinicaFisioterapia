@@ -190,7 +190,7 @@ export const AgendamentoPage: React.FC = () => {
 
       try {
         const [agenda, profissionais, listaPacientes] = await Promise.all([
-          getAgendamentosPorMes(ano, mes),
+          getAgendamentosPorMes(ano, mes, profile),
           getFisioterapeutas(profile),
           getPacientes(profile),
         ]);
