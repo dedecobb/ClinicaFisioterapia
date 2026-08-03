@@ -86,6 +86,11 @@ export interface PackageSummary {
   status: "ativo" | "concluido" | "cancelado";
 }
 
+export interface OpenReceivablesSummary {
+  amount: number;
+  status: Extract<PaymentStatus, "pendente" | "parcial">;
+}
+
 export interface Patient {
   id: string;
   clinic_id: string;
@@ -108,6 +113,7 @@ export interface Patient {
   procedures: PatientProcedure[] | null;
   created_at: string | null;
   lesson_packages?: PackageSummary[];
+  open_receivables?: OpenReceivablesSummary | null;
 }
 
 export interface NewPatientForm {

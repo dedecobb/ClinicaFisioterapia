@@ -1,6 +1,7 @@
 import { supabase } from "../../lib/supabase";
 import {
   NewPatientForm,
+  OpenReceivablesSummary,
   PackageSummary,
   Patient,
   PatientAddress,
@@ -335,6 +336,66 @@ function paymentStatusFromAmounts(
   return "parcial";
 }
 
+async function getOpenReceivablesByPatient(
+  clinicId: string,
+  patientIds: string[],
+): Promise<Map<string, OpenReceivablesSummary>> {
+  if (patientIds.length === 0) return new Map();
+
+  const [installmentsResult, transactionsResult] = await Promise.all([
+    supabase
+      .from(INSTALLMENTS_TABLE)
+      .select("patient_id, amount, amount_paid")
+      .eq("clinic_id", clinicId)
+      .in("patient_id", patientIds),
+    supabase
+      .from(TRANSACTIONS_TABLE)
+      .select("patient_id, amount")
+      .eq("clinic_id", clinicId)
+      .in("patient_id", patientIds)
+      .eq("type", "income")
+      .not("status", "in", "(paid,cancelled)"),
+  ]);
+
+  if (installmentsResult.error) {
+    throw formatSupabaseError(
+      "Erro ao buscar parcelas em aberto",
+      installmentsResult.error,
+      INSTALLMENTS_TABLE,
+    );
+  }
+  if (transactionsResult.error) {
+    throw formatSupabaseError(
+      "Erro ao buscar recebíveis em aberto",
+      transactionsResult.error,
+      TRANSACTIONS_TABLE,
+    );
+  }
+
+  const summaries = new Map<string, OpenReceivablesSummary>();
+  const add = (patientId: string | null, amount: number, isPartial = false) => {
+    if (!patientId || amount <= 0) return;
+    const current = summaries.get(patientId) ?? { amount: 0, status: "pendente" as const };
+    summaries.set(patientId, {
+      amount: current.amount + amount,
+      status: current.status === "parcial" || isPartial ? "parcial" : "pendente",
+    });
+  };
+
+  (installmentsResult.data ?? []).forEach((installment) => {
+    const amount = Math.max(
+      Number(installment.amount) - Number(installment.amount_paid),
+      0,
+    );
+    add(installment.patient_id, amount, Number(installment.amount_paid) > 0);
+  });
+  (transactionsResult.data ?? []).forEach((transaction) => {
+    add(transaction.patient_id, Number(transaction.amount));
+  });
+
+  return summaries;
+}
+
 export async function listarPacientes(
   clinicId: string,
   searchTerm = "",
@@ -413,11 +474,20 @@ export async function listarPacientes(
     throw formatSupabaseError("Erro ao buscar pacientes", error);
   }
 
-  return (data ?? []).map((patient) => ({
+  const patients = (data ?? []).map((patient) => ({
     ...(patient as Patient),
     lesson_packages: sortActivePackagesFirst(
       (patient as Patient).lesson_packages ?? [],
     ).filter((packageItem) => packageItem.status === "ativo"),
+  }));
+  const openReceivablesByPatient = await getOpenReceivablesByPatient(
+    clinicId,
+    patients.map((patient) => patient.id),
+  );
+
+  return patients.map((patient) => ({
+    ...patient,
+    open_receivables: openReceivablesByPatient.get(patient.id) ?? null,
   }));
 }
 

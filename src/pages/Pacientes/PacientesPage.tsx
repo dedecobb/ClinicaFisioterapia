@@ -428,6 +428,26 @@ export const PacientesPage = () => {
     setModalError(null);
   };
 
+  const handleReceiptSaved = async () => {
+    if (!profile?.clinic_id) return;
+
+    try {
+      const data = await listarPacientes(
+        profile.clinic_id,
+        searchTerm,
+        profile,
+        isAdmin ? professionalFilterId : "",
+      );
+      setPatients(data);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Erro ao atualizar os recebíveis do paciente.",
+      );
+    }
+  };
+
   const handleClosePatient = async (patient: Patient) => {
     if (
       !window.confirm(
@@ -819,12 +839,12 @@ export const PacientesPage = () => {
                         .join(", ")}{" "}
                       às {patient.lesson_packages[0].fixed_time.slice(0, 5)}
                     </div>
-                    <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                      {currencyFormatter.format(
-                        Number(patient.lesson_packages[0].total_amount),
-                      )}{" "}
-                      · {patient.lesson_packages[0].payment_status}
-                    </div>
+                    {patient.open_receivables && (
+                      <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                        {currencyFormatter.format(patient.open_receivables.amount)} ·{" "}
+                        {patient.open_receivables.status}
+                      </div>
+                    )}
                   </div>
                 </details>
               )}
@@ -855,12 +875,12 @@ export const PacientesPage = () => {
                       .join(", ")}{" "}
                     às {patient.lesson_packages[0].fixed_time.slice(0, 5)}
                   </div>
-                  <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    {currencyFormatter.format(
-                      Number(patient.lesson_packages[0].total_amount),
-                    )}{" "}
-                    · {patient.lesson_packages[0].payment_status}
-                  </div>
+                  {patient.open_receivables && (
+                    <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      {currencyFormatter.format(patient.open_receivables.amount)} ·{" "}
+                      {patient.open_receivables.status}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -958,6 +978,7 @@ export const PacientesPage = () => {
           onClose={() => setRegisterReceiptPatient(null)}
           patientId={registerReceiptPatient.id}
           patientName={registerReceiptPatient.name}
+          onSaved={handleReceiptSaved}
         />
       )}
     </div>
