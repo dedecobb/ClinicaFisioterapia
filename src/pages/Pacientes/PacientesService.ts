@@ -1001,17 +1001,25 @@ function buildInstallments(
   totalAmount: number,
 ) {
   const count = Math.max(Number(form.installments) || 1, 1);
-  const baseAmount = Math.floor((totalAmount / count) * 100) / 100;
-  let remainingTotal = totalAmount;
-  let remainingPaid = Number(form.amount_paid) || 0;
+  // O pagamento informado na contratação/renovação é uma entrada, registrada
+  // separadamente no histórico financeiro. As parcelas devem representar
+  // apenas o saldo que ainda falta pagar.
+  const outstandingAmount = Math.max(
+    totalAmount - (Number(form.amount_paid) || 0),
+    0,
+  );
+
+  if (outstandingAmount === 0) return [];
+
+  const baseAmount = Math.floor((outstandingAmount / count) * 100) / 100;
+  let remainingTotal = outstandingAmount;
 
   return Array.from({ length: count }, (_, index) => {
     const isLast = index === count - 1;
     const amount = isLast ? Number(remainingTotal.toFixed(2)) : baseAmount;
     remainingTotal -= amount;
 
-    const amountPaid = Math.min(remainingPaid, amount);
-    remainingPaid -= amountPaid;
+    const amountPaid = 0;
 
     return {
       clinic_id: clinicId,
@@ -1043,15 +1051,17 @@ function assertInstallmentsMatchPackageTotal(
     0,
   );
 
-  if (generatedTotal !== toCents(totalAmount)) {
+  const outstandingAmount = Math.max(totalAmount - amountPaid, 0);
+
+  if (generatedTotal !== toCents(outstandingAmount)) {
     throw new Error(
-      "As parcelas geradas não correspondem ao valor total informado para o pacote.",
+      "As parcelas geradas não correspondem ao saldo em aberto do pacote.",
     );
   }
 
-  if (generatedPaid !== toCents(amountPaid)) {
+  if (generatedPaid !== 0) {
     throw new Error(
-      "As parcelas geradas não correspondem ao valor pago informado para o pacote.",
+      "A entrada deve ser registrada separadamente das parcelas do pacote.",
     );
   }
 }
