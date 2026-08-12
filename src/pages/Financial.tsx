@@ -1118,12 +1118,20 @@ export const Financial = () => {
   );
   const commissionSectionRef = useRef<HTMLDivElement | null>(null);
   const expenseSectionRef = useRef<HTMLDivElement | null>(null);
+  const financialHistorySectionRef = useRef<HTMLDivElement | null>(null);
   const isPhysio = profile?.role === "physio";
   const isAdmin = profile?.role === "admin";
   const hasPatientSearch = Boolean(normalizeSearchText(patientSearchTerm));
 
   const scrollToExpense = () => {
     expenseSectionRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  };
+
+  const scrollToFinancialHistory = () => {
+    financialHistorySectionRef.current?.scrollIntoView({
       behavior: "smooth",
       block: "start",
     });
@@ -2503,17 +2511,64 @@ export const Financial = () => {
     receiptWindow.print();
   };
 
+  const printTransactionReceipt = (transaction: TransactionRow) => {
+    const receiptWindow = window.open("", "_blank");
+    if (!receiptWindow) return;
+    receiptWindow.opener = null;
+
+    receiptWindow.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <title>Recibo</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 32px; color: #0f172a; }
+            .box { border: 1px solid #e2e8f0; border-radius: 8px; padding: 24px; max-width: 620px; }
+            h1 { margin: 0 0 8px; }
+            p { margin: 8px 0; }
+            .value { font-size: 24px; font-weight: 700; margin: 16px 0; }
+          </style>
+        </head>
+        <body>
+          <div class="box">
+            <h1>Recibo de pagamento</h1>
+            <p>Paciente: <strong>${transaction.patients?.full_name ?? "-"}</strong></p>
+            <p>Referência: ${transaction.description ?? transaction.category}</p>
+            <p>Data: ${formatDate(transaction.due_date)}</p>
+            <p class="value">${currencyFormatter.format(money(transaction.amount))}</p>
+            <p>Emitido em ${new Date().toLocaleDateString("pt-BR")}</p>
+          </div>
+        </body>
+      </html>
+    `);
+    receiptWindow.document.close();
+    receiptWindow.focus();
+    receiptWindow.print();
+  };
+
   return (
     <div className="space-y-5 sm:space-y-8 animate-in fade-in duration-500">
-      <header>
-        <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white">
-          Financeiro
-        </h1>
-        <p className="text-sm sm:text-base text-slate-500 dark:text-slate-400 mt-1">
-          {isPhysio
-            ? "Acompanhe sua produção financeira pelas aulas realizadas e faltas pagas."
-            : "Registre parcelas, acompanhe histórico de pacotes e cobre pelo WhatsApp."}
-        </p>
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white">
+            Financeiro
+          </h1>
+          <p className="text-sm sm:text-base text-slate-500 dark:text-slate-400 mt-1">
+            {isPhysio
+              ? "Acompanhe sua produção financeira pelas aulas realizadas e faltas pagas."
+              : "Registre parcelas, acompanhe histórico de pacotes e cobre pelo WhatsApp."}
+          </p>
+        </div>
+        {!isPhysio && (
+          <Button
+            type="button"
+            variant="outline"
+            className="shrink-0 gap-2"
+            onClick={scrollToFinancialHistory}
+          >
+            <ArrowDownCircle size={16} /> Histórico financeiro
+          </Button>
+        )}
       </header>
 
       {error && (
@@ -2818,6 +2873,33 @@ export const Financial = () => {
                                   <Trash2 size={14} />
                                   Excluir
                                 </Button>
+                              )}
+                              {row.kind === "package_receipt" && (
+                                <>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() =>
+                                      printTransactionReceipt(row.transaction)
+                                    }
+                                    title="Imprimir recibo"
+                                  >
+                                    <Receipt size={14} />
+                                  </Button>
+                                  {isAdmin && (
+                                    <Button
+                                      size="sm"
+                                      variant="danger"
+                                      onClick={() =>
+                                        handleDeleteTransaction(row.transaction)
+                                      }
+                                      disabled={saving}
+                                      title="Excluir entrada"
+                                    >
+                                      <Trash2 size={14} /> Excluir
+                                    </Button>
+                                  )}
+                                </>
                               )}
                             </div>
                           </td>
@@ -3366,6 +3448,7 @@ export const Financial = () => {
             </Card>
           )}
           {!isPhysio && (
+            <div ref={financialHistorySectionRef}>
             <Card className="p-0 overflow-hidden">
               <div className="p-6 border-b border-slate-100 dark:border-slate-800">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -3500,15 +3583,30 @@ export const Financial = () => {
                           </td>
                           {isAdmin && (
                             <td className="px-6 py-4" data-label="Ações">
-                              <Button
-                                size="sm"
-                                variant="danger"
-                                onClick={() => handleDeleteTransaction(transaction)}
-                                disabled={saving}
-                              >
-                                <Trash2 size={14} />
-                                Excluir
-                              </Button>
+                              <div className="flex gap-2">
+                                {transaction.type === "income" &&
+                                  transaction.status === "paid" && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() =>
+                                        printTransactionReceipt(transaction)
+                                      }
+                                      title="Imprimir recibo"
+                                    >
+                                      <Receipt size={14} />
+                                    </Button>
+                                  )}
+                                <Button
+                                  size="sm"
+                                  variant="danger"
+                                  onClick={() => handleDeleteTransaction(transaction)}
+                                  disabled={saving}
+                                >
+                                  <Trash2 size={14} />
+                                  Excluir
+                                </Button>
+                              </div>
                             </td>
                           )}
                         </tr>
@@ -3518,6 +3616,7 @@ export const Financial = () => {
                 </table>
               </div>
             </Card>
+            </div>
           )}
         </>
       )}
