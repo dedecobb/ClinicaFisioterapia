@@ -2711,13 +2711,17 @@ export const Financial = () => {
                             <p className="text-xs text-slate-500">
                               {row.kind === "package"
                                 ? `Pacote de ${row.packageItem.total_lessons} aulas · total ${currencyFormatter.format(money(row.packageItem.total_amount))} · saldo do pacote ${currencyFormatter.format(Math.max(money(row.packageItem.total_amount) - money(row.packageItem.amount_paid), 0))}`
-                                : "Procedimentos avulsos"}
+                                : row.kind === "package_receipt"
+                                  ? "Entrada de pacote"
+                                  : "Procedimentos avulsos"}
                             </p>
                           </td>
                           <td className="px-6 py-4 text-sm font-semibold" data-label="Parcela">
                             {row.kind === "package"
                               ? `#${row.installment.installment_number}`
-                              : "Procedimento"}
+                              : row.kind === "package_receipt"
+                                ? "Entrada"
+                                : "Procedimento"}
                           </td>
                           <td className="px-6 py-4 text-sm text-slate-500" data-label="Vencimento">
                             {formatDate(
