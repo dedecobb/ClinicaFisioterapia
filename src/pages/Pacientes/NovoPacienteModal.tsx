@@ -912,11 +912,23 @@ export const NovoPacienteModal = ({
   useEffect(() => {
     setFormData((current) => {
       const amountPaid = Number(current.amount_paid) || 0;
-      if (amountPaid <= financialTotal) return current;
+      const nextAmountPaid = Math.min(amountPaid, financialTotal);
+      const nextPaymentStatus =
+        financialTotal > 0 && nextAmountPaid >= financialTotal
+          ? "pago"
+          : "pendente";
+
+      if (
+        amountPaid === nextAmountPaid &&
+        current.payment_status === nextPaymentStatus
+      ) {
+        return current;
+      }
 
       return {
         ...current,
-        amount_paid: roundMoney(financialTotal),
+        amount_paid: roundMoney(nextAmountPaid),
+        payment_status: nextPaymentStatus,
       };
     });
   }, [financialTotal]);
@@ -2095,12 +2107,23 @@ export const NovoPacienteModal = ({
                         className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
                         value={formData.amount_paid}
                         onWheel={preventNumberInputWheelChange}
-                        onChange={(event) =>
-                          updateField(
-                            "amount_paid",
-                            Math.min(Number(event.target.value), financialTotal),
-                          )
-                        }
+                        onChange={(event) => {
+                          const amountPaid = Math.max(
+                            0,
+                            Math.min(
+                              Number(event.target.value) || 0,
+                              financialTotal,
+                            ),
+                          );
+                          setFormData((current) => ({
+                            ...current,
+                            amount_paid: amountPaid,
+                            payment_status:
+                              financialTotal > 0 && amountPaid >= financialTotal
+                                ? "pago"
+                                : "pendente",
+                          }));
+                        }}
                       />
                     </div>
                   </div>
@@ -2159,23 +2182,16 @@ export const NovoPacienteModal = ({
                         Status pagamento
                       </label>
                       <select
-                        disabled={loading}
+                        disabled
                         className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
                         value={formData.payment_status}
-                        onChange={(event) => {
-                          const paymentStatus = event.target
-                            .value as NewPatientForm["payment_status"];
-                          setFormData((current) => ({
-                            ...current,
-                            payment_status: paymentStatus,
-                            amount_paid:
-                              paymentStatus === "pago" ? financialTotal : 0,
-                          }));
-                        }}
                       >
                         <option value="pago">Pago</option>
                         <option value="pendente">Pendente</option>
                       </select>
+                      <p className="text-xs text-slate-500">
+                        Definido automaticamente conforme o valor pago.
+                      </p>
                     </div>
 
                     <div className="space-y-2">

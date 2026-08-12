@@ -328,13 +328,8 @@ function validatePaymentAmount(form: NewPatientForm, totalAmount: number) {
 function paymentStatusFromAmounts(
   totalAmount: number,
   amountPaid: number,
-  requestedStatus: NewPatientForm["payment_status"],
 ): NewPatientForm["payment_status"] {
-  if (requestedStatus === "pago" && amountPaid < totalAmount) {
-    throw new Error("Para marcar o pacote como pago, informe o valor total.");
-  }
-
-  return requestedStatus;
+  return totalAmount > 0 && amountPaid >= totalAmount ? "pago" : "pendente";
 }
 
 async function getOpenReceivablesByPatient(
@@ -1287,7 +1282,6 @@ export async function criarPaciente(
   const paymentStatus = paymentStatusFromAmounts(
     totalAmount,
     amountPaid,
-    form.payment_status,
   );
   const procedures = normalizeProcedures(form);
   const patientPlanFields = getPatientPlanFields(form);
@@ -1446,7 +1440,6 @@ export async function renovarPacotePaciente(
   const paymentStatus = paymentStatusFromAmounts(
     totalAmount,
     amountPaid,
-    form.payment_status,
   );
   const procedures = normalizeProcedures(form);
   const patientPlanFields = getPatientPlanFields(form);
@@ -1698,7 +1691,6 @@ async function atualizarPacotePrincipal(
   const paymentStatus = paymentStatusFromAmounts(
     totalAmount,
     amountPaid,
-    form.payment_status,
   );
   validateLessonPackageFields(form);
   const lessonDates = generateLessonDates(
