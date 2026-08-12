@@ -7,6 +7,7 @@ import {
   ArrowDownCircle,
   Check,
   DollarSign,
+  FileDown,
   Filter,
   Loader2,
   PlusCircle,
@@ -137,6 +138,12 @@ type ReceivableFilter = "open" | "paid" | "all";
 type DueSort = "asc" | "desc";
 type ExpenseViewFilter = "period" | "payable";
 type ExpenseReminderTone = "overdue" | "today" | "soon";
+
+type FinancialReportSections = {
+  payable: boolean;
+  paid: boolean;
+  receipts: boolean;
+};
 
 type ExpenseFormState = {
   amount: string;
@@ -318,6 +325,15 @@ function listDateRange(startDate: string, endDate: string): string[] {
 
 function formatDate(date: string): string {
   return new Date(`${date}T12:00:00`).toLocaleDateString("pt-BR");
+}
+
+function escapeHtml(value: string | null | undefined): string {
+  return (value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 function formatShortDate(date: string): string {
@@ -1064,6 +1080,19 @@ export const Financial = () => {
   const [historyEndDate, setHistoryEndDate] = useState(
     () => getDefaultExpensePeriod().endDate,
   );
+  const [financialReportOpen, setFinancialReportOpen] = useState(false);
+  const [financialReportStartDate, setFinancialReportStartDate] = useState(
+    () => getDefaultCommissionPeriod().startDate,
+  );
+  const [financialReportEndDate, setFinancialReportEndDate] = useState(
+    () => getDefaultCommissionPeriod().endDate,
+  );
+  const [financialReportSections, setFinancialReportSections] =
+    useState<FinancialReportSections>({
+      payable: true,
+      paid: true,
+      receipts: true,
+    });
   const [expenseForm, setExpenseForm] = useState<ExpenseFormState>(() =>
     initialExpenseForm(),
   );
@@ -2361,6 +2390,45 @@ export const Financial = () => {
     await loadFinancialData();
   };
 
+  const generateFinancialPdf = () => {
+    const { payable, paid, receipts } = financialReportSections;
+    if (!payable && !paid && !receipts) {
+      setError("Selecione ao menos uma seção para o relatório.");
+      return;
+    }
+    if (!financialReportStartDate || !financialReportEndDate || financialReportStartDate > financialReportEndDate) {
+      setError("Informe um período válido para o relatório.");
+      return;
+    }
+
+    const inPeriod = (item: TransactionRow) => item.due_date >= financialReportStartDate && item.due_date <= financialReportEndDate;
+    const reportTransactions = visibleTransactions.filter(inPeriod);
+    const payableExpenses = reportTransactions.filter((item) => item.type === "expense" && !["paid", "cancelled"].includes(getEffectiveTransactionStatus(item))).sort((a, b) => a.due_date.localeCompare(b.due_date));
+    const paidExpenses = reportTransactions.filter((item) => item.type === "expense" && item.status === "paid").sort((a, b) => a.due_date.localeCompare(b.due_date));
+    const paidReceipts = reportTransactions.filter((item) => item.type === "income" && item.status === "paid").sort((a, b) => a.due_date.localeCompare(b.due_date));
+    const payableTotal = payableExpenses.reduce((total, item) => total + money(item.amount), 0);
+    const paidTotal = paidExpenses.reduce((total, item) => total + money(item.amount), 0);
+    const receiptTotal = paidReceipts.reduce((total, item) => total + money(item.amount), 0);
+    const table = (rows: TransactionRow[], emptyText: string, type: "expense" | "income") => rows.length
+      ? `<table><thead><tr><th>Data</th><th>${type === "income" ? "Paciente / origem" : "Categoria"}</th><th>Descrição</th><th>Status</th><th class="amount">Valor</th></tr></thead><tbody>${rows.map((item) => `<tr><td>${formatDate(item.due_date)}</td><td>${escapeHtml(type === "income" ? item.patients?.full_name ?? item.category : item.category)}</td><td>${escapeHtml(item.description) || "-"}</td><td>${escapeHtml(transactionStatusLabel[getEffectiveTransactionStatus(item)])}</td><td class="amount">${currencyFormatter.format(money(item.amount))}</td></tr>`).join("")}</tbody></table>`
+      : `<p class="empty">${emptyText}</p>`;
+    const section = (title: string, total: number, content: string) => `<section><div class="section-title"><h2>${title}</h2><strong>${currencyFormatter.format(total)}</strong></div>${content}</section>`;
+    const sections = [
+      payable && section("Contas a pagar", payableTotal, table(payableExpenses, "Nenhuma conta a pagar no período selecionado.", "expense")),
+      paid && section("Contas pagas", paidTotal, table(paidExpenses, "Nenhuma conta paga no período selecionado.", "expense")),
+      receipts && section("Recebimentos", receiptTotal, table(paidReceipts, "Nenhum recebimento no período selecionado.", "income")),
+    ].filter(Boolean).join("");
+    const reportWindow = window.open("", "_blank");
+    if (!reportWindow) {
+      setError("Não foi possível abrir o relatório. Autorize pop-ups para este site e tente novamente.");
+      return;
+    }
+    const net = receiptTotal - paidTotal;
+    reportWindow.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"/><title>Relatório financeiro</title><style>@page{size:A4;margin:16mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#0f172a;font-size:11px}h1{font-size:22px;margin:0 0 5px}.muted{color:#64748b;margin:0}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:22px 0}.summary div{border:1px solid #e2e8f0;border-radius:7px;padding:10px}.summary span{display:block;color:#64748b;font-size:10px;margin-bottom:5px}.summary strong{font-size:14px}section{margin-top:24px;break-inside:avoid}.section-title{border-bottom:2px solid #0f766e;display:flex;align-items:baseline;justify-content:space-between;padding-bottom:6px;margin-bottom:10px}h2{font-size:15px;margin:0}table{border-collapse:collapse;width:100%}th{background:#f1f5f9;color:#475569;font-size:9px;letter-spacing:.04em;text-align:left;text-transform:uppercase}th,td{border-bottom:1px solid #e2e8f0;padding:7px 6px;vertical-align:top}.amount{text-align:right;white-space:nowrap}.empty{border:1px dashed #cbd5e1;border-radius:6px;color:#64748b;padding:12px}footer{border-top:1px solid #e2e8f0;color:#64748b;font-size:9px;margin-top:28px;padding-top:9px}</style></head><body><header><h1>Relatório financeiro</h1><p class="muted">Período: ${formatDate(financialReportStartDate)} a ${formatDate(financialReportEndDate)}</p><p class="muted">Emitido em ${new Date().toLocaleDateString("pt-BR")}</p></header><div class="summary"><div><span>A pagar</span><strong>${currencyFormatter.format(payableTotal)}</strong></div><div><span>Pago</span><strong>${currencyFormatter.format(paidTotal)}</strong></div><div><span>Recebido</span><strong>${currencyFormatter.format(receiptTotal)}</strong></div><div><span>Resultado líquido</span><strong>${currencyFormatter.format(net)}</strong></div></div>${sections}<footer>Relatório gerado pelo sistema financeiro da clínica.</footer><script>window.onload=()=>window.print();<\/script></body></html>`);
+    reportWindow.document.close();
+    setFinancialReportOpen(false);
+  };
+
   const printReceipt = (
     packageItem: PackageRow,
     installment?: InstallmentRow,
@@ -2448,6 +2516,16 @@ export const Financial = () => {
                   onClick={() => setPatientSearchTerm("")}
                 >
                   Limpar busca
+                </Button>
+              )}
+              {!isPhysio && (
+                <Button
+                  variant="outline"
+                  className="w-full gap-2 sm:w-auto"
+                  onClick={() => setFinancialReportOpen(true)}
+                >
+                  <FileDown size={16} />
+                  Exportar PDF
                 </Button>
               )}
               {!isPhysio && (
@@ -3399,6 +3477,65 @@ export const Financial = () => {
           )}
         </>
       )}
+
+      {financialReportOpen &&
+        createPortal(
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
+            <Card className="w-full max-w-lg">
+              <div className="mb-6 flex items-start justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900 dark:text-white">
+                    Exportar relatório financeiro
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Escolha o período e as informações que devem aparecer no PDF.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="rounded-lg p-2 text-slate-400 hover:bg-slate-100"
+                  onClick={() => setFinancialReportOpen(false)}
+                  aria-label="Fechar"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="space-y-5">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                    Data inicial
+                    <input type="date" value={financialReportStartDate} onChange={(event) => setFinancialReportStartDate(event.target.value)} className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 outline-none focus:ring-2 focus:ring-brand-500 dark:border-slate-800 dark:bg-slate-900" />
+                  </label>
+                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                    Data final
+                    <input type="date" value={financialReportEndDate} onChange={(event) => setFinancialReportEndDate(event.target.value)} className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 outline-none focus:ring-2 focus:ring-brand-500 dark:border-slate-800 dark:bg-slate-900" />
+                  </label>
+                </div>
+                <fieldset>
+                  <legend className="text-sm font-medium text-slate-700 dark:text-slate-300">Seções do relatório</legend>
+                  <div className="mt-3 space-y-2">
+                    {([
+                      ["payable", "Contas a pagar", "Despesas pendentes ou vencidas no período."],
+                      ["paid", "Contas pagas", "Despesas já quitadas no período."],
+                      ["receipts", "Recebimentos", "Entradas financeiras recebidas no período."],
+                    ] as const).map(([key, label, description]) => (
+                      <label key={key} className="flex cursor-pointer gap-3 rounded-xl border border-slate-200 p-3 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900">
+                        <input type="checkbox" checked={financialReportSections[key]} onChange={(event) => setFinancialReportSections((current) => ({ ...current, [key]: event.target.checked }))} className="mt-1 h-4 w-4 accent-brand-600" />
+                        <span><span className="block text-sm font-semibold text-slate-800 dark:text-slate-100">{label}</span><span className="text-xs text-slate-500">{description}</span></span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+                <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500 dark:bg-slate-900">O relatório abrirá em outra aba. Na janela de impressão, escolha “Salvar como PDF”.</p>
+                <div className="flex gap-3 pt-1">
+                  <Button type="button" variant="outline" className="flex-1" onClick={() => setFinancialReportOpen(false)}>Cancelar</Button>
+                  <Button type="button" className="flex-1 gap-2" onClick={generateFinancialPdf}><FileDown size={16} />Gerar PDF</Button>
+                </div>
+              </div>
+            </Card>
+          </div>,
+          document.body,
+        )}
 
       {paymentTarget &&
         createPortal(
