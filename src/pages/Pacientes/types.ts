@@ -5,7 +5,7 @@ export type PatientStatus =
   | "inativo"
   | "encerrado";
 
-export type PaymentStatus = "pago" | "pendente" | "parcial" | "inadimplente";
+export type PaymentStatus = "pago" | "pendente";
 
 export const PROCEDURE_OPTIONS = [
   { type: "rpg", name: "RPG" },
@@ -88,7 +88,7 @@ export interface PackageSummary {
 
 export interface OpenReceivablesSummary {
   amount: number;
-  status: Extract<PaymentStatus, "pendente" | "parcial">;
+  status: "pendente";
 }
 
 export interface Patient {

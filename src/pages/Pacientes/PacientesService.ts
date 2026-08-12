@@ -330,10 +330,11 @@ function paymentStatusFromAmounts(
   amountPaid: number,
   requestedStatus: NewPatientForm["payment_status"],
 ): NewPatientForm["payment_status"] {
-  if (requestedStatus === "inadimplente") return "inadimplente";
-  if (amountPaid <= 0) return "pendente";
-  if (amountPaid >= totalAmount) return "pago";
-  return "parcial";
+  if (requestedStatus === "pago" && amountPaid < totalAmount) {
+    throw new Error("Para marcar o pacote como pago, informe o valor total.");
+  }
+
+  return requestedStatus;
 }
 
 async function getOpenReceivablesByPatient(
@@ -373,12 +374,12 @@ async function getOpenReceivablesByPatient(
   }
 
   const summaries = new Map<string, OpenReceivablesSummary>();
-  const add = (patientId: string | null, amount: number, isPartial = false) => {
+  const add = (patientId: string | null, amount: number) => {
     if (!patientId || amount <= 0) return;
     const current = summaries.get(patientId) ?? { amount: 0, status: "pendente" as const };
     summaries.set(patientId, {
       amount: current.amount + amount,
-      status: current.status === "parcial" || isPartial ? "parcial" : "pendente",
+      status: "pendente",
     });
   };
 
@@ -387,7 +388,7 @@ async function getOpenReceivablesByPatient(
       Number(installment.amount) - Number(installment.amount_paid),
       0,
     );
-    add(installment.patient_id, amount, Number(installment.amount_paid) > 0);
+    add(installment.patient_id, amount);
   });
   (transactionsResult.data ?? []).forEach((transaction) => {
     add(transaction.patient_id, Number(transaction.amount));
@@ -987,7 +988,7 @@ async function criarAgendamentosProcedimentosAvulsos({
 function installmentStatus(amount: number, paid: number) {
   if (paid <= 0) return "pendente";
   if (paid >= amount) return "pago";
-  return "parcial";
+  return "pendente";
 }
 
 function buildInstallments(

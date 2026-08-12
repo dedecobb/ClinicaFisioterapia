@@ -29,7 +29,7 @@ import {
 } from "../lib/commission";
 import { supabase } from "../lib/supabase";
 
-type PaymentStatus = "pago" | "pendente" | "parcial" | "inadimplente";
+type PaymentStatus = "pago" | "pendente";
 
 type InstallmentRow = {
   id: string;
@@ -55,6 +55,7 @@ type PackageRow = {
   payment_method: string | null;
   installments: number;
   start_date: string;
+  created_at: string;
   expected_end_date: string | null;
   status: "ativo" | "concluido" | "cancelado";
   patients: {
@@ -194,8 +195,6 @@ const currencyFormatter = new Intl.NumberFormat("pt-BR", {
 const paymentLabel: Record<PaymentStatus, string> = {
   pago: "Pago",
   pendente: "Pendente",
-  parcial: "Parcial",
-  inadimplente: "Inadimplente",
 };
 
 const transactionStatusLabel: Record<TransactionStatus, string> = {
@@ -370,7 +369,7 @@ function statusFromPayment(total: number, paid: number): PaymentStatus {
 
   if (paidCents <= 0) return "pendente";
   if (paidCents >= totalCents) return "pago";
-  return "parcial";
+  return "pendente";
 }
 
 function getInstallments(packageItem: PackageRow): InstallmentRow[] {
@@ -403,20 +402,18 @@ function getInstallmentPaymentStatus(
   );
 
   if (status === "pago") return "pago";
-  return installment.status === "inadimplente" ? "inadimplente" : status;
+  return "pendente";
 }
 
 function paymentStatusFromTransaction(
   status: TransactionStatus,
 ): PaymentStatus {
   if (status === "paid") return "pago";
-  if (status === "overdue") return "inadimplente";
   return "pendente";
 }
 
 function badgeVariantForPayment(status: PaymentStatus) {
   if (status === "pago") return "success";
-  if (status === "inadimplente") return "danger";
   return "warning";
 }
 
@@ -1311,6 +1308,7 @@ export const Financial = () => {
             payment_method,
             installments,
             start_date,
+            created_at,
             expected_end_date,
             status,
             patients (
@@ -1675,36 +1673,42 @@ export const Financial = () => {
   );
 
   const totals = useMemo(() => {
+    const monthlyPeriod = getDefaultCommissionPeriod();
+    const isInCurrentMonth = (date: string) =>
+      date >= monthlyPeriod.startDate && date <= monthlyPeriod.endDate;
     const standaloneProcedures = filteredVisibleTransactions.filter(
-      isStandaloneProcedureIncome,
+      (transaction) => isStandaloneProcedureIncome(transaction) && isInCurrentMonth(transaction.due_date),
     );
     const procedureSold = standaloneProcedures.reduce(
       (total, item) => total + money(item.amount),
       0,
     );
-    const procedurePaid = standaloneProcedures
-      .filter((item) => item.status === "paid")
-      .reduce((total, item) => total + money(item.amount), 0);
     const procedureOpen = standaloneProcedures
       .filter((item) => item.status === "pending" || item.status === "overdue")
       .reduce((total, item) => total + money(item.amount), 0);
-    const sold = filteredPackages.reduce(
+    const packagesSoldThisMonth = filteredPackages.filter((item) =>
+      isInCurrentMonth(item.created_at.slice(0, 10)),
+    );
+    const sold = packagesSoldThisMonth.reduce(
       (total, item) => total + money(item.total_amount),
       procedureSold,
     );
-    const paid = filteredPackages.reduce(
-      (total, item) => total + money(item.amount_paid),
-      procedurePaid,
+    const paid = filteredVisibleTransactions
+      .filter(
+        (transaction) =>
+          transaction.type === "income" &&
+          transaction.status === "paid" &&
+          isInCurrentMonth(transaction.due_date),
+      )
+      .reduce((total, item) => total + money(item.amount), 0);
+    const openPackageInstallments = filteredPackages.reduce(
+      (total, packageItem) =>
+        total + getInstallments(packageItem)
+          .filter((installment) => isInCurrentMonth(installment.due_date))
+          .reduce((installmentTotal, installment) => installmentTotal + getRemainingInstallment(installment), 0),
+      0,
     );
-    const open = filteredPackages.reduce(
-      (total, item) =>
-        total + Math.max(money(item.total_amount) - money(item.amount_paid), 0),
-      procedureOpen,
-    );
-    const currentDue = filteredPackages.reduce((total, item) => {
-      const installment = getCurrentInstallment(item);
-      return total + (installment ? getRemainingInstallment(installment) : 0);
-    }, procedureOpen);
+    const open = openPackageInstallments + procedureOpen;
     const professionalShare = commissionReport.reduce(
       (total, item) => total + item.professionalShare,
       0,
@@ -1712,15 +1716,9 @@ export const Financial = () => {
     const paidExpenses = transactions
       .filter(
         (transaction) =>
-          transaction.type === "expense" && transaction.status === "paid",
-      )
-      .reduce((total, item) => total + money(item.amount), 0);
-    const openExpenses = transactions
-      .filter(
-        (transaction) =>
           transaction.type === "expense" &&
-          (getEffectiveTransactionStatus(transaction) === "pending" ||
-            getEffectiveTransactionStatus(transaction) === "overdue"),
+          transaction.status === "paid" &&
+          isInCurrentMonth(transaction.due_date),
       )
       .reduce((total, item) => total + money(item.amount), 0);
     const net = paid - paidExpenses;
@@ -1729,10 +1727,8 @@ export const Financial = () => {
       sold,
       paid,
       open,
-      currentDue,
       professionalShare,
       paidExpenses,
-      openExpenses,
       net,
     };
   }, [
@@ -2545,7 +2541,11 @@ export const Financial = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-6">
+          <div>
+            <p className="mb-3 text-sm text-slate-500 dark:text-slate-400">
+              Indicadores do mês atual: {formatDate(getDefaultCommissionPeriod().startDate)} a {formatDate(getDefaultCommissionPeriod().endDate)}.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-6">
             {!isPhysio && (
               <>
                 <FinancialCard
@@ -2583,6 +2583,7 @@ export const Financial = () => {
               value={totals.professionalShare}
               icon={UserCheck}
             />
+            </div>
           </div>
 
           {!isPhysio && (

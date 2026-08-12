@@ -2162,18 +2162,19 @@ export const NovoPacienteModal = ({
                         disabled={loading}
                         className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60"
                         value={formData.payment_status}
-                        onChange={(event) =>
-                          updateField(
-                            "payment_status",
-                            event.target
-                              .value as NewPatientForm["payment_status"],
-                          )
-                        }
+                        onChange={(event) => {
+                          const paymentStatus = event.target
+                            .value as NewPatientForm["payment_status"];
+                          setFormData((current) => ({
+                            ...current,
+                            payment_status: paymentStatus,
+                            amount_paid:
+                              paymentStatus === "pago" ? financialTotal : 0,
+                          }));
+                        }}
                       >
                         <option value="pago">Pago</option>
                         <option value="pendente">Pendente</option>
-                        <option value="parcial">Parcial</option>
-                        <option value="inadimplente">Inadimplente</option>
                       </select>
                     </div>
 

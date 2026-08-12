@@ -25,7 +25,6 @@ const money = (value: number | string | null | undefined) => Number(value) || 0;
 
 const paymentStatus = (total: number, paid: number) => {
   if (paid >= total) return "pago";
-  if (paid > 0) return "parcial";
   return "pendente";
 };
 
