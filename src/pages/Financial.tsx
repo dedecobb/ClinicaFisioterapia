@@ -175,7 +175,19 @@ type ProcedureReceivableRow = {
   status: PaymentStatus;
 };
 
-type ReceivableItem = ReceivableRow | ProcedureReceivableRow;
+type PackageReceiptReceivableRow = {
+  kind: "package_receipt";
+  transaction: TransactionRow;
+  patientName: string;
+  professionalName: string;
+  remaining: number;
+  status: PaymentStatus;
+};
+
+type ReceivableItem =
+  | ReceivableRow
+  | ProcedureReceivableRow
+  | PackageReceiptReceivableRow;
 
 type PaymentTarget =
   | {
@@ -474,6 +486,16 @@ function isStandaloneProcedureIncome(transaction: TransactionRow): boolean {
   return (
     transaction.type === "income" &&
     transaction.category === "Recebimento de procedimentos"
+  );
+}
+
+function isInitialPackageReceipt(transaction: TransactionRow): boolean {
+  return (
+    transaction.type === "income" &&
+    transaction.category === "Recebimento de pacote" &&
+    /^Recebimento inicial(?: da renovação)?\b/i.test(
+      transaction.description ?? "",
+    )
   );
 }
 
@@ -1765,7 +1787,19 @@ export const Financial = () => {
             : money(transaction.amount),
         status: paymentStatusFromTransaction(transaction.status),
       }));
-    const rows = [...packageRows, ...procedureRows];
+    // A entrada não corresponde a uma parcela: ela é um recebimento já pago
+    // na contratação/renovação e precisa aparecer nos filtros Pagas e Todas.
+    const initialReceiptRows: ReceivableItem[] = filteredVisibleTransactions
+      .filter(isInitialPackageReceipt)
+      .map((transaction) => ({
+        kind: "package_receipt" as const,
+        transaction,
+        patientName: transaction.patients?.full_name ?? "Paciente",
+        professionalName: getPatientProfessionalName(transaction.patients),
+        remaining: 0,
+        status: paymentStatusFromTransaction(transaction.status),
+      }));
+    const rows = [...packageRows, ...procedureRows, ...initialReceiptRows];
 
     return rows
       .filter((row) => {
