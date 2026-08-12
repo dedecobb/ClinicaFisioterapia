@@ -66,6 +66,7 @@ export interface PatientProcedureSchedule {
 
 export interface PackageSummary {
   id: string;
+  created_at?: string;
   total_lessons: number;
   completed_lessons: number;
   missed_lessons: number;

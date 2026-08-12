@@ -315,7 +315,13 @@ function sortActivePackagesFirst(packages: PackageSummary[]): PackageSummary[] {
   return [...packages].sort((a, b) => {
     if (a.status === "ativo" && b.status !== "ativo") return -1;
     if (a.status !== "ativo" && b.status === "ativo") return 1;
-    return b.start_date.localeCompare(a.start_date);
+
+    const startDateComparison = b.start_date.localeCompare(a.start_date);
+    if (startDateComparison !== 0) return startDateComparison;
+
+    // Uma renovação pode começar na mesma data do pacote anterior. Nesse caso,
+    // o card deve priorizar o pacote criado mais recentemente.
+    return (b.created_at ?? "").localeCompare(a.created_at ?? "");
   });
 }
 
@@ -424,6 +430,7 @@ export async function listarPacientes(
       created_at,
       lesson_packages (
         id,
+        created_at,
         total_lessons,
         completed_lessons,
         missed_lessons,
@@ -1084,6 +1091,7 @@ async function criarParcelasPacote(
 
 async function registrarRecebimentoInicial({
   clinicId,
+  packageId,
   patientId,
   patientName,
   amountPaid,
@@ -1093,6 +1101,7 @@ async function registrarRecebimentoInicial({
   isRenewal = false,
 }: {
   clinicId: string;
+  packageId?: string;
   patientId: string;
   patientName: string;
   amountPaid: number;
@@ -1120,6 +1129,7 @@ async function registrarRecebimentoInicial({
 
   const { error } = await supabase.from(TRANSACTIONS_TABLE).insert({
     clinic_id: clinicId,
+    package_id: packageId ?? null,
     patient_id: patientId,
     amount: amountPaid,
     type: "income",
@@ -1414,6 +1424,7 @@ export async function criarPaciente(
 
   await registrarRecebimentoInicial({
     clinicId,
+    packageId: activePackage.id,
     patientId: patient.id,
     patientName: patient.full_name,
     amountPaid,
@@ -1564,6 +1575,7 @@ export async function renovarPacotePaciente(
 
   await registrarRecebimentoInicial({
     clinicId,
+    packageId: renewedPackage.id,
     patientId,
     patientName: (patientData as Patient).full_name,
     amountPaid,

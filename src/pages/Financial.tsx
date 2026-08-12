@@ -118,6 +118,7 @@ type CommissionDetailRow = {
 type TransactionRow = {
   id: string;
   patient_id: string | null;
+  package_id: string | null;
   amount: number | string;
   type: "income" | "expense";
   category: string;
@@ -1338,6 +1339,7 @@ export const Financial = () => {
           `
             id,
             patient_id,
+            package_id,
             amount,
             type,
             category,
@@ -1994,6 +1996,7 @@ export const Financial = () => {
           .insert({
             clinic_id: profile?.clinic_id,
             patient_id: paymentTarget.packageItem.patient_id,
+            package_id: paymentTarget.packageItem.id,
             amount,
             type: "income",
             category: "Recebimento de pacote",
@@ -2213,7 +2216,8 @@ export const Financial = () => {
     // Receivables as an installment. Remove the paired installment as well.
     if (
       transaction.category === "Recebimento de pacote" &&
-      transaction.patient_id
+      transaction.patient_id &&
+      transaction.package_id
     ) {
       const installmentNumber = Number(
         transaction.description?.match(/parcela\s*#(\d+)/i)?.[1],
@@ -2223,6 +2227,7 @@ export const Financial = () => {
         .select("id, package_id, installment_number, amount, amount_paid")
         .eq("clinic_id", profile.clinic_id)
         .eq("patient_id", transaction.patient_id)
+        .eq("package_id", transaction.package_id)
         .eq("status", "pago");
 
       if (installmentNumber) {

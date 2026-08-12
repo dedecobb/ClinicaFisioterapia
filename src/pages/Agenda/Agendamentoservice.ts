@@ -959,11 +959,27 @@ async function atualizarResumoPacote(packageId: string): Promise<void> {
 }
 
 export async function excluirAgendamento(id: string): Promise<void> {
+  const { data: appointment, error: appointmentError } = await supabase
+    .from("appointments")
+    .select("package_id")
+    .eq("id", id)
+    .single();
+
+  if (appointmentError) {
+    throw new Error(`Erro ao buscar agendamento: ${appointmentError.message}`);
+  }
+
+  const packageId = (appointment as { package_id: string | null }).package_id;
+
   await deletePendingProcedureReceivable(id);
 
   const { error } = await supabase.from("appointments").delete().eq("id", id);
 
   if (error) {
     throw new Error(`Erro ao excluir agendamento: ${error.message}`);
+  }
+
+  if (packageId) {
+    await atualizarResumoPacote(packageId);
   }
 }

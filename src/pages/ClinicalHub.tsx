@@ -39,7 +39,10 @@ import { messages } from "../i18n";
 import { UploadExameModal } from "../components/modals/UploadExameModal";
 import { ProtocolosModal } from "../components/modals/ProtocolosModal";
 import { PilatesAssessments } from "../components/clinical/PilatesAssessments";
-import { atualizarAgendamento } from "./Agenda/Agendamentoservice";
+import {
+  atualizarAgendamento,
+  excluirAgendamento,
+} from "./Agenda/Agendamentoservice";
 import type {
   NovoAgendamentoForm,
   StatusAgendamento,
@@ -232,6 +235,9 @@ export const ClinicalHub = () => {
   const [appointmentEditForm, setAppointmentEditForm] =
     useState<AppointmentEditForm | null>(null);
   const [savingAppointment, setSavingAppointment] = useState(false);
+  const [deletingAppointmentId, setDeletingAppointmentId] = useState<
+    string | null
+  >(null);
   const [appointmentEditError, setAppointmentEditError] = useState<
     string | null
   >(null);
@@ -345,6 +351,46 @@ export const ClinicalHub = () => {
       );
     } finally {
       setSavingAppointment(false);
+    }
+  };
+
+  const deleteAppointmentFromHistory = async (
+    appointment: PatientAppointment,
+  ) => {
+    if (!canEditAppointments || !patientId) return;
+
+    if (
+      !window.confirm(
+        "Deseja excluir esta aula? Ela será removida do histórico completo e também da Agenda. Esta ação não pode ser desfeita.",
+      )
+    ) {
+      return;
+    }
+
+    setDeletingAppointmentId(appointment.id);
+    setAppointmentEditError(null);
+
+    try {
+      await excluirAgendamento(appointment.id);
+      setAppointments((current) =>
+        current.filter((item) => item.id !== appointment.id),
+      );
+
+      if (editingAppointment?.id === appointment.id) {
+        setEditingAppointment(null);
+        setAppointmentEditForm(null);
+      }
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Erro ao excluir agendamento.";
+
+      if (editingAppointment?.id === appointment.id) {
+        setAppointmentEditError(message);
+      } else {
+        alert(message);
+      }
+    } finally {
+      setDeletingAppointmentId(null);
     }
   };
 
@@ -1184,14 +1230,29 @@ export const ClinicalHub = () => {
                                 )}
                               </div>
                               {canEditAppointments && (
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className="shrink-0 gap-2"
-                                  onClick={() => openAppointmentEditor(appointment)}
-                                >
-                                  <Edit3 size={15} /> Editar aula
-                                </Button>
+                                <div className="flex shrink-0 flex-wrap gap-2">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="gap-2"
+                                    onClick={() => openAppointmentEditor(appointment)}
+                                    disabled={deletingAppointmentId === appointment.id}
+                                  >
+                                    <Edit3 size={15} /> Editar aula
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="gap-2 border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800 dark:border-rose-900/70 dark:text-rose-300 dark:hover:bg-rose-950/30"
+                                    onClick={() =>
+                                      deleteAppointmentFromHistory(appointment)
+                                    }
+                                    isLoading={deletingAppointmentId === appointment.id}
+                                    disabled={Boolean(deletingAppointmentId)}
+                                  >
+                                    <Trash2 size={15} /> Excluir aula
+                                  </Button>
+                                </div>
                               )}
                             </div>
                           );
